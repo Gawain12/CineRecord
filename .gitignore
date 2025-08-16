@@ -96,13 +96,10 @@ scylla.db
 failed_urls.txt
 debug*.html
 *.xlsx
-*.csv
 auth.json
 curl_command.txt*
-douban_*.csv
-imdb_*.csv
-merged_*.csv
 tmp/
+scrapers/*.csv
 CLAUDE.md
 CLAUDE.zh.md
 config/config.py
