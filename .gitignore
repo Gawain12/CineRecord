@@ -28,8 +28,6 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -103,6 +101,10 @@ scrapers/*.csv
 CLAUDE.md
 CLAUDE.zh.md
 config/config.py
-data/douban_auth.json
 !config.py.template
 !data/douban_auth.json.template
+
+# Custom data file rules
+data/douban_*.csv
+data/imdb_*.csv
+!data/db_imdb.csv
