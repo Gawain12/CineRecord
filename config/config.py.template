@@ -1,10 +1,10 @@
 # config.py.template
 
-# How to use this file:
-# 1. Rename this file to `config.py`.
-# 2. Fill in your personal information below.
+# 如何使用此文件:
+# 1. 将此文件重命名为 `config.py`。
+# 2. 在下方填入您的个人信息。
 
-# Database Configuration
+# 数据库配置
 DATABASE_CONFIG = {
     'user': 'your_database_user',
     'password': 'your_database_password',
@@ -14,60 +14,60 @@ DATABASE_CONFIG = {
     'charset': 'UTF8MB4'
 }
 
-# Redis Configuration
+# Redis 配置
 REDIS_CONFIG = {
     'host': 'localhost',
     'port': 6789,
     'db': 0
 }
 
-# --- Scraper Configurations ---
+# --- 爬虫配置 ---
 # ==============================================================================
-# HOW TO GET YOUR COOKIES
+# 如何获取您的 COOKIES
 #
-# This tool needs your browser cookies to securely access your ratings.
-# The process is simple and only takes a minute.
+# 本工具需要您浏览器的 Cookies 来安全地访问您的评分。
+# 这个过程很简单，只需要一分钟。
 #
-# 1. Open a new tab in Google Chrome (or any Chromium-based browser).
-# 2. Open the Developer Tools (Right-click anywhere -> Inspect, or press F12).
-# 3. Go to the "Network" tab in the Developer Tools.
+# 1. 在 Google Chrome (或任何基于 Chromium 的浏览器) 中打开一个新标签页。
+# 2. 打开开发者工具 (在任何地方右键 -> 检查，或按 F12)。
+# 3. 进入开发者工具中的“网络 (Network)”标签。
 #
-# For Douban:
-#   a. Go to your "我看过的电影" (Watched Movies) page.
-#   b. In the Network tab, find a request named "interests". Click on it.
-#   c. In the "Headers" panel that appears, scroll down to "Request Headers".
-#   d. Find the "cookie:" line, and copy the ENTIRE long string of text.
-#   e. Paste it into the 'Cookie' field in DOUBAN_CONFIG below.
+# 对于豆瓣:
+#   a. 前往您的“我看过的电影”页面。
+#   b. 在网络标签中，找到一个名为 "interests" 的请求，点击它。
+#   c. 在出现的“标头 (Headers)”面板中，向下滚动到“请求标头 (Request Headers)”。
+#   d. 找到 "cookie:" 这一行，并复制其后一整长串的文本。
+#   e. 将其粘贴到下方 DOUBAN_CONFIG 中的 'Cookie' 字段。
 #
-# For IMDb:
-#   a. Go to your "My Ratings" page on IMDb.
-#   b. In the Network tab, find a request named "graphql". Click on it.
-#   c. In the "Headers" panel, scroll down to "Request Headers".
-#   d. Find the "cookie:" line, and copy the ENTIRE long string of text.
-#   e. Paste it into the 'Cookie' field in IMDB_CONFIG below.
+# 对于 IMDb:
+#   a. 前往您在 IMDb 上的“我的评分 (My Ratings)”页面。
+#   b. 在网络标签中，找到一个名为 "graphql" 的请求，点击它。
+#   c. 在“标头 (Headers)”面板中，向下滚动到“请求标头 (Request Headers)”。
+#   d. 找到 "cookie:" 这一行，并复制其后一整长串的文本。
+#   e. 将其粘贴到下方 IMDB_CONFIG 中的 'Cookie' 字段。
 # ==============================================================================
 
-# Douban Scraper Configuration
+# 豆瓣爬虫配置
 DOUBAN_CONFIG = {
-    'user': 'your_douban_username',
+    'user': 'your_douban_username', # 你的豆瓣用户名
     'headers': {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Referer': 'https://m.douban.com/',
-        'Cookie': '' # PASTE YOUR DOUBAN COOKIE HERE
+        'Cookie': '' # 在此处粘贴您的豆瓣 COOKIE
     }
 }
 
-# IMDb Configuration
+# IMDb 配置
 IMDB_CONFIG = {
-    'user_id': 'your_imdb_user_id',
+    'user_id': 'your_imdb_user_id', # 你的IMDb用户ID, 例如 ur1234567
     'headers': {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': '' # PASTE YOUR IMDB COOKIE HERE
+        'Cookie': '' # 在此处粘贴您的IMDb COOKIE
     }
 }
 
-# File Paths
+# 文件路径
 FILE_PATHS = {
     'output_csv': 'web/{}_movie_list.csv'
 }
