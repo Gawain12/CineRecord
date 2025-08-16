@@ -32,3 +32,5 @@ data/imdb_*.csv
 *.log
 *.swp
 tmp/
+CLAUDE.md
+CLAUDE.zh.md

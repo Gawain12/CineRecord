@@ -124,9 +124,17 @@ def run_sync(source, target, user, movies_to_sync, dry_run=True):
             print("\n--- Details for Unsuccessful Syncs ---")
             for movie in unsuccessful_syncs:
                 print(f"- {movie['title']} : {movie['url']}")
+        
+        # --- Generate Enriched Merged File ---
+        print("\n--- Generating/Updating Your Personal Merged Ratings File ---")
+        douban_csv, imdb_csv = get_user_csv_paths(user)
+        if os.path.exists(douban_csv) and os.path.exists(imdb_csv):
+            merge_movie_data(douban_csv, imdb_csv)
+        else:
+            print("⚠️ Warning: Could not generate merged file because one of the source CSVs is missing.")
 
 # --- Helper function for sync and compare ---
-def get_diff_movies(source, target):
+def get_diff_movies(source):
     """Loads, merges, and compares data to find movies to be synced."""
     user = DOUBAN_CONFIG.get('user')
     if not user:
@@ -196,7 +204,7 @@ def main():
         if args.source == args.target:
             print("Error: Source and target platforms cannot be the same.")
             return
-        movies_to_sync = get_diff_movies(args.source, args.target)
+        movies_to_sync = get_diff_movies(args.source)
         if movies_to_sync is None:
             return # Error already printed in helper function
         
