@@ -1,0 +1,73 @@
+# config.py.template
+
+# How to use this file:
+# 1. Rename this file to `config.py`.
+# 2. Fill in your personal information below.
+
+# Database Configuration
+DATABASE_CONFIG = {
+    'user': 'your_database_user',
+    'password': 'your_database_password',
+    'host': 'localhost',
+    'port': '3306',
+    'db_name': 'douban',
+    'charset': 'UTF8MB4'
+}
+
+# Redis Configuration
+REDIS_CONFIG = {
+    'host': 'localhost',
+    'port': 6789,
+    'db': 0
+}
+
+# --- Scraper Configurations ---
+# ==============================================================================
+# HOW TO GET YOUR COOKIES
+#
+# This tool needs your browser cookies to securely access your ratings.
+# The process is simple and only takes a minute.
+#
+# 1. Open a new tab in Google Chrome (or any Chromium-based browser).
+# 2. Open the Developer Tools (Right-click anywhere -> Inspect, or press F12).
+# 3. Go to the "Network" tab in the Developer Tools.
+#
+# For Douban:
+#   a. Go to your "我看过的电影" (Watched Movies) page.
+#   b. In the Network tab, find a request named "interests". Click on it.
+#   c. In the "Headers" panel that appears, scroll down to "Request Headers".
+#   d. Find the "cookie:" line, and copy the ENTIRE long string of text.
+#   e. Paste it into the 'Cookie' field in DOUBAN_CONFIG below.
+#
+# For IMDb:
+#   a. Go to your "My Ratings" page on IMDb.
+#   b. In the Network tab, find a request named "graphql". Click on it.
+#   c. In the "Headers" panel, scroll down to "Request Headers".
+#   d. Find the "cookie:" line, and copy the ENTIRE long string of text.
+#   e. Paste it into the 'Cookie' field in IMDB_CONFIG below.
+# ==============================================================================
+
+# Douban Scraper Configuration
+DOUBAN_CONFIG = {
+    'user': 'your_douban_username',
+    'headers': {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://m.douban.com/',
+        'Cookie': '' # PASTE YOUR DOUBAN COOKIE HERE
+    }
+}
+
+# IMDb Configuration
+IMDB_CONFIG = {
+    'user_id': 'your_imdb_user_id',
+    'headers': {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cookie': '' # PASTE YOUR IMDB COOKIE HERE
+    }
+}
+
+# File Paths
+FILE_PATHS = {
+    'output_csv': 'web/{}_movie_list.csv'
+}
