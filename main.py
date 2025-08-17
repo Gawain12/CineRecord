@@ -23,7 +23,7 @@ def get_user_csv_paths(user):
     imdb_csv = 'data/imdb_ur79467081_ratings.csv' 
     return douban_csv, imdb_csv
 
-def run_sync(source, target, user, movies_to_sync, dry_run=True):
+def run_sync(source, target, user, movies_to_sync, dry_run=True, limit=None):
     """
     Main function to run the synchronization process.
     """
@@ -40,9 +40,9 @@ def run_sync(source, target, user, movies_to_sync, dry_run=True):
         print("\n--- DRY RUN ---")
         print("The following movies would be synced (showing first 5):")
         if source == 'douban':
-            display_cols = ['Title_douban', 'YourRating_douban', 'Const']
+            display_cols = ['Title', 'YourRating_douban', 'imdb_id']
         else:
-            display_cols = ['Title_imdb', 'YourRating_imdb', 'Const']
+            display_cols = ['Title', 'YourRating_imdb', 'douban_id']
         print(movies_to_sync[display_cols].head())
     else:
         print("\n--- Starting Synchronization ---")
@@ -50,25 +50,27 @@ def run_sync(source, target, user, movies_to_sync, dry_run=True):
         unsuccessful_syncs = []
         if target == 'imdb':
             imdb_headers = {'cookie': IMDB_CONFIG.get('headers', {}).get('Cookie'), 'Content-Type': 'application/json'}
-            for _, row in tqdm(movies_to_sync.iterrows(), total=len(movies_to_sync), desc="Syncing to IMDb"):
-                imdb_id = row['Const']
-                rating = row['YourRating_douban']
-                if pd.notna(imdb_id) and pd.notna(rating):
-                    movie_title = row.get('Title_douban') # Safely get title
+            for _, row in tqdm(movies_to_sync.iterrows(), total=len(movies_to_sync), desc="同步至IMDb"):
+                imdb_id = row['imdb_id']
+                rating = row['YourRating_douban'] * 2
+                if pd.notna(imdb_id) and pd.notna(rating) and rating > 0:
+                    movie_title = row.get('Title')
+                    year_display = f"({int(row['Year'])})" if pd.notna(row['Year']) else "(年份未知)"
+                    year_display = f"({int(row['Year'])})" if pd.notna(row['Year']) else "(年份未知)"
                     if rate_on_imdb(imdb_id, int(rating), imdb_headers, movie_title=movie_title):
-                        tqdm.write(f"✅ Synced: {row['Title_douban']} ({int(row['Year_douban'])}) -> IMDb Rating: {int(rating)}")
+                        tqdm.write(f"✅ 已同步: {row['Title']} {year_display} -> IMDb 评分: {int(rating)}")
                         successful_syncs += 1
                     else:
-                        tqdm.write(f"❌ Failed: {row['Title_douban']} ({int(row['Year_douban'])}) - API call unsuccessful.")
+                        tqdm.write(f"❌ 失败: {row['Title']} {year_display} - API 调用失败。")
                         unsuccessful_syncs.append({
-                            "title": row.get('Title_douban'),
+                            "title": row.get('Title'),
                             "id": row.get('douban_id', 'N/A'),
                             "url": row.get('URL_douban', '#')
                         })
                 else:
-                    tqdm.write(f"⚠️ Skipped: {row.get('Title_douban', 'Unknown Title')} - Target IMDb entry not found.")
+                    tqdm.write(f"⚠️ 跳过: {row.get('Title', '未知标题')} - 未找到目标 IMDb 条目。")
                     unsuccessful_syncs.append({
-                        "title": row.get('Title_douban'),
+                        "title": row.get('Title'),
                         "id": row.get('douban_id', 'N/A'),
                         "url": row.get('URL_douban', '#')
                     })
@@ -85,28 +87,30 @@ def run_sync(source, target, user, movies_to_sync, dry_run=True):
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'Cookie': douban_cookie
             }
-            for _, row in tqdm(movies_to_sync.iterrows(), total=len(movies_to_sync), desc="Syncing to Douban"):
+            for _, row in tqdm(movies_to_sync.iterrows(), total=len(movies_to_sync), desc="同步至豆瓣"):
                 douban_id = row['douban_id']
                 rating = row['YourRating_imdb']
-                if pd.notna(douban_id) and pd.notna(rating):
+                if pd.notna(douban_id) and pd.notna(rating) and rating > 0:
                     douban_id_str = str(int(douban_id)) # Convert float to int, then to string
-                    movie_title = row.get('Title_imdb') # Safely get title
+                    movie_title = row.get('Title') # Safely get title
+                    year_display = f"({int(row['Year'])})" if pd.notna(row['Year']) else "(年份未知)"
+                    year_display = f"({int(row['Year'])})" if pd.notna(row['Year']) else "(年份未知)"
                     if rate_on_douban(douban_id_str, int(rating), douban_headers, ck_value, movie_title=movie_title):
-                        tqdm.write(f"✅ Synced: {row['Title_imdb']} ({int(row['Year_imdb'])}) -> Douban Rating: {int(rating)}")
+                        tqdm.write(f"✅ 已同步: {row['Title']} {year_display} -> 豆瓣评分: {int(rating)}")
                         successful_syncs += 1
                     else:
-                        tqdm.write(f"❌ Failed: {row['Title_imdb']} ({int(row['Year_imdb'])}) - API call unsuccessful.")
+                        tqdm.write(f"❌ 失败: {row['Title']} {year_display} - API 调用失败。")
                         unsuccessful_syncs.append({
-                            "title": row.get('Title_imdb'),
-                            "id": row.get('Const', 'N/A'),
+                            "title": row.get('Title'),
+                            "id": row.get('imdb_id', 'N/A'),
                             "url": row.get('URL_imdb', '#')
                         })
                 else:
-                    title_display = row.get('Title_imdb') or row.get('Title_douban', 'Unknown Title')
-                    tqdm.write(f"⚠️ Skipped: {title_display} - Target Douban entry not found.")
+                    title_display = row.get('Title', '未知标题')
+                    tqdm.write(f"⚠️ 跳过: {title_display} - 未找到目标豆瓣条目。")
                     unsuccessful_syncs.append({
                         "title": title_display,
-                        "id": row.get('Const', 'N/A'),
+                        "id": row.get('imdb_id', 'N/A'),
                         "url": row.get('URL_imdb') or row.get('URL_douban', '#')
                     })
                     time.sleep(random.uniform(1, 3))
@@ -114,14 +118,15 @@ def run_sync(source, target, user, movies_to_sync, dry_run=True):
             
     print("\nSynchronization process complete.")
 
-    if not dry_run:
-        print("\n--- Sync Summary ---")
-        print(f"✅ Successful: {successful_syncs}")
+    # --- Post-sync Actions: Refresh data and merge ---
+    if not dry_run and successful_syncs > 0:
+        print("\n--- 同步摘要 ---")
+        print(f"✅ 成功: {successful_syncs}")
         unsuccessful_count = len(unsuccessful_syncs)
-        print(f"❌ Unsuccessful: {unsuccessful_count}")
+        print(f"❌ 失败: {unsuccessful_count}")
 
         if unsuccessful_syncs:
-            print("\n--- Details for Unsuccessful Syncs ---")
+            print("\n--- 失败详情 ---")
             for movie in unsuccessful_syncs:
                 print(f"- {movie['title']} : {movie['url']}")
         
@@ -133,29 +138,64 @@ def run_sync(source, target, user, movies_to_sync, dry_run=True):
         else:
             print("⚠️ Warning: Could not generate merged file because one of the source CSVs is missing.")
 
+        # Check if a limit was applied. If so, skip auto-refresh.
+        limit_was_set = limit is not None
+        
+        if not limit_was_set and successful_syncs > 0:
+            print(f"\n--- 正在从 {target.capitalize()} 刷新本地数据 ---")
+            python_executable = "/Users/gawaintan/miniforge3/envs/film/bin/python"
+            
+            if target == 'douban':
+                command = [python_executable, "scrapers/douban_scraper.py"]
+                subprocess.run(command, check=True)
+            elif target == 'imdb':
+                command = [python_executable, "scrapers/imdb_scraper.py"]
+                subprocess.run(command, check=True)
+            
+            print("--- 本地数据已刷新 ---")
+
+        else:
+            if limit_was_set:
+                print("\n--- 检测到 --limit 测试运行。跳过自动数据刷新。 ---")
+            if successful_syncs == 0:
+                print("\n--- 没有新的评分被同步。跳过自动数据刷新。 ---")
+
+        print("\n--- 正在生成/更新您的个人合并评分文件 ---")
+        douban_csv, imdb_csv = get_user_csv_paths(user)
+        if os.path.exists(douban_csv) and os.path.exists(imdb_csv):
+            # Pass the user to the merge function so we can create a user-specific filename
+            _, output_path = merge_movie_data(douban_csv, imdb_csv)
+            if output_path:
+                print(f"✅ 成功生成合并文件: {output_path}")
+        else:
+            print("⚠️ 警告: 由于一个或多个源CSV文件缺失，无法生成合并文件。")
+
 # --- Helper function for sync and compare ---
-def get_diff_movies(source):
+def get_diff_movies(source, user):
     """Loads, merges, and compares data to find movies to be synced."""
-    user = DOUBAN_CONFIG.get('user')
-    if not user:
-        print("❌ Error: Douban user not found in config.py")
-        return None
 
     douban_csv, imdb_csv = get_user_csv_paths(user)
     
     if not os.path.exists(douban_csv) or not os.path.exists(imdb_csv):
-        print("Error: One or both rating CSV files were not found. Please run the scrapers first.")
+        print("错误: 一个或两个评分CSV文件未找到。请先运行爬虫。")
         return None
 
+    # The merge function now returns the dataframe and the output path
     merged_df, _ = merge_movie_data(douban_csv, imdb_csv)
     if merged_df is None:
-        print("Halting due to an error in the merge process.")
+        print("由于合并过程中出错，操作中止。")
         return None
 
+    # Use pd.to_numeric to handle potential errors and NaNs safely
+    merged_df['YourRating_imdb'] = pd.to_numeric(merged_df['YourRating_imdb'], errors='coerce')
+    merged_df['YourRating_douban'] = pd.to_numeric(merged_df['YourRating_douban'], errors='coerce')
+    
     if source == 'douban':
-        return merged_df[merged_df['YourRating_imdb'].isnull()].copy()
+        # Find movies that have a Douban rating but no IMDb rating
+        return merged_df[merged_df['YourRating_douban'].notna() & merged_df['YourRating_imdb'].isna()].copy()
     else:
-        return merged_df[merged_df['YourRating_douban'].isnull()].copy()
+        # Find movies that have an IMDb rating but no Douban rating
+        return merged_df[merged_df['YourRating_imdb'].notna() & merged_df['YourRating_douban'].isna()].copy()
 
 def main():
     parser = argparse.ArgumentParser(description="一个用于抓取和同步跨平台电影评分的工具。")
@@ -166,12 +206,14 @@ def main():
     # --- Scraper Command ---
     scrape_parser = subparsers.add_parser('scrape', help="运行爬虫以从平台获取评分。")
     scrape_parser.add_argument('platform', choices=['douban', 'imdb', 'all'], help="要抓取的平台。")
+    scrape_parser.add_argument('--user', help="豆瓣用户名 (可选, 会覆盖 config.py 中的设置)。")
     scrape_parser.add_argument('--full-scrape', action='store_true', help="执行完整抓取，忽略以前的数据。")
 
     # --- Sync Command ---
     sync_parser = subparsers.add_parser('sync', help="查找源平台已评分但目标平台未评分的电影，并同步评分。")
     sync_parser.add_argument('source', choices=['douban', 'imdb'], help="您想要从哪个平台复制评分。")
     sync_parser.add_argument('target', choices=['douban', 'imdb'], help="您想要将评分复制到哪个平台。")
+    sync_parser.add_argument('--user', help="豆瓣用户名 (可选, 会覆盖 config.py 中的设置)。")
     sync_parser.add_argument('-dr', '--dry-run', action='store_true', help="执行空运行，查看将同步哪些内容而不做任何更改。")
     sync_parser.add_argument('-l', '--limit', type=int, help="仅用于测试。同步指定数量的最早的电影。")
 
@@ -179,6 +221,7 @@ def main():
     compare_parser = subparsers.add_parser('compare', help="显示源平台已评分但目标平台缺失评分的电影列表。")
     compare_parser.add_argument('source', choices=['douban', 'imdb'], help="拥有评分的平台（例如 'douban'）。")
     compare_parser.add_argument('target', choices=['douban', 'imdb'], help="用于检查缺失评分的平台（例如 'imdb'）。")
+    compare_parser.add_argument('--user', help="豆瓣用户名 (可选, 会覆盖 config.py 中的设置)。")
 
     args = parser.parse_args()
 
@@ -186,57 +229,74 @@ def main():
     python_executable = "/Users/gawaintan/miniforge3/envs/film/bin/python"
 
     if args.command == 'scrape':
-        user = DOUBAN_CONFIG.get('user')
+        user = args.user if args.user else DOUBAN_CONFIG.get('user')
         if not user:
-            print("❌ Error: Douban user not found in config.py")
+            print("❌ 错误: 未在 config.py 或命令行参数中指定豆瓣用户。")
             return
+        
         if args.platform in ['douban', 'all']:
-            print("--- Running Douban Scraper ---")
+            print("--- 运行豆瓣爬虫 ---")
             command = [python_executable, "scrapers/douban_scraper.py", "--user", user]
             if args.full_scrape:
                 command.append("--full-scrape")
             subprocess.run(command, check=True)
         if args.platform in ['imdb', 'all']:
-            print("--- Running IMDb Scraper ---")
+            print("--- 运行 IMDb 爬虫 ---")
             subprocess.run([python_executable, "scrapers/imdb_scraper.py"], check=True)
 
     elif args.command == 'sync':
-        if args.source == args.target:
-            print("Error: Source and target platforms cannot be the same.")
+        user = args.user if args.user else DOUBAN_CONFIG.get('user')
+        if not user:
+            print("❌ 错误: 未在 config.py 或命令行参数中指定豆瓣用户。")
             return
-        movies_to_sync = get_diff_movies(args.source)
+        if args.source == args.target:
+            print("错误: 源平台和目标平台不能相同。")
+            return
+            
+        movies_to_sync = get_diff_movies(args.source, user)
         if movies_to_sync is None:
             return # Error already printed in helper function
         
         # Sort by date and apply limit if provided
+        # The column for sorting is now unified
         date_col = 'DateRated_douban' if args.source == 'douban' else 'DateRated_imdb'
         if date_col in movies_to_sync.columns:
+            # Convert to datetime to handle potential string values, then sort
+            movies_to_sync[date_col] = pd.to_datetime(movies_to_sync[date_col], errors='coerce')
             movies_to_sync.sort_values(by=date_col, ascending=True, inplace=True)
+        
         if args.limit:
             movies_to_sync = movies_to_sync.head(args.limit)
 
-        run_sync(args.source, args.target, DOUBAN_CONFIG.get('user'), movies_to_sync, dry_run=args.dry_run)
+        run_sync(args.source, args.target, user, movies_to_sync, dry_run=args.dry_run, limit=args.limit)
 
     elif args.command == 'compare':
+        user = args.user if args.user else DOUBAN_CONFIG.get('user')
+        if not user:
+            print("❌ 错误: 未在 config.py 或命令行参数中指定豆瓣用户。")
+            return
+            
         if args.source == args.target:
-            print("Error: Source and target platforms cannot be the same.")
+            print("错误: 源平台和目标平台不能相同。")
             return
 
-        movies_to_compare = get_diff_movies(args.source, args.target)
+        movies_to_compare = get_diff_movies(args.source, user)
         if movies_to_compare is None:
             return # Error already printed
 
         if movies_to_compare.empty:
-            print("\n✅ Platforms are already in sync. No differences found.")
+            print("\n✅ 平台已同步。未发现差异。")
         else:
-            print(f"\nFound {len(movies_to_compare)} movies in {args.source} that are not in {args.target}:")
+            print(f"\n在 {args.source} 中发现 {len(movies_to_compare)} 部电影，这些电影在 {args.target} 中没有评分:")
             if args.source == 'douban':
-                display_cols = ['Title_douban', 'YourRating_douban', 'Const']
+                display_cols = ['Title', 'YourRating_douban', 'imdb_id', 'URL_douban']
             else:
-                display_cols = ['Title_imdb', 'YourRating_imdb', 'Const']
-            print("-" * 60)
-            print(movies_to_compare[display_cols].to_string(index=False))
-            print("-" * 60)
+                display_cols = ['Title', 'YourRating_imdb', 'douban_id', 'URL_imdb']
+            print("-" * 80)
+            # Ensure we only try to print columns that actually exist in the dataframe
+            existing_display_cols = [col for col in display_cols if col in movies_to_compare.columns]
+            print(movies_to_compare[existing_display_cols].to_string(index=False))
+            print("-" * 80)
 
 
 if __name__ == '__main__':

@@ -38,13 +38,13 @@ def rate_on_imdb(movie_const: str, rating: int, headers: dict, movie_title: str 
     }
     
     display_name = movie_title if movie_title else movie_const
-    print(f"--> [IMDb] 准备为电影 {display_name} 评分为: {rating}")
+    print(f"--> [IMDb] 准备为电影《{display_name}》评分为: {rating}")
     try:
         response = requests.post(api_url, headers=local_headers, json=payload, timeout=15)
         response.raise_for_status()
         response_data = response.json()
         if 'errors' in response_data:
-            print(f"❌ [IMDb] API评分失败 (GraphQL Error): {response_data['errors']}")
+            print(f"❌ [IMDb] API 评分失败 (GraphQL 错误): {response_data['errors']}")
             return False
         return True
     except requests.exceptions.RequestException as e:
@@ -64,16 +64,16 @@ def rate_on_douban(subject_id: str, rating: int, headers: dict, ck_value: str, m
     }
     
     display_name = movie_title if movie_title else subject_id
-    print(f"--> [Douban] 准备为电影 {display_name} 评分为: {rating} (API发送: {douban_rating_5_scale} 星)")
+    print(f"--> [豆瓣] 准备为电影《{display_name}》评分为: {rating} (API发送: {douban_rating_5_scale} 星)")
     try:
         requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
         response = requests.post(api_url, headers=headers, data=payload_data, timeout=15, verify=False)
         response.raise_for_status()
         response_data = response.json()
         if response_data.get('r') != 0:
-            print(f"   ⚠️ 警告: 服务器返回非0结果代码，可能表示操作未完全成功。")
+            print(f"   ⚠️ 警告: 服务器返回非 0 结果代码，可能表示操作未完全成功。")
         return True
     except requests.exceptions.RequestException as e:
-        print(f"❌ [Douban] 请求失败: {e}")
+        print(f"❌ [豆瓣] 请求失败: {e}")
         return False
 

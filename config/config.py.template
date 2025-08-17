@@ -3,23 +3,7 @@
 # 如何使用此文件:
 # 1. 将此文件重命名为 `config.py`。
 # 2. 在下方填入您的个人信息。
-
-# 数据库配置
-DATABASE_CONFIG = {
-    'user': 'your_database_user',
-    'password': 'your_database_password',
-    'host': 'localhost',
-    'port': '3306',
-    'db_name': 'douban',
-    'charset': 'UTF8MB4'
-}
-
-# Redis 配置
-REDIS_CONFIG = {
-    'host': 'localhost',
-    'port': 6789,
-    'db': 0
-}
+ 
 
 # --- 爬虫配置 ---
 # ==============================================================================
@@ -33,8 +17,8 @@ REDIS_CONFIG = {
 # 3. 进入开发者工具中的“网络 (Network)”标签。
 #
 # 对于豆瓣:
-#   a. 前往您的“我看过的电影”页面。
-#   b. 在网络标签中，找到一个名为 "interests" 的请求，点击它。
+#   a. 前往您的“我看过的电影”页面。https://movie.douban.com/mine?status=collect
+#   b. 在网络标签中，找到一个名为 "mine?status=collect" 的请求，点击它。
 #   c. 在出现的“标头 (Headers)”面板中，向下滚动到“请求标头 (Request Headers)”。
 #   d. 找到 "cookie:" 这一行，并复制其后一整长串的文本。
 #   e. 将其粘贴到下方 DOUBAN_CONFIG 中的 'Cookie' 字段。
@@ -59,7 +43,7 @@ DOUBAN_CONFIG = {
 
 # IMDb 配置
 IMDB_CONFIG = {
-    'user_id': 'your_imdb_user_id', # 你的IMDb用户ID, 例如 ur1234567
+    'user_id': 'your_imdb_user_id',  # 你的IMDb用户ID, 例如 ur1234567,主页的地址栏，注意不是用户名
     'headers': {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
