@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineSync Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- ============================================= -->
+        <!-- |             Sidebar (Controls)            | -->
+        <!-- ============================================= -->
+        <aside class="sidebar">
+            <header class="app-header">
+                <h1>CineSync Hub</h1>
+                <p class="subtitle">一站式电影数据同步工具</p>
+            </header>
+            
+            <section class="card" id="config-card">
+                <h2><span class="step">1</span> 身份验证</h2>
+                <div class="form-row">
+                    <div class="form-group-inline">
+                        <label for="douban-user-id">豆瓣 User ID</label>
+                        <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
+                    </div>
+                    <div class="form-group-inline">
+                        <label for="imdb-user-id">IMDb User ID</label>
+                        <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
+                    </div>
+                </div>
+                <div class="form-group form-group-stretch">
+                    <label for="douban-cookie">豆瓣 Cookie <button class="help-btn" data-help-for="douban">?</button></label>
+                    <textarea id="douban-cookie" placeholder="粘贴Cookie..."></textarea>
+                </div>
+                <div class="form-group form-group-stretch">
+                    <label for="imdb-cookie">IMDb Cookie <button class="help-btn" data-help-for="imdb">?</button></label>
+                    <textarea id="imdb-cookie" placeholder="粘贴Cookie..."></textarea>
+                </div>
+                <button id="save-config-btn" class="action-btn secondary-btn">💾 保存配置到本地</button>
+            </section>
+
+            <section class="card" id="data-source-card">
+                <h2><span class="step">2</span> 数据获取</h2>
+                 <div class="data-sources">
+                    <div class="source-box" id="douban-box">
+                        <h3>豆瓣</h3>
+                        <p>状态: <span class="status" id="douban-status">等待获取</span></p>
+                        <button class="action-btn" id="fetch-douban-btn">更新数据</button>
+                    </div>
+                    <div class="source-box" id="imdb-box">
+                        <h3>IMDb</h3>
+                        <p>状态: <span class="status" id="imdb-status">等待获取</span></p>
+                        <button class="action-btn" id="fetch-imdb-btn">更新数据</button>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="card" id="sync-control-card">
+                <h2><span class="step">3</span> 同步中心</h2>
+                <div class="sync-controls">
+                    <div class="control-group">
+                        <label for="sync-direction">同步方向:</label>
+                        <select id="sync-direction">
+                            <option value="douban-to-imdb">豆瓣 → IMDb</option>
+                            <option value="imdb-to-douban">IMDb → 豆瓣</option>
+                        </select>
+                    </div>
+                    <div class="button-group">
+                        <button id="preview-btn" disabled>🔍 预览差异</button>
+                        <button id="sync-btn" class="primary" disabled>✨ 执行同步</button>
+                    </div>
+                </div>
+            </section>
+             <footer><p>CineSync Hub | 本地运行，保障您的数据安全。</p></footer>
+        </aside>
+
+        <!-- ============================================= -->
+        <!-- |            Main Content Area              | -->
+        <!-- ============================================= -->
+        <main class="main-content">
+            <section class="card" id="status-card">
+                <h2><span class="step">4</span> 运行状态</h2>
+                <div id="progress-card" style="display: none;">
+                    <p class="progress-text">0 / 0</p>
+                    <div class="progress-bar-container"><div class="progress-bar"></div></div>
+                </div>
+                <div id="log-output"><p class="placeholder">等待操作...</p></div>
+            </section>
+            
+            <div id="initial-previews">
+                <div class="content-grid" id="data-previews-container">
+                    <section class="card data-preview-card" id="douban-preview-card" style="display: none;">
+                        <div class="card-header">
+                            <h2>豆瓣数据预览</h2>
+                            <a href="#" class="download-btn" id="douban-download-btn" title="下载CSV文件" style="display: none;">⬇️</a>
+                            <div class="preview-summary" id="douban-summary"></div>
+                        </div>
+                        <div class="data-preview" id="douban-preview"></div>
+                    </section>
+                    
+                    <section class="card data-preview-card" id="imdb-preview-card" style="display: none;">
+                        <div class="card-header">
+                            <h2>IMDb数据预览</h2>
+                            <a href="#" class="download-btn" id="imdb-download-btn" title="下载CSV文件" style="display: none;">⬇️</a>
+                            <div class="preview-summary" id="imdb-summary"></div>
+                        </div>
+                        <div class="data-preview" id="imdb-preview"></div>
+                    </section>
+                </div>
+            </div>
+
+            <section class="card data-preview-card" id="merged-data-card" style="display: none;">
+                <div class="card-header">
+                    <h2>合并数据预览 (同步后)</h2>
+                    <div class="preview-summary" id="merged-summary"></div>
+                </div>
+                <div class="data-preview full-width-preview" id="merged-preview"></div>
+            </section>
+
+
+            <section class="card" id="sync-preview-card" style="display: none;">
+                <h2>同步预览</h2>
+                <div id="sync-preview-list"></div>
+            </section>
+
+            <section class="card" id="sync-failed-card" style="display: none;">
+                <h2>同步失败</h2>
+                <div id="sync-failed-list"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal for Help Popups -->
+    <div id="help-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <button class="modal-close">&times;</button>
+            <h3 id="modal-title"></h3>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
