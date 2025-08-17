@@ -229,7 +229,7 @@ def main():
     python_executable = "/Users/gawaintan/miniforge3/envs/film/bin/python"
 
     if args.command == 'scrape':
-        user = args.user if args.user else DOUBAN_CONFIG.get('user')
+        user = args.user if args.user else DOUBAN_CONFIG.get('user_id')
         if not user:
             print("❌ 错误: 未在 config.py 或命令行参数中指定豆瓣用户。")
             return
@@ -245,7 +245,7 @@ def main():
             subprocess.run([python_executable, "scrapers/imdb_scraper.py"], check=True)
 
     elif args.command == 'sync':
-        user = args.user if args.user else DOUBAN_CONFIG.get('user')
+        user = args.user if args.user else DOUBAN_CONFIG.get('user_id')
         if not user:
             print("❌ 错误: 未在 config.py 或命令行参数中指定豆瓣用户。")
             return
@@ -271,7 +271,7 @@ def main():
         run_sync(args.source, args.target, user, movies_to_sync, dry_run=args.dry_run, limit=args.limit)
 
     elif args.command == 'compare':
-        user = args.user if args.user else DOUBAN_CONFIG.get('user')
+        user = args.user if args.user else DOUBAN_CONFIG.get('user_id')
         if not user:
             print("❌ 错误: 未在 config.py 或命令行参数中指定豆瓣用户。")
             return

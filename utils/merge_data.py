@@ -112,18 +112,15 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
 
 # This function is kept for compatibility with the existing main.py structure,
 # but it will now call the new rich_merge_movie_data function.
-def merge_movie_data(douban_csv_path, imdb_csv_path, output_dir='data'):
-    try:
-        douban_user = os.path.basename(douban_csv_path).split('_')[1]
-        output_filename = os.path.join(output_dir, f"merged_ratings_{douban_user}.csv")
-    except IndexError:
-        print("Could not determine username from douban_csv_path. Using default name.")
-        output_filename = os.path.join(output_dir, "merged_ratings_output.csv")
+def merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
+    """
+    A wrapper function that calls the rich merging logic with a specified output path.
+    This is the primary function to be used by external scripts like app.py.
+    """
+    rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path)
     
-    rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_filename)
-    
-    # For compatibility, we can return the dataframe and path, although it's now handled inside.
-    if os.path.exists(output_filename):
-        return pd.read_csv(output_filename), output_filename
+    # For compatibility, we return the dataframe and path.
+    if os.path.exists(output_path):
+        return pd.read_csv(output_path), output_path
     else:
         return None, None
