@@ -79,6 +79,8 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
     date_imdb = pd.to_datetime(merged_df['DateRated_imdb'], errors='coerce')
     final_df['DateRated_First'] = pd.concat([date_douban, date_imdb], axis=1).min(axis=1)
     final_df['DateRated_First'] = final_df['DateRated_First'].dt.strftime('%Y-%m-%d')
+    final_df['DateRated_douban'] = merged_df['DateRated_douban']
+    final_df['DateRated_imdb'] = merged_df['DateRated_imdb']
     
     # --- URLs ---
     final_df['URL_douban'] = merged_df['URL_douban']
@@ -87,7 +89,7 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
     # --- Final Touches ---
     column_order = [
         'douban_id', 'imdb_id', 'Title', 'Year', 'Directors', 'Actors', 'Genres',
-        'Country', 'Runtime', 'YourRating_douban', 'YourRating_imdb', 'DateRated_First',
+        'Country', 'Runtime', 'YourRating_douban', 'YourRating_imdb', 'DateRated_First', 'DateRated_douban', 'DateRated_imdb',
         'PublicRating_douban', 'Votes_douban', 'PublicRating_imdb', 'Votes_imdb',
         'URL_douban', 'URL_imdb'
     ]
