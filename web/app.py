@@ -1,3 +1,5 @@
+import eventlet
+eventlet.monkey_patch()
 import os
 import sys
 import pandas as pd
@@ -17,7 +19,7 @@ from web.config_helper import read_config, write_config
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # --- App Data ---
 # Define core columns for a cleaner preview, and essential columns that should always be included.
@@ -256,6 +258,6 @@ def open_browser():
     webbrowser.open_new("http://127.0.0.1:8000")
 
 if __name__ == '__main__':
-    print("🚀 CineSync Hub 正在启动...")
+    print("🚀 CineRecord 正在启动...")
     Timer(1, open_browser).start()
     socketio.run(app, host='127.0.0.1', port=8000, allow_unsafe_werkzeug=True)

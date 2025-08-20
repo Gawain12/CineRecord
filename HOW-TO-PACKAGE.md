@@ -1,6 +1,6 @@
 # HOW-TO-PACKAGE.md
 
-## 如何将 CineSync Hub 打包成桌面应用
+## 如何将 CineRecord 打包成桌面应用
 
 本项目使用 `PyInstaller` 将基于 Flask 的 Web 应用打包成一个独立的、跨平台的可执行文件。用户下载后无需安装 Python 环境即可直接运行。
 
@@ -19,12 +19,12 @@ pip install pyinstaller flask gunicorn
 **打包命令:**
 
 ```bash
-pyinstaller web/CineSync.spec
+pyinstaller web/CineRecord.spec
 ```
 
-运行此命令后，`PyInstaller` 会在根目录创建一个 `dist` 文件夹，里面包含了最终的可执行文件（例如 `CineSync Hub.app` 或 `CineSync Hub.exe`）。
+运行此命令后，`PyInstaller` 会在根目录创建一个 `dist` 文件夹，里面包含了最终的可执行文件（例如 `CineRecord.app` 或 `CineRecord.exe`）。
 
-### 3. `CineSync.spec` 文件详解
+### 3. `CineRecord.spec` 文件详解
 
 这个文件是 `PyInstaller` 的配置文件，它告诉打包工具如何处理我们的项目。
 
@@ -56,7 +56,7 @@ exe = EXE(pyz,
           a.zipfiles,
           a.datas,
           [],
-          name='CineSync Hub',
+          name='CineRecord',
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
@@ -73,7 +73,7 @@ exe = EXE(pyz,
 
 # macOS 特有的 .app 捆绑包配置
 app = BUNDLE(exe,
-             name='CineSync Hub.app',
+             name='CineRecord.app',
              icon='web/static/icon.icns',
              bundle_identifier=None)
 ```
