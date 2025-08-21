@@ -2,7 +2,7 @@
 
 CineRecord 是一款基于Web的图形化工具，旨在帮助您轻松同步豆瓣和IMDb的电影评分数据。它提供了一个直观的用户界面，让您可以获取、预览、同步和合并两大平台的评分，并内置了强大的永久失败清单功能，以避免重复同步已知会失败的项目。
 
-![CineRecord UI](./web/static/images/cinerecord_hub_ui.png)
+![CineRecord UI](./web/static/images/cinerecord_ui.png)
 
 ## 主要功能
 
