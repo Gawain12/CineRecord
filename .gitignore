@@ -24,8 +24,7 @@ config/config.py
 scrapers/*.csv
 
 # Ignore user-specific data files, but keep the shared db_imdb.csv
-data/douban_*.csv
-data/imdb_*.csv
+data/**/*.csv
 !data/db_imdb.csv
 
 # General Ignores
@@ -42,4 +41,8 @@ dist_temp*/
 *.pyz
 *.spec
 *.egg-info/
+pyproject.toml
+setup.py
+cinerecord_server.py
+web/static/icon.icns
 
