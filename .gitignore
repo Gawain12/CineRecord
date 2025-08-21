@@ -34,3 +34,12 @@ data/imdb_*.csv
 tmp/
 CLAUDE.md
 CLAUDE.zh.md
+
+# Build artifacts
+build/
+dist/
+dist_temp*/
+*.pyz
+*.spec
+*.egg-info/
+
