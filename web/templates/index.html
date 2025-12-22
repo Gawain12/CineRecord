@@ -231,13 +231,25 @@
                         <div class="sync-step">
                             <div class="step-number">2</div>
                             <div class="step-content">
+                                <h4>同步模式</h4>
+                                <select id="sync-mode" class="sync-select">
+                                    <option value="ratings_only">仅同步有评分的</option>
+                                    <option value="watched_and_ratings">同步"看过"状态+评分</option>
+                                </select>
+                                <p class="help-text">选择"看过+评分"可同步未评分但标记为看过的电影</p>
+                            </div>
+                        </div>
+
+                        <div class="sync-step">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
                                 <h4>预览差异</h4>
                                 <button id="preview-btn" class="btn btn-secondary" disabled>🔍 预览将同步的内容</button>
                             </div>
                         </div>
 
                         <div class="sync-step">
-                            <div class="step-number">3</div>
+                            <div class="step-number">4</div>
                             <div class="step-content">
                                 <h4>执行同步</h4>
                                 <button id="sync-btn" class="btn btn-primary btn-lg" disabled>✨ 开始同步</button>

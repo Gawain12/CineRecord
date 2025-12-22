@@ -129,6 +129,7 @@ def handle_fetch(data):
 def handle_sync(data):
     direction = data.get('direction')
     is_dry_run = data.get('is_dry_run', False)
+    sync_mode = data.get('sync_mode', 'ratings_only')
     config = read_config()
     
     douban_user = config.get('douban_user_id')
@@ -142,7 +143,7 @@ def handle_sync(data):
         return
 
     try:
-        result = perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, config.get('douban_cookie'), config.get('imdb_cookie'), socketio)
+        result = perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, config.get('douban_cookie'), config.get('imdb_cookie'), socketio, sync_mode)
         if is_dry_run:
             emit('sync_preview', {'movies': result if result else []})
         else:

@@ -452,7 +452,8 @@ document.addEventListener('DOMContentLoaded', () => {
         log(`🚀 开始${isDryRun ? '预览' : '执行'}同步...`, 'info');
         socket.emit('start_sync', {
             direction: ui.syncDirection?.value || 'douban-to-imdb',
-            dry_run: isDryRun,
+            is_dry_run: isDryRun,
+            sync_mode: document.getElementById('sync-mode')?.value || 'ratings_only',
             douban_cookie: ui.doubanCookie?.value || '',
             imdb_cookie: ui.imdbCookie?.value || ''
         });
