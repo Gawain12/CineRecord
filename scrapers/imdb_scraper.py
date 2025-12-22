@@ -106,9 +106,20 @@ class IMDbRatingsScraper:
         while True:
             self.logger.progress(count, 0, f"获取API页 {count+1}")
             data = self._fetch_api(cursor)
-            if not data or not (edges := data.get('data', {}).get('userRatings', {}).get('edges')): break
+            if not data: break
+            
+            data_content = data.get('data')
+            if data_content is None:
+                errors = data.get('errors')
+                if errors: self.logger.log(f"IMDb API 返回错误: {errors}", 'error')
+                break
+                
+            user_ratings = data_content.get('userRatings', {})
+            edges = user_ratings.get('edges')
+            if not edges: break
+
             for edge in edges:
-                node = edge.get('node')
+                node = edge.get('node') if edge else None
                 if not node: continue
                 
                 title_info = node.get('title', {})

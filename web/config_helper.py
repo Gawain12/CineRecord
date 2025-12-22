@@ -1,7 +1,33 @@
 import re
 import os
+import sys
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.py')
+def get_config_path():
+    """Get the persistent path for config.py."""
+    if getattr(sys, 'frozen', False):
+        # Running as bundled executable
+        exe_path = os.path.abspath(sys.executable)
+        if 'Contents/MacOS' in exe_path:
+            # Mac Bundle: go to directory containing .app
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(exe_path))))
+        else:
+            base_dir = os.path.dirname(exe_path)
+    else:
+        # Development mode
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    
+    config_dir = os.path.join(base_dir, 'config')
+    os.makedirs(config_dir, exist_ok=True)
+    config_path = os.path.join(config_dir, 'config.py')
+    
+    # Initialize config file if it doesn't exist
+    if not os.path.exists(config_path):
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write("DOUBAN_CONFIG = {'user_id': '', 'Cookie': ''}\nIMDB_CONFIG = {'user_id': '', 'Cookie': ''}\n")
+            
+    return config_path
+
+CONFIG_PATH = get_config_path()
 
 def read_config():
     """Reads the configuration file and returns a dictionary of values."""

@@ -1,0 +1,132 @@
+name: Build All Platforms
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # ============================================
+  # Windows Build
+  # ============================================
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build Windows EXE
+        run: |
+          pyinstaller CineRecord_windows.spec --clean
+      
+      - name: Test EXE exists
+        run: |
+          if (!(Test-Path "dist\CineRecord.exe")) {
+            Write-Error "EXE not found!"
+            exit 1
+          }
+          Write-Host "✓ EXE built successfully"
+      
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: CineRecord-Windows
+          path: dist/CineRecord.exe
+          retention-days: 30
+
+  # ============================================
+  # macOS Build
+  # ============================================
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build macOS App
+        run: |
+          pyinstaller CineRecord.spec --clean
+      
+      - name: Create DMG
+        run: |
+          # Create a simple DMG for easy distribution
+          mkdir -p dmg_temp
+          cp -r dist/CineRecord.app dmg_temp/
+          ln -s /Applications dmg_temp/Applications
+          hdiutil create -volname "CineRecord" -srcfolder dmg_temp -ov -format UDZO dist/CineRecord.dmg
+          rm -rf dmg_temp
+      
+      - name: Upload macOS App
+        uses: actions/upload-artifact@v4
+        with:
+          name: CineRecord-macOS
+          path: |
+            dist/CineRecord.app
+            dist/CineRecord.dmg
+          retention-days: 30
+
+  # ============================================
+  # Create Release (when tag pushed)
+  # ============================================
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CineRecord-Windows
+          path: ./release/windows
+      
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CineRecord-macOS
+          path: ./release/macos
+      
+      - name: List release files
+        run: |
+          ls -la ./release/
+          ls -la ./release/windows/ || true
+          ls -la ./release/macos/ || true
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/windows/CineRecord.exe
+            release/macos/CineRecord.dmg
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

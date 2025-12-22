@@ -39,10 +39,11 @@ build/
 dist/
 dist_temp*/
 *.pyz
-*.spec
 *.egg-info/
-pyproject.toml
-setup.py
-cinerecord_server.py
+
+# Archive folder (old/unused files)
+_archive/
+
+# Other
 web/static/icon.icns
 

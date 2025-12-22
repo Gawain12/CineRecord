@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+import sys
+import time
+import threading
+import os
+import webview
+
+# Use pyobjc to access macOS native cookie storage directly
+try:
+    from Foundation import NSHTTPCookieStorage
+    HAS_OBJC = True
+except ImportError:
+    HAS_OBJC = False
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(1)
+    
+    platform = sys.argv[1]
+    
+    login_urls = {
+        'douban': 'https://accounts.douban.com/passport/login',
+        'imdb': 'https://www.imdb.com/registration/signin'
+    }
+    
+    # Critical indicators for a valid session
+    target_indicators = {
+        'douban': ['dbcl2'],
+        'imdb': ['at-main'] # Essential for IMDb GraphQL API
+    }
+    
+    url = login_urls.get(platform)
+    indicators = target_indicators.get(platform, [])
+    
+    if not url:
+        sys.exit(1)
+
+    result = {'cookie': None}
+    log_path = 'webview_debug.log'
+
+    def debug_log(msg):
+        with open(log_path, 'a') as f: f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+
+    def get_all_cookies_native():
+        """Direct access to macOS NSHTTPCookieStorage."""
+        cookie_parts = []
+        found_indicator = False
+        names_found = []
+        
+        if HAS_OBJC:
+            storage = NSHTTPCookieStorage.sharedHTTPCookieStorage()
+            cookies = storage.cookies()
+            if cookies:
+                for c in cookies:
+                    domain = str(c.domain())
+                    # Capture everything related to the platform
+                    if platform in domain:
+                        n, v = str(c.name()), str(c.value())
+                        cookie_parts.append(f"{n}={v}")
+                        names_found.append(n)
+                        for ind in indicators:
+                            if ind.lower() in n.lower():
+                                found_indicator = True
+        return "; ".join(cookie_parts), found_indicator, names_found
+
+    def check_login(window):
+        start_time = time.time()
+        while time.time() - start_time < 600:
+            time.sleep(2)
+            try:
+                native_str, found, names = get_all_cookies_native()
+                js_cookies = window.evaluate_js('document.cookie') or ""
+                
+                debug_log(f"Scan -> Native Names: {names} | Found Indicator: {found} | JS Len: {len(js_cookies)}")
+
+                # ONLY auto-close if the critical indicator (dbcl2 or at-main) is found
+                if found:
+                    result['cookie'] = native_str
+                    debug_log(f"✅ SUCCESS: Captured via Native API with {names}")
+                    window.destroy()
+                    return
+
+            except Exception as e:
+                debug_log(f"❌ Error: {e}")
+
+    class Api:
+        def force_done(self):
+            debug_log("🖱️ User Manual Force Done")
+            native_str, _, _ = get_all_cookies_native()
+            js = window.evaluate_js('document.cookie') or ""
+            # When forcing, take whatever is more complete
+            result['cookie'] = native_str if len(native_str) > len(js) else js
+            window.destroy()
+
+    window = webview.create_window(
+        f'CineRecord - {platform.upper()}',
+        url,
+        width=540, height=720,
+        js_api=Api()
+    )
+
+    def inject_ui(window):
+        time.sleep(4)
+        window.evaluate_js("""
+            var d = document.createElement('div');
+            d.style = 'position:fixed;top:0;left:0;width:100%;background:#10b981;color:white;text-align:center;padding:12px;z-index:999999;cursor:pointer;font-weight:bold;font-family:sans-serif;box-shadow:0 2px 10px rgba(0,0,0,0.2);';
+            d.innerHTML = '手动完成：如果你已登录到个人主页且窗口未自动关闭，请点这里 [完成同步]';
+            d.onclick = function(){ window.pywebview.api.force_done(); };
+            document.body.appendChild(d);
+        """)
+
+    threading.Thread(target=check_login, args=(window,), daemon=True).start()
+    webview.start(inject_ui, window)
+    
+    if result['cookie']:
+        sys.stdout.write(result['cookie'])
+        sys.stdout.flush()
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()
