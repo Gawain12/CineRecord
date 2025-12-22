@@ -1,137 +1,398 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CineRecord Hub</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="/static/style.css">
 </head>
+
 <body>
-    <div class="app-layout">
+    <div class="app-container">
         <!-- ============================================= -->
-        <!-- |             Sidebar (Controls)            | -->
+        <!-- |           Top Navigation Bar              | -->
         <!-- ============================================= -->
-        <aside class="sidebar">
-            <header class="app-header">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="CineRecord Hub Logo" class="logo">
-                <div class="header-text">
-                    <h1>CineRecord Hub</h1>
-                    <p class="subtitle">一站式电影数据同步工具</p>
-                </div>
-            </header>
-            
-            <section class="card" id="config-card">
-                <h2><span class="step">1</span> 身份验证</h2>
-                <div class="form-row">
-                    <div class="form-group-inline">
-                        <label for="douban-user-id">豆瓣 User ID</label>
-                        <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
-                    </div>
-                    <div class="form-group-inline">
-                        <label for="imdb-user-id">IMDb User ID</label>
-                        <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
-                    </div>
-                </div>
-                <div class="form-group form-group-stretch">
-                    <label for="douban-cookie">豆瓣 Cookie <button class="help-btn" data-help-for="douban">?</button></label>
-                    <textarea id="douban-cookie" placeholder="粘贴Cookie..."></textarea>
-                </div>
-                <div class="form-group form-group-stretch">
-                    <label for="imdb-cookie">IMDb Cookie <button class="help-btn" data-help-for="imdb">?</button></label>
-                    <textarea id="imdb-cookie" placeholder="粘贴Cookie..."></textarea>
-                </div>
-                <button id="save-config-btn" class="action-btn secondary-btn">💾 保存配置到本地</button>
-            </section>
-
-            <section class="card" id="data-source-card">
-                <h2><span class="step">2</span> 数据获取</h2>
-                 <div class="data-sources">
-                    <div class="source-box" id="douban-box">
-                        <h3>豆瓣</h3>
-                        <p>状态: <span class="status" id="douban-status">等待获取</span></p>
-                        <button class="action-btn" id="fetch-douban-btn">更新数据</button>
-                    </div>
-                    <div class="source-box" id="imdb-box">
-                        <h3>IMDb</h3>
-                        <p>状态: <span class="status" id="imdb-status">等待获取</span></p>
-                        <button class="action-btn" id="fetch-imdb-btn">更新数据</button>
-                    </div>
-                </div>
-            </section>
-            
-            <section class="card" id="sync-control-card">
-                <h2><span class="step">3</span> 同步中心</h2>
-                <div class="sync-controls">
-                    <div class="control-group">
-                        <label for="sync-direction">同步方向:</label>
-                        <select id="sync-direction">
-                            <option value="douban-to-imdb">豆瓣 → IMDb</option>
-                            <option value="imdb-to-douban">IMDb → 豆瓣</option>
-                        </select>
-                    </div>
-                    <div class="button-group">
-                        <button id="preview-btn" disabled>🔍 预览差异</button>
-                        <button id="sync-btn" class="primary" disabled>✨ 执行同步</button>
-                    </div>
-                </div>
-            </section>
-             <footer><p>CineRecord Hub | 本地运行，保障您的数据安全。</p></footer>
-        </aside>
-
-        <!-- ============================================= -->
-        <!-- |            Main Content Area              | -->
-        <!-- ============================================= -->
-        <main class="main-content">
-            <section class="card" id="status-card">
-                <h2><span class="step">4</span> 运行状态</h2>
-                <div id="progress-card" style="display: none;">
-                    <p class="progress-text">0 / 0</p>
-                    <div class="progress-bar-container"><div class="progress-bar"></div></div>
-                </div>
-                <div id="log-output"><p class="placeholder">等待操作...</p></div>
-            </section>
-            
-            <div id="initial-previews">
-                <div class="content-grid" id="data-previews-container">
-                    <section class="card data-preview-card" id="douban-preview-card" style="display: none;">
-                        <div class="card-header">
-                            <h2>豆瓣数据预览</h2>
-                            <a href="#" class="download-btn" id="douban-download-btn" title="下载CSV文件" style="display: none;">⬇️</a>
-                            <div class="preview-summary" id="douban-summary"></div>
-                        </div>
-                        <div class="data-preview" id="douban-preview"></div>
-                    </section>
-                    
-                    <section class="card data-preview-card" id="imdb-preview-card" style="display: none;">
-                        <div class="card-header">
-                            <h2>IMDb数据预览</h2>
-                            <a href="#" class="download-btn" id="imdb-download-btn" title="下载CSV文件" style="display: none;">⬇️</a>
-                            <div class="preview-summary" id="imdb-summary"></div>
-                        </div>
-                        <div class="data-preview" id="imdb-preview"></div>
-                    </section>
-                </div>
+        <header class="top-nav">
+            <div class="nav-brand">
+                <img src="/static/images/logo.svg" alt="Logo" class="nav-logo">
+                <span class="nav-title">CineRecord Hub</span>
             </div>
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-tab="accounts">🔐 账户</button>
+                <button class="nav-tab" data-tab="data">📊 数据</button>
+                <button class="nav-tab" data-tab="sync">🔄 同步</button>
+                <button class="nav-tab" data-tab="import-export">📦 导入导出</button>
+                <button class="nav-tab" data-tab="settings">⚙️ 设置</button>
+            </nav>
+            <div class="nav-actions">
+                <button class="icon-btn" id="help-btn" title="帮助">❓</button>
+            </div>
+        </header>
 
-            <section class="card data-preview-card" id="merged-data-card" style="display: none;">
-                <div class="card-header">
-                    <h2>合并数据预览 (同步后)</h2>
-                    <div class="preview-summary" id="merged-summary"></div>
+        <!-- ============================================= -->
+        <!-- |              Main Layout                  | -->
+        <!-- ============================================= -->
+        <div class="main-layout">
+            <!-- Sidebar with platform status -->
+            <aside class="sidebar-compact">
+                <div class="platform-status-section">
+                    <h3>平台状态</h3>
+                    <div class="platform-cards">
+                        <div class="platform-card" id="douban-status-card">
+                            <div class="platform-icon">🎬</div>
+                            <div class="platform-info">
+                                <span class="platform-name">豆瓣</span>
+                                <span class="platform-count" id="douban-count">--</span>
+                            </div>
+                            <div class="platform-indicator offline" id="douban-indicator"></div>
+                        </div>
+                        <div class="platform-card" id="imdb-status-card">
+                            <div class="platform-icon">⭐</div>
+                            <div class="platform-info">
+                                <span class="platform-name">IMDB</span>
+                                <span class="platform-count" id="imdb-count">--</span>
+                            </div>
+                            <div class="platform-indicator offline" id="imdb-indicator"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="data-preview full-width-preview" id="merged-preview"></div>
-            </section>
+
+                <!-- Log output moved to sidebar bottom -->
+                <div class="log-section">
+                    <h3>运行日志</h3>
+                    <div id="log-output">
+                        <p class="placeholder">等待操作...</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main content area with tabs -->
+            <main class="content-area">
+                <!-- Tab: Accounts -->
+                <div class="tab-content active" id="tab-accounts">
+                    <div class="content-header">
+                        <h2>账户管理</h2>
+                        <p>连接和配置您的影视平台账户</p>
+                    </div>
+
+                    <div class="accounts-grid">
+                        <!-- Douban Account -->
+                        <div class="account-card">
+                            <div class="account-header">
+                                <div class="account-logo">🎬</div>
+                                <div class="account-title">
+                                    <h3>豆瓣</h3>
+                                    <span class="account-status" id="douban-auth-status">未连接</span>
+                                </div>
+                            </div>
+                            <div class="account-form">
+                                <div class="form-group">
+                                    <label for="douban-user-id">用户 ID</label>
+                                    <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
+                                </div>
+                                <div class="form-group">
+                                    <label for="douban-cookie">
+                                        Cookie
+                                        <button class="help-btn" data-help-for="douban">?</button>
+                                    </label>
+                                    <textarea id="douban-cookie" placeholder="粘贴Cookie..." rows="3"></textarea>
+                                </div>
+                                <div class="account-actions">
+                                    <button class="btn btn-secondary" id="login-douban-btn">🔑 自动登录</button>
+                                    <button class="btn btn-primary" id="test-douban-btn">✅ 测试连接</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- IMDB Account -->
+                        <div class="account-card">
+                            <div class="account-header">
+                                <div class="account-logo">⭐</div>
+                                <div class="account-title">
+                                    <h3>IMDB</h3>
+                                    <span class="account-status" id="imdb-auth-status">未连接</span>
+                                </div>
+                            </div>
+                            <div class="account-form">
+                                <div class="form-group">
+                                    <label for="imdb-user-id">用户 ID</label>
+                                    <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
+                                </div>
+                                <div class="form-group">
+                                    <label for="imdb-cookie">
+                                        Cookie
+                                        <button class="help-btn" data-help-for="imdb">?</button>
+                                    </label>
+                                    <textarea id="imdb-cookie" placeholder="粘贴Cookie..." rows="3"></textarea>
+                                </div>
+                                <div class="account-actions">
+                                    <button class="btn btn-secondary" id="login-imdb-btn">🔑 自动登录</button>
+                                    <button class="btn btn-primary" id="test-imdb-btn">✅ 测试连接</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Letterboxd (Quick Links Only) -->
+                        <div class="account-card account-card-light">
+                            <div class="account-header">
+                                <div class="account-logo">🎞️</div>
+                                <div class="account-title">
+                                    <h3>Letterboxd</h3>
+                                    <span class="account-status">仅导入导出</span>
+                                </div>
+                            </div>
+                            <div class="account-form">
+                                <p class="account-description">Letterboxd 支持通过 CSV 文件导入导出数据，无需登录。</p>
+                                <div class="quick-links">
+                                    <a href="https://letterboxd.com/import/" target="_blank" class="quick-link">
+                                        📥 导入页面
+                                    </a>
+                                    <a href="https://letterboxd.com/settings/data/" target="_blank" class="quick-link">
+                                        📤 导出页面
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
 
 
-            <section class="card" id="sync-preview-card" style="display: none;">
-                <h2>同步预览</h2>
-                <div id="sync-preview-list"></div>
-            </section>
+                    </div>
 
-            <section class="card" id="sync-failed-card" style="display: none;">
-                <h2>同步失败</h2>
-                <div id="sync-failed-list"></div>
-            </section>
-        </main>
+                    <div class="section-footer">
+                        <button id="save-config-btn" class="btn btn-primary btn-lg">💾 保存所有配置</button>
+                    </div>
+                </div>
+
+                <!-- Tab: Data -->
+                <div class="tab-content" id="tab-data">
+                    <div class="content-header">
+                        <h2>数据管理</h2>
+                        <p>查看和更新您的影视评分数据</p>
+                    </div>
+
+                    <div class="data-controls">
+                        <button class="btn btn-primary" id="fetch-douban-btn">🎬 获取豆瓣数据</button>
+                        <button class="btn btn-primary" id="fetch-imdb-btn">⭐ 获取 IMDB 数据</button>
+                    </div>
+
+                    <div id="progress-card" style="display: none;">
+                        <p class="progress-text">0 / 0</p>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar"></div>
+                        </div>
+                    </div>
+
+                    <div class="data-grid">
+                        <div class="data-card" id="douban-preview-card" style="display: none;">
+                            <div class="data-card-header">
+                                <h3>🎬 豆瓣数据</h3>
+                                <div class="data-card-actions">
+                                    <span class="data-summary" id="douban-summary"></span>
+                                    <a href="#" class="download-btn" id="douban-download-btn" title="下载CSV"
+                                        style="display: none;">⬇️</a>
+                                </div>
+                            </div>
+                            <div class="data-preview" id="douban-preview"></div>
+                        </div>
+
+                        <div class="data-card" id="imdb-preview-card" style="display: none;">
+                            <div class="data-card-header">
+                                <h3>⭐ IMDB 数据</h3>
+                                <div class="data-card-actions">
+                                    <span class="data-summary" id="imdb-summary"></span>
+                                    <a href="#" class="download-btn" id="imdb-download-btn" title="下载CSV"
+                                        style="display: none;">⬇️</a>
+                                </div>
+                            </div>
+                            <div class="data-preview" id="imdb-preview"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Sync -->
+                <div class="tab-content" id="tab-sync">
+                    <div class="content-header">
+                        <h2>同步中心</h2>
+                        <p>在不同平台间同步您的评分数据</p>
+                    </div>
+
+                    <div class="sync-wizard">
+                        <div class="sync-step">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h4>选择同步方向</h4>
+                                <select id="sync-direction" class="sync-select">
+                                    <option value="douban-to-imdb">豆瓣 → IMDB</option>
+                                    <option value="imdb-to-douban">IMDB → 豆瓣</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="sync-step">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h4>预览差异</h4>
+                                <button id="preview-btn" class="btn btn-secondary" disabled>🔍 预览将同步的内容</button>
+                            </div>
+                        </div>
+
+                        <div class="sync-step">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h4>执行同步</h4>
+                                <button id="sync-btn" class="btn btn-primary btn-lg" disabled>✨ 开始同步</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sync-preview-section" id="sync-preview-card" style="display: none;">
+                        <h3>同步预览</h3>
+                        <div id="sync-preview-list"></div>
+                    </div>
+
+                    <div class="sync-result-section" id="merged-data-card" style="display: none;">
+                        <div class="data-card-header">
+                            <h3>合并数据预览</h3>
+                            <span class="data-summary" id="merged-summary"></span>
+                        </div>
+                        <div class="data-preview" id="merged-preview"></div>
+                    </div>
+
+                    <div class="sync-failed-section" id="sync-failed-card" style="display: none;">
+                        <h3>⚠️ 同步失败项目</h3>
+                        <div id="sync-failed-list"></div>
+                    </div>
+                </div>
+
+                <!-- Tab: Import/Export -->
+                <div class="tab-content" id="tab-import-export">
+                    <div class="content-header">
+                        <h2>导入导出</h2>
+                        <p>在不同格式间转换您的观影数据</p>
+                    </div>
+
+                    <div class="import-export-grid">
+                        <!-- Import Section -->
+                        <div class="ie-section">
+                            <h3>📥 导入数据</h3>
+                            <div class="ie-card">
+                                <div class="ie-option">
+                                    <input type="file" id="import-file" accept=".csv,.json" hidden>
+                                    <button class="btn btn-lg btn-outline" id="import-file-btn">
+                                        <span class="btn-icon">📁</span>
+                                        选择文件
+                                    </button>
+                                    <span class="file-name" id="import-file-name">未选择文件</span>
+                                </div>
+                                <div class="ie-format-select">
+                                    <label>文件格式:</label>
+                                    <select id="import-format">
+                                        <option value="auto">自动检测</option>
+                                        <option value="letterboxd">Letterboxd CSV</option>
+                                        <option value="imdb">IMDB CSV</option>
+                                        <option value="cinerecord">CineRecord JSON</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary" id="do-import-btn" disabled>导入</button>
+                            </div>
+                        </div>
+
+                        <!-- Export Section -->
+                        <div class="ie-section">
+                            <h3>📤 导出数据</h3>
+                            <div class="ie-card">
+                                <div class="ie-format-select">
+                                    <label>导出格式:</label>
+                                    <select id="export-format">
+                                        <option value="cinerecord-csv">CineRecord CSV</option>
+                                        <option value="letterboxd">Letterboxd CSV</option>
+                                        <option value="imdb">IMDB CSV</option>
+                                        <option value="json">完整 JSON</option>
+                                    </select>
+                                </div>
+                                <div class="ie-format-select">
+                                    <label>数据来源:</label>
+                                    <select id="export-source">
+                                        <option value="douban">豆瓣数据</option>
+                                        <option value="imdb">IMDB 数据</option>
+                                        <option value="merged">合并数据</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary" id="do-export-btn">导出</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- External Links -->
+                    <div class="external-links-section">
+                        <h3>🔗 外部平台链接</h3>
+                        <div class="external-links-grid">
+                            <a href="https://letterboxd.com/import/" target="_blank" class="external-link-card">
+                                <span class="link-icon">🎞️</span>
+                                <span class="link-title">Letterboxd 导入</span>
+                            </a>
+                            <a href="https://letterboxd.com/settings/data/" target="_blank" class="external-link-card">
+                                <span class="link-icon">🎞️</span>
+                                <span class="link-title">Letterboxd 导出</span>
+                            </a>
+
+                            <a href="https://www.imdb.com/exports/" target="_blank" class="external-link-card">
+                                <span class="link-icon">⭐</span>
+                                <span class="link-title">IMDB 导出</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Settings -->
+                <div class="tab-content" id="tab-settings">
+                    <div class="content-header">
+                        <h2>设置</h2>
+                        <p>配置应用程序选项</p>
+                    </div>
+
+                    <div class="settings-grid">
+                        <div class="settings-section">
+                            <h3>数据存储</h3>
+                            <div class="setting-item">
+                                <label>数据目录</label>
+                                <div class="setting-value">
+                                    <code id="data-dir-path">~/CineRecord/data</code>
+                                    <button class="btn btn-sm">打开文件夹</button>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <label>自动备份</label>
+                                <div class="setting-value">
+                                    <input type="checkbox" id="auto-backup" checked>
+                                    <span>每次同步前自动备份</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <h3>同步设置</h3>
+                            <div class="setting-item">
+                                <label>同步延迟 (秒)</label>
+                                <div class="setting-value">
+                                    <input type="number" id="sync-delay" value="2" min="1" max="10">
+                                    <span>每次评分操作之间的等待时间</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <h3>关于</h3>
+                            <div class="about-info">
+                                <p><strong>CineRecord Hub</strong> v2.0</p>
+                                <p>一站式电影数据同步工具</p>
+                                <p>本地运行，保障您的数据安全。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
     </div>
 
     <!-- Modal for Help Popups -->
@@ -144,6 +405,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="/static/script.js"></script>
 </body>
+
 </html>

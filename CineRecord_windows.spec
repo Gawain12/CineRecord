@@ -1,0 +1,74 @@
+# CineRecord Windows Spec File
+# Optimized for Windows build
+
+import os
+import sys
+
+block_cipher = None
+
+# Add project root to path
+project_root = os.path.abspath('.')
+sys.path.insert(0, project_root)
+
+from PyInstaller.utils.hooks import collect_all
+
+# Collect DNS modules for eventlet
+datas_dns, binaries_dns, hiddenimports_dns = collect_all('dns')
+
+# Data files to include
+added_files = [
+    ('web/templates', 'web/templates'),
+    ('web/static', 'web/static'),
+    ('scrapers', 'scrapers'),
+    ('config', 'config'),
+] + datas_dns
+
+a = Analysis(
+    ['web/app.py'],
+    pathex=[project_root],
+    binaries=binaries_dns,
+    datas=added_files,
+    hiddenimports=[
+        'eventlet.hubs.epolls',
+        'eventlet.hubs.kqueue',
+        'eventlet.hubs.selects',
+        'engineio.async_drivers.eventlet',
+        'flask_socketio',
+        'webview',
+        'webview.platforms.winforms',  # Windows WebView backend
+        'pkg_resources.py2_warn',
+    ] + hiddenimports_dns,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='CineRecord',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,  # Show console for debugging
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)
