@@ -1693,6 +1693,26 @@ a.profile-stat.clickable:hover .stat-label {
     margin-top: 4px;
 }
 
+/* Compact Config Section (no cookie, just user ID) */
+.config-section.compact {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 0;
+}
+
+.config-section.compact .config-row {
+    gap: 4px;
+}
+
+.config-section.compact label {
+    font-size: 0.75rem;
+}
+
+.config-section.compact input {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+}
+
 /* Card Actions */
 .platform-full-card .card-actions {
     display: flex;

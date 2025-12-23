@@ -152,14 +152,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('config_loaded', (config) => {
         log('ℹ️ 已加载本地配置', 'info');
-        if (config.douban_user_id) ui.doubanUserId.value = config.douban_user_id;
-        if (config.douban_cookie && !window.freshCookie?.douban) {
-            ui.doubanCookie.value = config.douban_cookie;
-        }
-        if (config.imdb_user_id) ui.imdbUserId.value = config.imdb_user_id;
-        if (config.imdb_cookie && !window.freshCookie?.imdb) {
-            ui.imdbCookie.value = config.imdb_cookie;
-        }
+        // Store in appState for later use
+        appState.douban_cookie = config.douban_cookie || '';
+        appState.imdb_cookie = config.imdb_cookie || '';
+
+        if (config.douban_user_id && ui.doubanUserId) ui.doubanUserId.value = config.douban_user_id;
+        if (config.imdb_user_id && ui.imdbUserId) ui.imdbUserId.value = config.imdb_user_id;
+
+        // Also populate settings page cookie fields if they exist
+        const doubanCookieConfig = document.getElementById('douban-cookie-config');
+        const imdbCookieConfig = document.getElementById('imdb-cookie-config');
+        if (doubanCookieConfig && config.douban_cookie) doubanCookieConfig.value = config.douban_cookie;
+        if (imdbCookieConfig && config.imdb_cookie) imdbCookieConfig.value = config.imdb_cookie;
+
         // Check for existing data files
         socket.emit('check_local_data', config);
         // Update connection status
@@ -190,22 +195,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (data.cookie) {
-            const input = data.platform === 'douban' ? ui.doubanCookie : ui.imdbCookie;
-            if (input) {
-                input.value = data.cookie;
-                highlightElement(input, 'success');
+            // Save to appState
+            appState[`${data.platform}_cookie`] = data.cookie;
+
+            // Update Settings page cookie field
+            const cookieInput = document.getElementById(`${data.platform}-cookie-config`);
+            if (cookieInput) {
+                cookieInput.value = data.cookie;
+                highlightElement(cookieInput, 'success');
             }
 
             if (data.user_id) {
+                // Update main page user ID
                 const userInput = data.platform === 'douban' ? ui.doubanUserId : ui.imdbUserId;
                 if (userInput) {
                     userInput.value = data.user_id;
                     highlightElement(userInput, 'success');
                 }
+                // Also update Settings page
+                const settingsUserInput = document.getElementById(`${data.platform}-user-id-config`);
+                if (settingsUserInput) settingsUserInput.value = data.user_id;
             }
 
             log(`✅ ${data.platform.toUpperCase()} 登录成功`, 'success');
             updateAuthStatus();
+
+            // Auto-save config after successful login
+            saveConfig();
         } else {
             log(`❌ ${data.platform.toUpperCase()} 登录未捕获到 Cookie`, 'error');
         }
@@ -381,10 +397,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function testConnection(platform) {
         const btn = platform === 'douban' ? ui.testDoubanBtn : ui.testImdbBtn;
-        const cookie = platform === 'douban' ? ui.doubanCookie?.value : ui.imdbCookie?.value;
+        const cookie = appState[`${platform}_cookie`] || '';
 
         if (!cookie) {
-            log(`❌ 请先输入 ${platform.toUpperCase()} Cookie`, 'error');
+            log(`❌ 请先在设置中配置 ${platform.toUpperCase()} Cookie`, 'error');
+            switchTab('settings');
             return;
         }
 
@@ -408,24 +425,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function saveConfig() {
         const configData = {
-            douban_user_id: ui.doubanUserId?.value || '',
-            douban_cookie: ui.doubanCookie?.value || '',
-            imdb_user_id: ui.imdbUserId?.value || '',
-            imdb_cookie: ui.imdbCookie?.value || '',
+            douban_user_id: ui.doubanUserId?.value || document.getElementById('douban-user-id-config')?.value || '',
+            douban_cookie: document.getElementById('douban-cookie-config')?.value || appState.douban_cookie || '',
+            imdb_user_id: ui.imdbUserId?.value || document.getElementById('imdb-user-id-config')?.value || '',
+            imdb_cookie: document.getElementById('imdb-cookie-config')?.value || appState.imdb_cookie || '',
         };
+        // Update appState
+        appState.douban_cookie = configData.douban_cookie;
+        appState.imdb_cookie = configData.imdb_cookie;
+
         socket.emit('save_config', configData);
         log('💾 配置已保存', 'success');
         highlightElement(ui.saveConfigBtn, 'success');
     }
 
     function triggerFetch(platform) {
-        const cookie = platform === 'douban' ? ui.doubanCookie?.value : ui.imdbCookie?.value;
+        // Get userId from current page
         const userId = platform === 'douban' ? ui.doubanUserId?.value : ui.imdbUserId?.value;
+        // Get cookie from settings tab (fallback to appState)
+        const cookieEl = document.getElementById(`${platform}-cookie-config`);
+        const cookie = cookieEl?.value || appState[`${platform}_cookie`] || '';
 
-        if (!cookie || !userId) {
-            log(`❌ 请提供 ${platform.toUpperCase()} 的 User ID 和 Cookie`, 'error');
-            switchTab('accounts');
+        if (!userId) {
+            log(`❌ 请提供 ${platform.toUpperCase()} 的 User ID`, 'error');
             return;
+        }
+
+        if (!cookie) {
+            log(`⚠️ 未配置 Cookie，尝试获取公开数据...`, 'info');
         }
 
         setButtonsState(true);
@@ -454,8 +481,8 @@ document.addEventListener('DOMContentLoaded', () => {
             direction: ui.syncDirection?.value || 'douban-to-imdb',
             is_dry_run: isDryRun,
             sync_mode: document.getElementById('sync-mode')?.value || 'ratings_only',
-            douban_cookie: ui.doubanCookie?.value || '',
-            imdb_cookie: ui.imdbCookie?.value || ''
+            douban_cookie: appState.douban_cookie || '',
+            imdb_cookie: appState.imdb_cookie || ''
         });
     }
 

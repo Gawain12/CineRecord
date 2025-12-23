@@ -78,15 +78,11 @@
                                     </a>
                                 </div>
 
-                                <!-- Config Section -->
-                                <div class="config-section">
+                                <!-- Config Section (simplified - cookie in settings) -->
+                                <div class="config-section compact">
                                     <div class="config-row">
                                         <label for="douban-user-id">用户 ID</label>
                                         <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
-                                    </div>
-                                    <div class="config-row">
-                                        <label for="douban-cookie">Cookie</label>
-                                        <textarea id="douban-cookie" placeholder="粘贴豆瓣 Cookie..." rows="2"></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -130,15 +126,11 @@
                                     </a>
                                 </div>
 
-                                <!-- Config Section -->
-                                <div class="config-section">
+                                <!-- Config Section (simplified - cookie in settings) -->
+                                <div class="config-section compact">
                                     <div class="config-row">
                                         <label for="imdb-user-id">用户 ID</label>
                                         <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
-                                    </div>
-                                    <div class="config-row">
-                                        <label for="imdb-cookie">Cookie</label>
-                                        <textarea id="imdb-cookie" placeholder="粘贴 IMDB Cookie..." rows="2"></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -424,15 +416,17 @@
                                     <span class="auth-status" id="settings-douban-status">未配置</span>
                                 </div>
                                 <div class="form-group">
-                                    <textarea id="douban-cookie" placeholder="粘贴豆瓣 Cookie..." rows="3"></textarea>
+                                    <textarea id="douban-cookie-config" placeholder="粘贴豆瓣 Cookie..."
+                                        rows="3"></textarea>
                                 </div>
                                 <div class="form-group">
-                                    <label for="douban-user-id">用户 ID</label>
-                                    <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
+                                    <label for="douban-user-id-config">用户 ID</label>
+                                    <input type="text" id="douban-user-id-config" placeholder="例如 gawaintan">
                                 </div>
                                 <div class="form-actions">
-                                    <button class="btn btn-secondary btn-sm" id="login-douban-btn">🔑 自动登录</button>
-                                    <button class="btn btn-primary btn-sm" id="test-douban-btn">✅ 测试</button>
+                                    <button class="btn btn-secondary btn-sm" id="login-douban-settings-btn">🔑
+                                        自动登录</button>
+                                    <button class="btn btn-primary btn-sm" id="test-douban-settings-btn">✅ 测试</button>
                                 </div>
                             </div>
 
@@ -444,15 +438,17 @@
                                     <span class="auth-status" id="settings-imdb-status">未配置</span>
                                 </div>
                                 <div class="form-group">
-                                    <textarea id="imdb-cookie" placeholder="粘贴 IMDB Cookie..." rows="3"></textarea>
+                                    <textarea id="imdb-cookie-config" placeholder="粘贴 IMDB Cookie..."
+                                        rows="3"></textarea>
                                 </div>
                                 <div class="form-group">
-                                    <label for="imdb-user-id">用户 ID</label>
-                                    <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
+                                    <label for="imdb-user-id-config">用户 ID</label>
+                                    <input type="text" id="imdb-user-id-config" placeholder="例如 ur12345678">
                                 </div>
                                 <div class="form-actions">
-                                    <button class="btn btn-secondary btn-sm" id="login-imdb-btn">🔑 自动登录</button>
-                                    <button class="btn btn-primary btn-sm" id="test-imdb-btn">✅ 测试</button>
+                                    <button class="btn btn-secondary btn-sm" id="login-imdb-settings-btn">🔑
+                                        自动登录</button>
+                                    <button class="btn btn-primary btn-sm" id="test-imdb-settings-btn">✅ 测试</button>
                                 </div>
                             </div>
 
