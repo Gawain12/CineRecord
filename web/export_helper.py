@@ -116,13 +116,78 @@ def export_to_cinerecord_csv(df, output_path):
     return output_path
 
 
+def export_to_cinepersona(df, output_path, user_stats=None):
+    """
+    Export data to CinePersona-compatible JSON format.
+    Unified format for movie data analysis.
+    
+    File naming: cinepersona_export_{timestamp}.json
+    """
+    def safe_get(row, *keys):
+        """Get first available value from multiple possible column names."""
+        for key in keys:
+            if key in row and pd.notna(row[key]):
+                return row[key]
+        return None
+    
+    movies = []
+    for _, row in df.iterrows():
+        # Determine status
+        status = 'watched'
+        if 'status' in row:
+            status = row['status']
+        elif safe_get(row, 'YourRating_douban', 'YourRating_imdb', 'Your Rating'):
+            status = 'watched'
+        
+        # Build standardized movie object
+        movie = {
+            'title': safe_get(row, 'Title', 'title'),
+            'title_original': safe_get(row, 'Title_original', 'original_title'),
+            'year': int(safe_get(row, 'Year', 'year')) if safe_get(row, 'Year', 'year') else None,
+            'ids': {
+                'douban': str(safe_get(row, 'douban_id', 'Douban ID')) if safe_get(row, 'douban_id', 'Douban ID') else None,
+                'imdb': safe_get(row, 'imdb_id', 'Const', 'IMDb ID'),
+                'tmdb': safe_get(row, 'tmdb_id')
+            },
+            'status': status,
+            'rating': int(safe_get(row, 'YourRating_douban', 'YourRating_imdb', 'Your Rating')) if safe_get(row, 'YourRating_douban', 'YourRating_imdb', 'Your Rating') else None,
+            'rating_date': str(safe_get(row, 'DateRated_douban', 'DateRated_imdb', 'Date Rated')) if safe_get(row, 'DateRated_douban', 'DateRated_imdb', 'Date Rated') else None,
+            'genres': safe_get(row, 'Genres', 'genres').split(', ') if safe_get(row, 'Genres', 'genres') else [],
+            'directors': safe_get(row, 'Directors', 'directors').split(', ') if safe_get(row, 'Directors', 'directors') else [],
+            'source_platform': 'douban' if safe_get(row, 'douban_id') else 'imdb'
+        }
+        movies.append(movie)
+    
+    # Calculate stats
+    watched_count = len([m for m in movies if m['status'] == 'watched'])
+    want_count = len([m for m in movies if m['status'] == 'want_to_watch'])
+    rated_count = len([m for m in movies if m['rating'] is not None])
+    
+    export_data = {
+        'format_version': '1.0',
+        'app': 'CineRecord',
+        'exported_at': datetime.now().isoformat(),
+        'user_stats': user_stats or {
+            'watched_count': watched_count,
+            'want_to_watch_count': want_count,
+            'rated_count': rated_count
+        },
+        'movies': movies
+    }
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
+    
+    return output_path
+
+
 def export_data(df, format_type, output_dir):
     """
     Main export function that routes to appropriate format handler.
     
     Args:
         df: pandas DataFrame with movie data
-        format_type: one of 'letterboxd', 'imdb', 'json', 'cinerecord-csv'
+        format_type: one of 'letterboxd', 'imdb', 'json', 'cinerecord-csv', 'cinepersona'
         output_dir: directory to save the exported file
         
     Returns:
@@ -137,6 +202,7 @@ def export_data(df, format_type, output_dir):
         'imdb': (export_to_imdb, f'imdb_export_{timestamp}.csv'),
         'json': (export_to_json, f'cinerecord_export_{timestamp}.json'),
         'cinerecord-csv': (export_to_cinerecord_csv, f'cinerecord_export_{timestamp}.csv'),
+        'cinepersona': (export_to_cinepersona, f'cinepersona_export_{timestamp}.json'),
     }
     
     if format_type not in exporters:
