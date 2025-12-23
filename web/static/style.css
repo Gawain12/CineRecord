@@ -1479,11 +1479,23 @@ a.profile-stat.clickable:hover .stat-label {
     min-width: 0;
 }
 
-/* Platform Cards Stack */
+/* Platform Cards Grid - 3 columns horizontal */
 .platform-cards-stack {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     gap: 20px;
+}
+
+@media (max-width: 1400px) {
+    .platform-cards-stack {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .platform-cards-stack {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Platform Full Card */
