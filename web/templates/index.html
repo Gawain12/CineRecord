@@ -69,132 +69,148 @@
 
             <!-- Main content area with tabs -->
             <main class="content-area">
-                <!-- Tab: Accounts (Now simplified - shows status only) -->
+                <!-- Tab: Accounts - Platform Profile Cards -->
                 <div class="tab-content active" id="tab-accounts">
                     <div class="content-header">
-                        <h2>控制面板</h2>
-                        <p>账户状态与快速操作</p>
+                        <h2>账户中心</h2>
+                        <p>管理您的影视平台账户与数据</p>
                     </div>
 
-                    <!-- Stats Cards -->
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-icon watched">📊</div>
-                            <div class="stat-info">
-                                <div class="stat-label">豆瓣已看</div>
-                                <div class="stat-value" id="stat-douban-watched">--</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon wishlist">🎯</div>
-                            <div class="stat-info">
-                                <div class="stat-label">豆瓣想看</div>
-                                <div class="stat-value" id="stat-douban-wishlist">--</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon synced">⭐</div>
-                            <div class="stat-info">
-                                <div class="stat-label">IMDB 评分</div>
-                                <div class="stat-value" id="stat-imdb-ratings">--</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon rated">✅</div>
-                            <div class="stat-info">
-                                <div class="stat-label">已同步</div>
-                                <div class="stat-value" id="stat-synced">--</div>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- Platform Profile Cards Grid -->
+                    <div class="platform-profiles-grid">
 
-                    <!-- Connection Status Cards -->
-                    <div class="accounts-grid">
-                        <!-- Douban Status -->
-                        <div class="account-card">
-                            <div class="account-header">
-                                <div class="account-title">
-                                    <span class="icon">🎬</span>
-                                    <h3>豆瓣</h3>
+                        <!-- ===== 豆瓣 Profile Card ===== -->
+                        <div class="platform-profile-card douban">
+                            <div class="profile-header">
+                                <div class="profile-avatar">🎬</div>
+                                <div class="profile-info">
+                                    <h3>豆瓣电影</h3>
+                                    <a href="#" class="profile-link" id="douban-profile-link" target="_blank">
+                                        <span id="douban-username">未配置用户</span> ↗
+                                    </a>
                                 </div>
-                                <span class="account-status disconnected" id="douban-auth-status">
-                                    <span class="status-dot"></span>
+                                <span class="connection-badge disconnected" id="douban-connection">
                                     未连接
                                 </span>
                             </div>
-                            <div class="account-body">
-                                <p class="account-desc">同步您的豆瓣电影评分和观影记录</p>
-                                <div class="form-actions">
-                                    <button class="btn btn-primary" id="update-douban-btn">🔄 更新数据</button>
-                                    <a href="#" class="btn btn-outline" id="goto-douban-settings">⚙️ 配置</a>
-                                </div>
+
+                            <div class="profile-stats">
+                                <a href="#" id="link-douban-watched" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="douban-watched-count">--</span>
+                                    <span class="stat-label">看过</span>
+                                </a>
+                                <a href="#" id="link-douban-wish" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="douban-wish-count">--</span>
+                                    <span class="stat-label">想看</span>
+                                </a>
+                                <a href="#" id="link-douban-doing" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="douban-doing-count">--</span>
+                                    <span class="stat-label">在看</span>
+                                </a>
+                            </div>
+
+                            <div class="profile-actions">
+                                <button class="btn btn-primary" id="update-douban-btn">🔄 更新数据</button>
+                                <button class="btn btn-outline" id="goto-douban-settings">⚙️ 配置</button>
                             </div>
                         </div>
 
-                        <!-- IMDB Status -->
-                        <div class="account-card">
-                            <div class="account-header">
-                                <div class="account-title">
-                                    <span class="icon">⭐</span>
+                        <!-- ===== IMDB Profile Card ===== -->
+                        <div class="platform-profile-card imdb">
+                            <div class="profile-header">
+                                <div class="profile-avatar">⭐</div>
+                                <div class="profile-info">
                                     <h3>IMDB</h3>
+                                    <a href="#" class="profile-link" id="imdb-profile-link" target="_blank">
+                                        <span id="imdb-username">未配置用户</span> ↗
+                                    </a>
                                 </div>
-                                <span class="account-status disconnected" id="imdb-auth-status">
-                                    <span class="status-dot"></span>
+                                <span class="connection-badge disconnected" id="imdb-connection">
                                     未连接
                                 </span>
                             </div>
-                            <div class="account-body">
-                                <p class="account-desc">同步您的 IMDB 评分和观影列表</p>
-                                <div class="form-actions">
-                                    <button class="btn btn-primary" id="update-imdb-btn">🔄 更新数据</button>
-                                    <a href="#" class="btn btn-outline" id="goto-imdb-settings">⚙️ 配置</a>
-                                </div>
+
+                            <div class="profile-stats">
+                                <a href="#" id="link-imdb-ratings" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="imdb-ratings-count">--</span>
+                                    <span class="stat-label">已评分</span>
+                                </a>
+                                <a href="#" id="link-imdb-watchlist" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="imdb-watchlist-count">--</span>
+                                    <span class="stat-label">待看</span>
+                                </a>
+                                <a href="#" id="link-imdb-lists" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="imdb-lists-count">--</span>
+                                    <span class="stat-label">列表</span>
+                                </a>
+                            </div>
+
+                            <div class="profile-actions">
+                                <button class="btn btn-primary" id="update-imdb-btn">🔄 更新数据</button>
+                                <button class="btn btn-outline" id="goto-imdb-settings">⚙️ 配置</button>
                             </div>
                         </div>
 
-                        <!-- Letterboxd (Read-only) -->
-                        <div class="account-card">
-                            <div class="account-header">
-                                <div class="account-title">
-                                    <span class="icon">🎞️</span>
+                        <!-- ===== Letterboxd Profile Card ===== -->
+                        <div class="platform-profile-card letterboxd">
+                            <div class="profile-header">
+                                <div class="profile-avatar">🎞️</div>
+                                <div class="profile-info">
                                     <h3>Letterboxd</h3>
+                                    <a href="#" class="profile-link" id="letterboxd-profile-link" target="_blank">
+                                        <span id="letterboxd-username">未配置用户</span> ↗
+                                    </a>
                                 </div>
-                                <span class="account-status" style="background: var(--info-bg); color: var(--info);">
-                                    仅导入/导出
+                                <span class="connection-badge info" id="letterboxd-connection">
+                                    公开主页
                                 </span>
                             </div>
-                            <div class="account-body">
-                                <p class="account-desc">通过 CSV 文件导入导出，无需登录</p>
-                                <div class="form-actions">
-                                    <a href="https://letterboxd.com/import/" target="_blank"
-                                        class="btn btn-secondary">📥 导入页</a>
-                                    <a href="https://letterboxd.com/settings/data/" target="_blank"
-                                        class="btn btn-secondary">📤 导出页</a>
-                                </div>
+
+                            <div class="profile-stats">
+                                <a href="#" id="link-letterboxd-films" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="letterboxd-films-count">--</span>
+                                    <span class="stat-label">电影</span>
+                                </a>
+                                <a href="#" id="link-letterboxd-lists" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="letterboxd-lists-count">--</span>
+                                    <span class="stat-label">列表</span>
+                                </a>
+                                <a href="#" id="link-letterboxd-reviews" target="_blank" class="profile-stat clickable">
+                                    <span class="stat-number" id="letterboxd-reviews-count">--</span>
+                                    <span class="stat-label">评论</span>
+                                </a>
+                            </div>
+
+
+                            <div class="profile-actions">
+                                <button class="btn btn-primary" id="test-letterboxd-btn">🔗 测试连接</button>
+                                <button class="btn btn-outline" id="goto-letterboxd-settings">⚙️ 配置</button>
                             </div>
                         </div>
+
                     </div>
 
-                    <!-- External Links -->
-                    <div class="external-links-section">
-                        <h3>🔗 快速链接</h3>
-                        <div class="external-links-grid">
-                            <a href="https://movie.douban.com/mine?status=wish" target="_blank" class="external-link">
-                                <span class="icon">🎬</span>
-                                <span>豆瓣 · 想看</span>
-                            </a>
-                            <a href="https://movie.douban.com/mine?status=do" target="_blank" class="external-link">
-                                <span class="icon">🎬</span>
-                                <span>豆瓣 · 在看</span>
-                            </a>
-                            <a href="https://www.imdb.com/list/ratings" target="_blank" class="external-link">
-                                <span class="icon">⭐</span>
-                                <span>IMDB · 我的评分</span>
-                            </a>
-                            <a href="https://www.imdb.com/list/watchlist" target="_blank" class="external-link">
-                                <span class="icon">⭐</span>
-                                <span>IMDB · 待看清单</span>
-                            </a>
+                    <!-- Sync Overview Card -->
+                    <div class="sync-overview-card">
+                        <div class="sync-overview-header">
+                            <h3>📊 同步概览</h3>
+                        </div>
+                        <div class="sync-overview-stats">
+                            <div class="sync-stat">
+                                <span class="sync-stat-value" id="total-synced">--</span>
+                                <span class="sync-stat-label">已同步</span>
+                            </div>
+                            <div class="sync-stat">
+                                <span class="sync-stat-value" id="pending-sync">--</span>
+                                <span class="sync-stat-label">待同步</span>
+                            </div>
+                            <div class="sync-stat">
+                                <span class="sync-stat-value" id="sync-conflicts">--</span>
+                                <span class="sync-stat-label">冲突</span>
+                            </div>
+                        </div>
+                        <div class="sync-overview-actions">
+                            <button class="btn btn-primary btn-lg" id="quick-sync-btn">⚡ 快速同步</button>
                         </div>
                     </div>
 
@@ -448,6 +464,23 @@
                         <div class="form-actions">
                             <button class="btn btn-secondary btn-sm" id="login-imdb-btn">🔑 自动登录</button>
                             <button class="btn btn-primary btn-sm" id="test-imdb-btn">✅ 测试</button>
+                        </div>
+                    </div>
+
+                    <!-- Letterboxd Config (Username only) -->
+                    <div class="auth-config-card">
+                        <div class="auth-config-header">
+                            <span class="auth-icon">🎞️</span>
+                            <span class="auth-name">Letterboxd</span>
+                            <span class="auth-status" id="settings-letterboxd-status">未配置</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="letterboxd-username-input">用户名 (公开主页)</label>
+                            <input type="text" id="letterboxd-username-input" placeholder="例如 yourname">
+                            <small class="help-text">Letterboxd 使用公开主页数据，无需 Cookie</small>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary btn-sm" id="test-letterboxd-settings-btn">✅ 测试</button>
                         </div>
                     </div>
                 </div>

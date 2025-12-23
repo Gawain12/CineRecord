@@ -1216,3 +1216,248 @@ select:focus {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
+
+/* --------------------------------------------------------------------------
+   Platform Profile Cards
+   -------------------------------------------------------------------------- */
+.platform-profiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.platform-profile-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 24px;
+    transition: var(--transition);
+}
+
+.platform-profile-card:hover {
+    border-color: var(--accent-primary);
+    box-shadow: var(--shadow-glow);
+    transform: translateY(-2px);
+}
+
+.platform-profile-card.douban {
+    border-top: 3px solid #00b51d;
+}
+
+.platform-profile-card.imdb {
+    border-top: 3px solid #f5c518;
+}
+
+.platform-profile-card.letterboxd {
+    border-top: 3px solid #ff8000;
+}
+
+/* Profile Header */
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.profile-avatar {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    background: var(--accent-gradient-soft);
+    border-radius: var(--border-radius);
+}
+
+.profile-info {
+    flex: 1;
+}
+
+.profile-info h3 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.profile-link {
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: var(--transition);
+}
+
+.profile-link:hover {
+    color: var(--accent-secondary);
+}
+
+.profile-subtitle {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+/* Connection Badge */
+.connection-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.connection-badge.connected {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.connection-badge.disconnected {
+    background: var(--error-bg);
+    color: var(--error);
+}
+
+.connection-badge.info {
+    background: var(--info-bg);
+    color: var(--info);
+}
+
+/* Profile Stats */
+.profile-stats {
+    display: flex;
+    justify-content: space-around;
+    padding: 20px 0;
+    margin: 16px 0;
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.profile-stat {
+    text-align: center;
+}
+
+.profile-stat .stat-number {
+    display: block;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.profile-stat .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Clickable Stats */
+a.profile-stat.clickable {
+    text-decoration: none;
+    transition: var(--transition);
+    padding: 8px 12px;
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+}
+
+a.profile-stat.clickable:hover {
+    background: rgba(99, 102, 241, 0.1);
+}
+
+a.profile-stat.clickable:hover .stat-number {
+    color: var(--accent-primary);
+}
+
+a.profile-stat.clickable:hover .stat-label {
+    color: var(--text-secondary);
+}
+
+/* Profile Quick Links */
+.profile-links {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.profile-quick-link {
+    padding: 8px 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: var(--transition);
+}
+
+.profile-quick-link:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
+}
+
+/* Profile Description */
+.profile-desc {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Profile Actions */
+.profile-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.profile-actions .btn {
+    flex: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Sync Overview Card
+   -------------------------------------------------------------------------- */
+.sync-overview-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 24px;
+}
+
+.sync-overview-header h3 {
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+}
+
+.sync-overview-stats {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 24px;
+}
+
+.sync-stat {
+    text-align: center;
+}
+
+.sync-stat-value {
+    display: block;
+    font-size: 2rem;
+    font-weight: 700;
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.sync-stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.sync-overview-actions {
+    display: flex;
+    justify-content: center;
+}
+
+.sync-overview-actions .btn {
+    min-width: 200px;
+}
