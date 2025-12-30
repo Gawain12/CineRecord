@@ -41,26 +41,60 @@ def main():
     def debug_log(msg):
         with open(log_path, 'a') as f: f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
 
-    def get_all_cookies_native():
-        """Direct access to macOS NSHTTPCookieStorage."""
+    def get_all_cookies(window):
+        """Cross-platform cookie access."""
         cookie_parts = []
         found_indicator = False
         names_found = []
         
-        if HAS_OBJC:
-            storage = NSHTTPCookieStorage.sharedHTTPCookieStorage()
-            cookies = storage.cookies()
-            if cookies:
+        # 1. macOS Native Path (Most reliable for HTTPOnly)
+        if HAS_OBJC and sys.platform == 'darwin':
+            try:
+                storage = NSHTTPCookieStorage.sharedHTTPCookieStorage()
+                cookies = storage.cookies()
+                if cookies:
+                    for c in cookies:
+                        domain = str(c.domain())
+                        if platform in domain:
+                            n, v = str(c.name()), str(c.value())
+                            cookie_parts.append(f"{n}={v}")
+                            names_found.append(n)
+                            for ind in indicators:
+                                if ind.lower() in n.lower():
+                                    found_indicator = True
+            except Exception as e:
+                debug_log(f"MacOS native cookie error: {e}")
+
+        # 2. PyWebView Cross-platform Path (Experimental/Newer versions)
+        if not found_indicator:
+            try:
+                # pywebview >= 4.0 provides get_cookies() on some platforms
+                cookies = window.get_cookies()
                 for c in cookies:
-                    domain = str(c.domain())
-                    # Capture everything related to the platform
-                    if platform in domain:
-                        n, v = str(c.name()), str(c.value())
+                    if platform in c.domain:
+                        n, v = c.name, c.value
                         cookie_parts.append(f"{n}={v}")
                         names_found.append(n)
                         for ind in indicators:
                             if ind.lower() in n.lower():
                                 found_indicator = True
+            except:
+                pass
+
+        # 3. JS Fallback (Standard)
+        if not found_indicator:
+            js_cookies = window.evaluate_js('document.cookie') or ""
+            if js_cookies:
+                for part in js_cookies.split(';'):
+                    if '=' in part:
+                        n = part.split('=')[0].strip()
+                        names_found.append(n)
+                        for ind in indicators:
+                            if ind.lower() in n.lower():
+                                found_indicator = True
+                if found_indicator:
+                    return js_cookies, True, names_found
+
         return "; ".join(cookie_parts), found_indicator, names_found
 
     def check_login(window):
@@ -68,15 +102,13 @@ def main():
         while time.time() - start_time < 600:
             time.sleep(2)
             try:
-                native_str, found, names = get_all_cookies_native()
-                js_cookies = window.evaluate_js('document.cookie') or ""
+                cookie_str, found, names = get_all_cookies(window)
                 
-                debug_log(f"Scan -> Native Names: {names} | Found Indicator: {found} | JS Len: {len(js_cookies)}")
+                debug_log(f"Scan -> Names: {names} | Found Indicator: {found}")
 
-                # ONLY auto-close if the critical indicator (dbcl2 or at-main) is found
                 if found:
-                    result['cookie'] = native_str
-                    debug_log(f"✅ SUCCESS: Captured via Native API with {names}")
+                    result['cookie'] = cookie_str
+                    debug_log(f"✅ SUCCESS: Captured cookies with {names}")
                     window.destroy()
                     return
 
@@ -86,10 +118,10 @@ def main():
     class Api:
         def force_done(self):
             debug_log("🖱️ User Manual Force Done")
-            native_str, _, _ = get_all_cookies_native()
+            cookie_str, _, _ = get_all_cookies(window)
             js = window.evaluate_js('document.cookie') or ""
             # When forcing, take whatever is more complete
-            result['cookie'] = native_str if len(native_str) > len(js) else js
+            result['cookie'] = cookie_str if len(cookie_str) > len(js) else js
             window.destroy()
 
     window = webview.create_window(

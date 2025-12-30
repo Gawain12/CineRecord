@@ -24,12 +24,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install UPX
+        run: |
+          choco install upx -y
       
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install -r requirements-build.txt
+          pip install pyinstaller pywebview
       
       - name: Build Windows EXE
         run: |
@@ -41,7 +46,8 @@ jobs:
             Write-Error "EXE not found!"
             exit 1
           }
-          Write-Host "✓ EXE built successfully"
+          $size = (Get-Item "dist\CineRecord.exe").Length / 1MB
+          Write-Host "✓ EXE built successfully. Size: $([math]::Round($size, 2)) MB"
       
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
@@ -64,12 +70,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install UPX
+        run: |
+          brew install upx
       
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install -r requirements-build.txt
+          pip install pyinstaller pywebview pyobjc-framework-Cocoa
       
       - name: Build macOS App
         run: |
@@ -77,19 +88,18 @@ jobs:
       
       - name: Create DMG
         run: |
-          # Create a simple DMG for easy distribution
           mkdir -p dmg_temp
           cp -r dist/CineRecord.app dmg_temp/
           ln -s /Applications dmg_temp/Applications
-          hdiutil create -volname "CineRecord" -srcfolder dmg_temp -ov -format UDZO dist/CineRecord.dmg
+          hdiutil create -volname "CineRecord" -srcfolder dmg_temp -ov -format UDBZ dist/CineRecord.dmg
           rm -rf dmg_temp
+          echo "✓ DMG Size: $(du -h dist/CineRecord.dmg | cut -f1)"
       
       - name: Upload macOS App
         uses: actions/upload-artifact@v4
         with:
           name: CineRecord-macOS
           path: |
-            dist/CineRecord.app
             dist/CineRecord.dmg
           retention-days: 30
 
