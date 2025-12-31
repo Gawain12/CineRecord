@@ -47,3 +47,4 @@ _archive/
 # Other
 web/static/icon.icns
 
+config/config.json

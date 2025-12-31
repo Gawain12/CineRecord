@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
     <title>CineRecord Hub</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -22,7 +23,6 @@
                 <button class="nav-tab active" data-tab="accounts">🔐 账户</button>
                 <button class="nav-tab" data-tab="data">📊 数据</button>
                 <button class="nav-tab" data-tab="sync">🔄 同步</button>
-                <button class="nav-tab" data-tab="import-export">📦 导入导出</button>
                 <button class="nav-tab" data-tab="settings">⚙️ 设置</button>
             </nav>
             <div class="nav-actions">
@@ -31,9 +31,73 @@
         </header>
 
         <!-- ============================================= -->
-        <!-- |              Main Layout                  | -->
+        <!-- |              Main Layout with Sidebar      | -->
         <!-- ============================================= -->
         <div class="main-layout-v2">
+            <!-- Left Sidebar: Account Summary + Logs -->
+            <aside class="main-layout-sidebar">
+                <div class="sidebar-section">
+                    <h4 class="sidebar-title">平台状态</h4>
+
+                    <!-- Compact Douban Card -->
+                    <div class="account-summary-card douban" id="douban-summary-card">
+                        <div class="summary-icon">🎬</div>
+                        <div class="summary-info">
+                            <span class="summary-name">豆瓣 <span class="summary-id" id="douban-sidebar-id"></span></span>
+                            <span class="summary-stats" id="douban-summary-stats">--</span>
+                        </div>
+                        <span class="status-dot disconnected" id="douban-status-dot"></span>
+                    </div>
+
+                    <!-- Compact IMDB Card -->
+                    <div class="account-summary-card imdb" id="imdb-summary-card">
+                        <div class="summary-icon">⭐</div>
+                        <div class="summary-info">
+                            <span class="summary-name">IMDB <span class="summary-id" id="imdb-sidebar-id"></span></span>
+                            <span class="summary-stats" id="imdb-summary-stats">--</span>
+                        </div>
+                        <span class="status-dot disconnected" id="imdb-status-dot"></span>
+                    </div>
+
+                    <!-- Compact Letterboxd Card -->
+                    <div class="account-summary-card letterboxd" id="letterboxd-summary-card">
+                        <div class="summary-icon">🎞️</div>
+                        <div class="summary-info">
+                            <span class="summary-name">Letterboxd</span>
+                            <span class="summary-stats" id="letterboxd-summary-stats">--</span>
+                        </div>
+                        <span class="status-dot info" id="letterboxd-status-dot"></span>
+                    </div>
+
+                    <!-- Compact Trakt Card -->
+                    <div class="account-summary-card trakt" id="trakt-summary-card">
+                        <div class="summary-icon">🎯</div>
+                        <div class="summary-info">
+                            <span class="summary-name">Trakt <span class="summary-id"
+                                    id="trakt-sidebar-id"></span></span>
+                            <span class="summary-stats" id="trakt-summary-stats">--</span>
+                        </div>
+                        <span class="status-dot disconnected" id="trakt-status-dot"></span>
+                    </div>
+
+                    <!-- Compact TMDB Card -->
+                    <div class="account-summary-card tmdb" id="tmdb-summary-card">
+                        <div class="summary-icon">🎬</div>
+                        <div class="summary-info">
+                            <span class="summary-name">TMDB <span class="summary-id" id="tmdb-sidebar-id"></span></span>
+                            <span class="summary-stats" id="tmdb-summary-stats">--</span>
+                        </div>
+                        <span class="status-dot disconnected" id="tmdb-status-dot"></span>
+                    </div>
+                </div>
+
+                <!-- Log Console -->
+                <div class="sidebar-section sidebar-logs">
+                    <h4 class="sidebar-title">运行日志</h4>
+                    <div id="log-container" class="log-container-sidebar"></div>
+                </div>
+            </aside>
+
             <!-- Main content area -->
             <main class="content-main">
                 <!-- Tab: Accounts - Complete Platform Cards -->
@@ -47,23 +111,41 @@
                     <div class="platform-cards-stack">
 
                         <!-- ===== 豆瓣 Complete Card ===== -->
-                        <div class="platform-full-card douban">
+                        <div class="platform-full-card douban" id="douban-card">
+                            <!-- Card Header -->
                             <div class="card-header">
                                 <div class="card-brand">
                                     <span class="brand-icon">🎬</span>
-                                    <div class="brand-info">
-                                        <h3>豆瓣电影</h3>
-                                        <a href="#" class="profile-link" id="douban-profile-link" target="_blank">
-                                            @<span id="douban-username-display">未配置</span> ↗
-                                        </a>
-                                    </div>
+                                    <h3>豆瓣电影</h3>
                                 </div>
                                 <span class="status-badge disconnected" id="douban-status-badge">● 未连接</span>
                             </div>
 
-                            <div class="card-body">
-                                <!-- Stats Row -->
-                                <div class="stats-row">
+                            <!-- Not Connected State -->
+                            <div class="profile-state not-connected" id="douban-not-connected">
+                                <div class="connect-prompt">
+                                    <p class="prompt-text">点击登录以获取您的观影数据</p>
+                                    <div class="connect-buttons">
+                                        <button class="btn btn-primary btn-lg" id="login-douban-btn">🔑 自动登录豆瓣</button>
+                                        <button class="btn btn-outline" id="config-douban-btn">⚙️ 配置Cookie</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Connected State (hidden by default) -->
+                            <div class="profile-state connected" id="douban-connected" style="display:none">
+                                <div class="profile-info-row">
+                                    <img class="profile-avatar" id="douban-avatar"
+                                        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%239ca3af' font-size='20'%3E豆%3C/text%3E%3C/svg%3E"
+                                        alt="avatar">
+                                    <div class="profile-details">
+                                        <h4 id="douban-display-name">用户名</h4>
+                                        <p class="profile-id">@<span id="douban-user-id-display">--</span></p>
+                                        <p class="join-date" id="douban-join-date">加入时间: --</p>
+                                    </div>
+                                    <a href="#" class="btn-link" id="douban-profile-link" target="_blank">豆瓣主页 →</a>
+                                </div>
+                                <div class="stats-row compact">
                                     <a href="#" id="link-douban-watched" target="_blank" class="stat-item">
                                         <span class="stat-value" id="douban-watched-count">--</span>
                                         <span class="stat-name">看过</span>
@@ -77,41 +159,54 @@
                                         <span class="stat-name">在看</span>
                                     </a>
                                 </div>
-
-                                <!-- Config Section (simplified - cookie in settings) -->
-                                <div class="config-section compact">
-                                    <div class="config-row">
-                                        <label for="douban-user-id">用户 ID</label>
-                                        <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
-                                    </div>
-                                </div>
                             </div>
 
+                            <!-- Card Actions -->
                             <div class="card-actions">
-                                <button class="btn btn-secondary" id="login-douban-btn">🔑 自动登录</button>
-                                <button class="btn btn-outline" id="test-douban-btn">✅ 测试连接</button>
-                                <button class="btn btn-primary" id="fetch-douban-btn">🔄 更新数据</button>
+                                <button class="btn btn-outline" id="test-douban-btn">✅ 测试</button>
+                                <button class="btn btn-primary" id="update-douban-btn" style="display:none">🔄
+                                    更新数据</button>
+                                <button class="btn btn-secondary" id="logout-douban-btn"
+                                    style="display:none">退出</button>
                             </div>
                         </div>
 
                         <!-- ===== IMDB Complete Card ===== -->
-                        <div class="platform-full-card imdb">
+                        <div class="platform-full-card imdb" id="imdb-card">
+                            <!-- Card Header -->
                             <div class="card-header">
                                 <div class="card-brand">
                                     <span class="brand-icon">⭐</span>
-                                    <div class="brand-info">
-                                        <h3>IMDB</h3>
-                                        <a href="#" class="profile-link" id="imdb-profile-link" target="_blank">
-                                            @<span id="imdb-username-display">未配置</span> ↗
-                                        </a>
-                                    </div>
+                                    <h3>IMDB</h3>
                                 </div>
                                 <span class="status-badge disconnected" id="imdb-status-badge">● 未连接</span>
                             </div>
 
-                            <div class="card-body">
-                                <!-- Stats Row -->
-                                <div class="stats-row">
+                            <!-- Not Connected State -->
+                            <div class="profile-state not-connected" id="imdb-not-connected">
+                                <div class="connect-prompt">
+                                    <p class="prompt-text">点击登录以获取您的观影数据</p>
+                                    <div class="connect-buttons">
+                                        <button class="btn btn-primary btn-lg" id="login-imdb-btn">🔑 自动登录 IMDB</button>
+                                        <button class="btn btn-outline" id="config-imdb-btn">⚙️ 配置Cookie</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Connected State (hidden by default) -->
+                            <div class="profile-state connected" id="imdb-connected" style="display:none">
+                                <div class="profile-info-row">
+                                    <img class="profile-avatar" id="imdb-avatar"
+                                        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23f5c518'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23000' font-size='14' font-weight='bold'%3EIMDb%3C/text%3E%3C/svg%3E"
+                                        alt="avatar">
+                                    <div class="profile-details">
+                                        <h4 id="imdb-display-name">用户名</h4>
+                                        <p class="profile-id">@<span id="imdb-user-id-display">--</span></p>
+                                        <p class="join-date" id="imdb-join-date">会员信息</p>
+                                    </div>
+                                    <a href="#" class="btn-link" id="imdb-profile-link" target="_blank">IMDB主页 →</a>
+                                </div>
+                                <div class="stats-row compact">
                                     <a href="#" id="link-imdb-ratings" target="_blank" class="stat-item">
                                         <span class="stat-value" id="imdb-ratings-count">--</span>
                                         <span class="stat-name">已评分</span>
@@ -125,71 +220,240 @@
                                         <span class="stat-name">列表</span>
                                     </a>
                                 </div>
-
-                                <!-- Config Section (simplified - cookie in settings) -->
-                                <div class="config-section compact">
-                                    <div class="config-row">
-                                        <label for="imdb-user-id">用户 ID</label>
-                                        <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
-                                    </div>
-                                </div>
                             </div>
 
+                            <!-- Card Actions -->
                             <div class="card-actions">
-                                <button class="btn btn-secondary" id="login-imdb-btn">🔑 自动登录</button>
-                                <button class="btn btn-outline" id="test-imdb-btn">✅ 测试连接</button>
-                                <button class="btn btn-primary" id="fetch-imdb-btn">🔄 更新数据</button>
+                                <button class="btn btn-outline" id="test-imdb-btn">✅ 测试</button>
+                                <button class="btn btn-primary" id="update-imdb-btn" style="display:none">🔄
+                                    更新数据</button>
+                                <button class="btn btn-secondary" id="logout-imdb-btn" style="display:none">退出</button>
                             </div>
                         </div>
 
                         <!-- ===== Letterboxd Complete Card ===== -->
-                        <div class="platform-full-card letterboxd">
+                        <div class="platform-full-card letterboxd" id="letterboxd-card">
+                            <!-- Card Header -->
                             <div class="card-header">
                                 <div class="card-brand">
                                     <span class="brand-icon">🎞️</span>
-                                    <div class="brand-info">
-                                        <h3>Letterboxd</h3>
-                                        <a href="#" class="profile-link" id="letterboxd-profile-link" target="_blank">
-                                            @<span id="letterboxd-username-display">未配置</span> ↗
-                                        </a>
-                                    </div>
+                                    <h3>Letterboxd</h3>
                                 </div>
-                                <span class="status-badge info" id="letterboxd-status-badge">● 公开数据</span>
+                                <span class="status-badge info" id="letterboxd-status-badge">● 外部平台</span>
                             </div>
 
-                            <div class="card-body">
-                                <!-- Stats Row -->
-                                <div class="stats-row">
-                                    <a href="#" id="link-letterboxd-films" target="_blank" class="stat-item">
-                                        <span class="stat-value" id="letterboxd-films-count">--</span>
-                                        <span class="stat-name">电影</span>
-                                    </a>
-                                    <a href="#" id="link-letterboxd-lists" target="_blank" class="stat-item">
-                                        <span class="stat-value" id="letterboxd-lists-count">--</span>
-                                        <span class="stat-name">列表</span>
-                                    </a>
-                                    <a href="#" id="link-letterboxd-reviews" target="_blank" class="stat-item">
-                                        <span class="stat-value" id="letterboxd-reviews-count">--</span>
-                                        <span class="stat-name">评论</span>
-                                    </a>
-                                </div>
-
-                                <!-- Config Section -->
-                                <div class="config-section">
-                                    <div class="config-row">
-                                        <label for="letterboxd-username">用户名</label>
-                                        <input type="text" id="letterboxd-username" placeholder="例如 yourname">
-                                        <small class="help-text">Letterboxd公开数据，无需Cookie</small>
+                            <!-- Not Connected State -->
+                            <div class="profile-state not-connected" id="letterboxd-not-connected">
+                                <div class="connect-prompt">
+                                    <p class="prompt-text">导入您的 Letterboxd 观影记录</p>
+                                    <div class="letterboxd-guide">
+                                        <p class="guide-step">1️⃣ 点击下方"导出数据"前往 Letterboxd 导出页面</p>
+                                        <p class="guide-step">2️⃣ 下载 ZIP 文件并解压，找到 <code>diary.csv</code></p>
+                                        <p class="guide-step">3️⃣ 点击"上传 diary.csv"导入您的观影记录</p>
                                     </div>
                                 </div>
                             </div>
 
+                            <!-- Connected State (after import) -->
+                            <div class="profile-state connected" id="letterboxd-connected" style="display:none">
+                                <div class="profile-info-row">
+                                    <div class="summary-icon large">🎞️</div>
+                                    <div class="profile-details">
+                                        <h4>Letterboxd 数据已导入</h4>
+                                        <p class="profile-id">来源: diary.csv</p>
+                                    </div>
+                                </div>
+                                <div class="stats-row compact">
+                                    <div class="stat-item">
+                                        <span class="stat-value" id="letterboxd-watched-count">--</span>
+                                        <span class="stat-name">已看</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" id="letterboxd-rated-count">--</span>
+                                        <span class="stat-name">已评</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Card Actions -->
+                            <div class="card-actions letterboxd-actions">
+                                <button class="btn btn-success" id="sync-to-letterboxd-btn">🔄 同步到 Letterboxd</button>
+                                <a href="https://letterboxd.com/data/export/" target="_blank" class="btn btn-outline">📤
+                                    从LB导出</a>
+                                <button class="btn btn-primary" id="upload-letterboxd-btn">📥 上传 diary.csv</button>
+                                <input type="file" id="letterboxd-file-input" accept=".csv" style="display: none;">
+                            </div>
+                        </div>
+
+                        <!-- ===== Trakt Complete Card ===== -->
+                        <div class="platform-full-card trakt" id="trakt-card">
+                            <!-- Card Header -->
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon">🎯</span>
+                                    <h3>Trakt</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="trakt-status-badge">● 未连接</span>
+                            </div>
+
+                            <!-- Not Connected State - Simplified Auth -->
+                            <div class="profile-state not-connected" id="trakt-not-connected">
+                                <div class="connect-prompt" style="text-align: center; max-width: 100%;">
+                                    <p class="prompt-text" style="margin-bottom: 16px;">连接 Trakt 同步您的观影记录</p>
+                                    <p class="help-text" style="margin-bottom: 20px;">点击下方按钮进行设备授权，然后在 Trakt 网站输入验证码</p>
+
+                                    <!-- Main Auth Button -->
+                                    <button class="btn btn-primary btn-lg" id="trakt-auth-btn">🔐 授权 Trakt</button>
+
+                                    <!-- Custom Credentials (Expandable) -->
+                                    <details style="margin-top: 20px; text-align: left;">
+                                        <summary style="cursor: pointer; color: #888; font-size: 0.9rem;">⚙️ 使用自定义 API
+                                            凭据</summary>
+                                        <div class="config-section" style="margin-top: 12px;">
+                                            <p class="help-text" style="margin-bottom: 12px;">
+                                                如需使用自己的 Trakt API，请在 <a href="https://trakt.tv/oauth/applications"
+                                                    target="_blank">Trakt API 应用页面</a> 创建应用
+                                            </p>
+                                            <div class="config-row">
+                                                <label>Client ID</label>
+                                                <input type="text" id="trakt-client-id" placeholder="可选 - 留空使用内置凭据">
+                                            </div>
+                                            <div class="config-row">
+                                                <label>Client Secret</label>
+                                                <input type="password" id="trakt-client-secret"
+                                                    placeholder="可选 - 留空使用内置凭据">
+                                            </div>
+                                        </div>
+                                    </details>
+
+                                    <!-- Device Code Display (hidden by default) -->
+                                    <div id="trakt-device-code-area" style="display: none; margin-top: 20px;">
+                                        <div class="device-code-box">
+                                            <p style="margin-bottom: 12px; text-align: center;">请访问以下链接并输入代码:</p>
+                                            <a href="#" id="trakt-verify-url" target="_blank" class="btn btn-outline"
+                                                style="display: block; text-align: center; margin-bottom: 12px;">
+                                                https://trakt.tv/activate
+                                            </a>
+                                            <div class="user-code-display" id="trakt-user-code">--------</div>
+                                            <p class="help-text" style="text-align: center; margin-top: 12px;">
+                                                <span id="trakt-auth-status-text">等待授权中...</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Connected State (hidden by default) -->
+                            <div class="profile-state connected" id="trakt-connected" style="display:none">
+                                <div class="profile-info-row">
+                                    <img class="profile-avatar" id="trakt-avatar"
+                                        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23ed1c24'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23fff' font-size='12' font-weight='bold'%3ETrakt%3C/text%3E%3C/svg%3E"
+                                        alt="avatar">
+                                    <div class="profile-details">
+                                        <h4 id="trakt-display-name">用户名</h4>
+                                        <p class="profile-id">@<span id="trakt-user-id-display">--</span></p>
+                                        <p class="join-date" id="trakt-join-date">Trakt 用户</p>
+                                    </div>
+                                    <a href="#" class="btn-link" id="trakt-profile-link" target="_blank">Trakt →</a>
+                                </div>
+                                <div class="stats-row compact">
+                                    <a href="#" id="link-trakt-watched" target="_blank" class="stat-item">
+                                        <span class="stat-value" id="trakt-watched-count">--</span>
+                                        <span class="stat-name">已观看</span>
+                                    </a>
+                                    <a href="#" id="link-trakt-rated" target="_blank" class="stat-item">
+                                        <span class="stat-value" id="trakt-rated-count">--</span>
+                                        <span class="stat-name">已评分</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- Card Actions -->
                             <div class="card-actions">
-                                <a href="https://letterboxd.com/import/" target="_blank" class="btn btn-secondary">📥
-                                    导入</a>
-                                <a href="https://letterboxd.com/settings/data/" target="_blank"
-                                    class="btn btn-secondary">📤 导出</a>
-                                <button class="btn btn-primary" id="test-letterboxd-btn">🔗 测试连接</button>
+                                <button class="btn btn-outline" id="test-trakt-btn" style="display:none">🔄
+                                    测试连接</button>
+                                <button class="btn btn-primary" id="update-trakt-btn" style="display:none">📥
+                                    获取数据</button>
+                                <button class="btn btn-secondary" id="logout-trakt-btn" style="display:none">退出</button>
+                            </div>
+                        </div>
+
+                        <!-- TMDB Card -->
+                        <div class="platform-full-card tmdb" id="tmdb-card">
+                            <!-- Card Header -->
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon">🎬</span>
+                                    <h3>TMDB</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="tmdb-status-badge">● 未连接</span>
+                            </div>
+
+                            <!-- Not Connected State -->
+                            <div class="profile-state not-connected" id="tmdb-not-connected">
+                                <div class="connect-prompt" style="text-align: center; max-width: 100%;">
+                                    <p class="prompt-text" style="margin-bottom: 16px;">连接 TMDB 获取电影信息</p>
+                                    <p class="help-text" style="margin-bottom: 20px;">需要 TMDB API Key，可在 <a
+                                            href="https://www.themoviedb.org/settings/api" target="_blank">TMDB 设置</a>
+                                        获取</p>
+
+                                    <div class="config-section" style="text-align: left;">
+                                        <div class="config-row">
+                                            <label>API Key (v3 auth)</label>
+                                            <input type="text" id="tmdb-api-key" placeholder="输入您的 TMDB API Key">
+                                        </div>
+                                        <p class="help-text" style="margin-top: 8px; font-size: 0.8rem;">
+                                            有了 API Key 后即可搜索电影信息。如需同步评分，需进一步授权获取 Session。
+                                        </p>
+                                    </div>
+
+                                    <!-- Connect Button -->
+                                    <button class="btn btn-primary" id="tmdb-connect-btn" style="margin-top: 16px;">🔗
+                                        连接 TMDB</button>
+                                </div>
+                            </div>
+
+                            <!-- Connected State -->
+                            <div class="profile-state connected" id="tmdb-connected" style="display:none;">
+                                <!-- Profile Info -->
+                                <div class="profile-info-row">
+                                    <img id="tmdb-avatar" class="profile-avatar"
+                                        src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3edd904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg"
+                                        alt="TMDB">
+                                    <div class="profile-details">
+                                        <h4 id="tmdb-display-name">TMDB User</h4>
+                                        <p class="profile-id">ID: <span id="tmdb-user-id-display">--</span></p>
+                                    </div>
+                                    <a id="tmdb-profile-link" href="https://www.themoviedb.org/" target="_blank"
+                                        class="btn-link">查看主页</a>
+                                </div>
+
+                                <!-- Stats Row -->
+                                <div class="stats-row compact">
+                                    <a href="#" id="link-tmdb-rated" target="_blank" class="stat-item">
+                                        <span class="stat-value" id="tmdb-rated-count">--</span>
+                                        <span class="stat-name">已评分</span>
+                                    </a>
+                                    <a href="#" id="link-tmdb-watchlist" target="_blank" class="stat-item">
+                                        <span class="stat-value" id="tmdb-watchlist-count">--</span>
+                                        <span class="stat-name">想看</span>
+                                    </a>
+                                </div>
+
+                                <!-- Session Auth Button -->
+                                <div id="tmdb-session-section"
+                                    style="margin-top: 12px; text-align: center; display: none;">
+                                    <p class="help-text" style="margin-bottom: 8px;">需要完成用户授权才能同步评分</p>
+                                    <button class="btn btn-secondary" id="tmdb-auth-session-btn">🔐 授权同步评分</button>
+                                </div>
+                            </div>
+
+                            <!-- Card Actions -->
+                            <div class="card-actions">
+                                <button class="btn btn-primary" id="update-tmdb-btn" style="display:none">📥
+                                    获取数据</button>
+                                <button class="btn btn-secondary" id="logout-tmdb-btn"
+                                    style="display:none">断开连接</button>
                             </div>
                         </div>
 
@@ -204,13 +468,27 @@
                 <!-- Tab: Data -->
                 <div class="tab-content" id="tab-data">
                     <div class="content-header">
-                        <h2>数据管理</h2>
-                        <p>查看和更新您的影视评分数据</p>
+                        <h2>我的影片库</h2>
+                        <p>跨平台统一视图，自动按电影去重</p>
                     </div>
 
-                    <div class="data-controls">
-                        <button class="btn btn-primary" id="fetch-douban-btn">🎬 获取豆瓣数据</button>
-                        <button class="btn btn-primary" id="fetch-imdb-btn">⭐ 获取 IMDB 数据</button>
+                    <!-- Data Controls Row -->
+                    <div class="data-controls-row">
+                        <div class="data-controls">
+                            <button class="btn btn-primary btn-sm" id="fetch-douban-btn">🎬 豆瓣</button>
+                            <button class="btn btn-primary btn-sm" id="fetch-imdb-btn">⭐ IMDB</button>
+                            <button class="btn btn-secondary btn-sm" id="fetch-trakt-btn">🎯 Trakt</button>
+                            <button class="btn btn-secondary btn-sm" id="fetch-letterboxd-btn">🎞️ Letterboxd</button>
+                        </div>
+                        <div class="export-controls">
+                            <select id="export-source" class="export-select">
+                                <option value="merged" selected>合并数据</option>
+                                <option value="douban">豆瓣</option>
+                                <option value="imdb">IMDB</option>
+                                <option value="trakt">Trakt</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm" id="do-export-btn">📥 导出</button>
+                        </div>
                     </div>
 
                     <div id="progress-card" style="display: none;">
@@ -220,84 +498,105 @@
                         </div>
                     </div>
 
-                    <div class="data-grid">
-                        <div class="data-card" id="douban-preview-card" style="display: none;">
-                            <div class="data-card-header">
-                                <h3>🎬 豆瓣数据</h3>
-                                <div class="data-card-actions">
-                                    <span class="data-summary" id="douban-summary"></span>
-                                    <a href="#" class="download-btn" id="douban-download-btn" title="下载CSV"
-                                        style="display: none;">⬇️</a>
-                                </div>
-                            </div>
-                            <div class="data-preview" id="douban-preview"></div>
-                        </div>
+                    <!-- Platform Filter Tabs -->
+                    <div class="library-filter-tabs" id="library-filter-tabs">
+                        <button class="filter-tab active" data-filter="all">
+                            🔗 共有 <span class="filter-count" id="count-all">0</span>
+                        </button>
+                        <button class="filter-tab" data-filter="douban">
+                            🎬 豆瓣独占 <span class="filter-count" id="count-douban">0</span>
+                        </button>
+                        <button class="filter-tab" data-filter="imdb">
+                            ⭐ IMDB独占 <span class="filter-count" id="count-imdb">0</span>
+                        </button>
+                        <button class="filter-tab" data-filter="trakt">
+                            🎯 Trakt独占 <span class="filter-count" id="count-trakt">0</span>
+                        </button>
+                        <button class="filter-tab" data-filter="letterboxd">
+                            🎞️ Letterboxd独占 <span class="filter-count" id="count-letterboxd">0</span>
+                        </button>
+                        <button class="filter-tab" data-filter="tmdb">
+                            🎬 TMDB独占 <span class="filter-count" id="count-tmdb">0</span>
+                        </button>
+                    </div>
 
-                        <div class="data-card" id="imdb-preview-card" style="display: none;">
-                            <div class="data-card-header">
-                                <h3>⭐ IMDB 数据</h3>
-                                <div class="data-card-actions">
-                                    <span class="data-summary" id="imdb-summary"></span>
-                                    <a href="#" class="download-btn" id="imdb-download-btn" title="下载CSV"
-                                        style="display: none;">⬇️</a>
-                                </div>
-                            </div>
-                            <div class="data-preview" id="imdb-preview"></div>
+                    <!-- Unified Library View -->
+                    <div class="unified-library" id="unified-library">
+                        <div class="library-empty" id="library-empty">
+                            <p>📚 暂无数据</p>
+                            <p class="help-text">请先从上方获取平台数据</p>
+                        </div>
+                        <div class="library-list" id="library-list" style="display: none;"></div>
+                        <div class="library-pagination" id="library-pagination" style="display: none;">
+                            <button class="btn btn-secondary btn-sm" id="lib-prev-btn" disabled>← 上一页</button>
+                            <span class="pagination-info" id="lib-page-info">1 / 1</span>
+                            <button class="btn btn-secondary btn-sm" id="lib-next-btn" disabled>下一页 →</button>
                         </div>
                     </div>
+
                 </div>
 
                 <!-- Tab: Sync -->
                 <div class="tab-content" id="tab-sync">
                     <div class="content-header">
-                        <h2>同步中心</h2>
-                        <p>在不同平台间同步您的评分数据</p>
+                        <h2>数据同步</h2>
+                        <p>在不同平台间同步评分数据</p>
                     </div>
 
                     <div class="sync-wizard">
                         <div class="sync-step">
                             <div class="step-number">1</div>
                             <div class="step-content">
-                                <h4>选择同步方向</h4>
+                                <h4>同步方向</h4>
                                 <select id="sync-direction" class="sync-select">
                                     <option value="douban-to-imdb">豆瓣 → IMDB</option>
                                     <option value="imdb-to-douban">IMDB → 豆瓣</option>
+                                    <option value="trakt-to-douban">Trakt → 豆瓣</option>
+                                    <option value="douban-to-trakt">豆瓣 → Trakt</option>
+                                    <option value="imdb-to-trakt">IMDB → Trakt</option>
+                                    <option value="imdb-to-tmdb">IMDB → TMDB</option>
+                                    <option value="trakt-to-tmdb">Trakt → TMDB</option>
                                 </select>
+                                <p class="help-text" id="sync-direction-hint">全量同步：同步所有看过的电影及评分</p>
                             </div>
                         </div>
 
                         <div class="sync-step">
                             <div class="step-number">2</div>
                             <div class="step-content">
-                                <h4>同步模式</h4>
-                                <select id="sync-mode" class="sync-select">
-                                    <option value="ratings_only">仅同步有评分的</option>
-                                    <option value="watched_and_ratings">同步"看过"状态+评分</option>
-                                </select>
-                                <p class="help-text">选择"看过+评分"可同步未评分但标记为看过的电影</p>
-                            </div>
-                        </div>
-
-                        <div class="sync-step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
-                                <h4>预览差异</h4>
-                                <button id="preview-btn" class="btn btn-secondary" disabled>🔍 预览将同步的内容</button>
-                            </div>
-                        </div>
-
-                        <div class="sync-step">
-                            <div class="step-number">4</div>
-                            <div class="step-content">
-                                <h4>执行同步</h4>
-                                <button id="sync-btn" class="btn btn-primary btn-lg" disabled>✨ 开始同步</button>
+                                <h4>操作</h4>
+                                <div class="sync-actions">
+                                    <button id="preview-btn" class="btn btn-secondary">🔍 预览</button>
+                                    <button id="sync-btn" class="btn btn-primary" disabled>✨ 执行同步</button>
+                                </div>
                             </div>
                         </div>
                     </div>
 
+                    <!-- Unrated Movies Reminder (for IMDb destination) -->
+                    <div class="sync-unrated-section" id="sync-unrated-card" style="display: none;">
+                        <div class="data-card-header">
+                            <h3>⚠️ 待评价电影（无法同步到 IMDb）</h3>
+                            <span class="data-summary" id="sync-unrated-summary"></span>
+                        </div>
+                        <p class="help-text">以下电影在源平台未评分，IMDb 不支持仅标记"看过"。请先评分后再同步。</p>
+                        <div class="data-preview" id="sync-unrated-list"></div>
+                    </div>
+
+
+
+                    <!-- Sync Preview with Pagination -->
                     <div class="sync-preview-section" id="sync-preview-card" style="display: none;">
-                        <h3>同步预览</h3>
-                        <div id="sync-preview-list"></div>
+                        <div class="data-card-header">
+                            <h3>同步预览</h3>
+                            <span class="data-summary" id="sync-preview-summary"></span>
+                        </div>
+                        <div class="data-preview" id="sync-preview-list"></div>
+                        <div class="pagination-controls" id="sync-preview-pagination" style="display: none;">
+                            <button class="btn btn-sm" id="sync-prev-page">上一页</button>
+                            <span id="sync-page-info">第 1 页 / 共 1 页</span>
+                            <button class="btn btn-sm" id="sync-next-page">下一页</button>
+                        </div>
                     </div>
 
                     <div class="sync-result-section" id="merged-data-card" style="display: none;">
@@ -314,86 +613,6 @@
                     </div>
                 </div>
 
-                <!-- Tab: Import/Export -->
-                <div class="tab-content" id="tab-import-export">
-                    <div class="content-header">
-                        <h2>导入导出</h2>
-                        <p>在不同格式间转换您的观影数据</p>
-                    </div>
-
-                    <div class="import-export-grid">
-                        <!-- Import Section -->
-                        <div class="ie-section">
-                            <h3>📥 导入数据</h3>
-                            <div class="ie-card">
-                                <div class="ie-option">
-                                    <input type="file" id="import-file" accept=".csv,.json" hidden>
-                                    <button class="btn btn-lg btn-outline" id="import-file-btn">
-                                        <span class="btn-icon">📁</span>
-                                        选择文件
-                                    </button>
-                                    <span class="file-name" id="import-file-name">未选择文件</span>
-                                </div>
-                                <div class="ie-format-select">
-                                    <label>文件格式:</label>
-                                    <select id="import-format">
-                                        <option value="auto">自动检测</option>
-                                        <option value="letterboxd">Letterboxd CSV</option>
-                                        <option value="imdb">IMDB CSV</option>
-                                        <option value="cinerecord">CineRecord JSON</option>
-                                    </select>
-                                </div>
-                                <button class="btn btn-primary" id="do-import-btn" disabled>导入</button>
-                            </div>
-                        </div>
-
-                        <!-- Export Section -->
-                        <div class="ie-section">
-                            <h3>📤 导出数据</h3>
-                            <div class="ie-card">
-                                <div class="ie-format-select">
-                                    <label>导出格式:</label>
-                                    <select id="export-format">
-                                        <option value="cinepersona">📊 CinePersona JSON (推荐)</option>
-                                        <option value="cinerecord-csv">CineRecord CSV</option>
-                                        <option value="letterboxd">Letterboxd CSV</option>
-                                        <option value="imdb">IMDB CSV</option>
-                                        <option value="json">完整 JSON</option>
-                                    </select>
-                                </div>
-                                <div class="ie-format-select">
-                                    <label>数据来源:</label>
-                                    <select id="export-source">
-                                        <option value="douban">豆瓣数据</option>
-                                        <option value="imdb">IMDB 数据</option>
-                                        <option value="merged">合并数据</option>
-                                    </select>
-                                </div>
-                                <button class="btn btn-primary" id="do-export-btn">导出</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- External Links -->
-                    <div class="external-links-section">
-                        <h3>🔗 外部平台链接</h3>
-                        <div class="external-links-grid">
-                            <a href="https://letterboxd.com/import/" target="_blank" class="external-link-card">
-                                <span class="link-icon">🎞️</span>
-                                <span class="link-title">Letterboxd 导入</span>
-                            </a>
-                            <a href="https://letterboxd.com/settings/data/" target="_blank" class="external-link-card">
-                                <span class="link-icon">🎞️</span>
-                                <span class="link-title">Letterboxd 导出</span>
-                            </a>
-
-                            <a href="https://www.imdb.com/exports/" target="_blank" class="external-link-card">
-                                <span class="link-icon">⭐</span>
-                                <span class="link-title">IMDB 导出</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Tab: Settings -->
                 <div class="tab-content" id="tab-settings">
@@ -424,9 +643,8 @@
                                     <input type="text" id="douban-user-id-config" placeholder="例如 gawaintan">
                                 </div>
                                 <div class="form-actions">
-                                    <button class="btn btn-secondary btn-sm" id="login-douban-settings-btn">🔑
-                                        自动登录</button>
-                                    <button class="btn btn-primary btn-sm" id="test-douban-settings-btn">✅ 测试</button>
+                                    <button class="btn btn-primary btn-sm" id="test-douban-settings-btn">✅
+                                        测试连接</button>
                                 </div>
                             </div>
 
@@ -446,29 +664,11 @@
                                     <input type="text" id="imdb-user-id-config" placeholder="例如 ur12345678">
                                 </div>
                                 <div class="form-actions">
-                                    <button class="btn btn-secondary btn-sm" id="login-imdb-settings-btn">🔑
-                                        自动登录</button>
-                                    <button class="btn btn-primary btn-sm" id="test-imdb-settings-btn">✅ 测试</button>
+                                    <button class="btn btn-primary btn-sm" id="test-imdb-settings-btn">✅ 测试连接</button>
                                 </div>
                             </div>
 
-                            <!-- Letterboxd Config (Username only) -->
-                            <div class="auth-config-card">
-                                <div class="auth-config-header">
-                                    <span class="auth-icon">🎞️</span>
-                                    <span class="auth-name">Letterboxd</span>
-                                    <span class="auth-status" id="settings-letterboxd-status">未配置</span>
-                                </div>
-                                <div class="form-group">
-                                    <label for="letterboxd-username-input">用户名 (公开主页)</label>
-                                    <input type="text" id="letterboxd-username-input" placeholder="例如 yourname">
-                                    <small class="help-text">Letterboxd 使用公开主页数据，无需 Cookie</small>
-                                </div>
-                                <div class="form-actions">
-                                    <button class="btn btn-primary btn-sm" id="test-letterboxd-settings-btn">✅
-                                        测试</button>
-                                </div>
-                            </div>
+
                         </div>
                     </div>
 
@@ -509,6 +709,48 @@
                         </div>
                     </div>
 
+                    <!-- Platform Data Timestamps -->
+                    <div class="settings-section">
+                        <h3>📅 各平台数据时间戳</h3>
+                        <p class="section-desc">显示各平台最新记录时间，清除后下次获取将执行全量更新</p>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>🎬 豆瓣</span>
+                                <small id="douban-latest-ts-display">未获取</small>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" data-clear-ts="douban_latest_record_ts">🗑️
+                                清除</button>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>⭐ IMDB</span>
+                                <small id="imdb-latest-ts-display">未获取</small>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" data-clear-ts="imdb_latest_record_ts">🗑️
+                                清除</button>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>🎯 Trakt</span>
+                                <small id="trakt-latest-ts-display">未获取</small>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" data-clear-ts="trakt_latest_record_ts">🗑️
+                                清除</button>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>🎬 TMDB</span>
+                                <small id="tmdb-latest-ts-display">未获取</small>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" data-clear-ts="tmdb_latest_record_ts">🗑️
+                                清除</button>
+                        </div>
+                    </div>
+
                     <!-- About -->
                     <div class="settings-section">
                         <h3>ℹ️ 关于</h3>
@@ -520,16 +762,6 @@
                     </div>
                 </div>
             </main>
-
-            <!-- Right Sidebar - Log Output -->
-            <aside class="sidebar-right">
-                <div class="log-panel">
-                    <h4>📋 运行日志</h4>
-                    <div id="log-output">
-                        <p class="placeholder">等待操作...</p>
-                    </div>
-                </div>
-            </aside>
         </div>
     </div>
 
@@ -542,8 +774,10 @@
         </div>
     </div>
 
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ now }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="/static/script.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v={{ now }}"></script>
 </body>
 
 </html>

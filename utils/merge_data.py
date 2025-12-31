@@ -39,8 +39,13 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
     }, inplace=True)
     
     # Ensure join key 'Const' is of the same type and handle potential read errors
-    douban_df['Const'] = douban_df['Const'].astype(str)
-    imdb_df['Const'] = imdb_df['Const'].astype(str)
+    # Replace empty strings and 'nan' with actual NaN first
+    douban_df['Const'] = douban_df['Const'].replace(['', 'nan', 'NaN', 'None'], np.nan)
+    imdb_df['Const'] = imdb_df['Const'].replace(['', 'nan', 'NaN', 'None'], np.nan)
+    
+    # Convert to string but keep NaN as NaN
+    douban_df['Const'] = douban_df['Const'].apply(lambda x: str(x) if pd.notna(x) else np.nan)
+    imdb_df['Const'] = imdb_df['Const'].apply(lambda x: str(x) if pd.notna(x) else np.nan)
 
     # --- Merging ---
     # Use an outer join to keep all records from both dataframes
@@ -49,8 +54,9 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
     # --- Data Enrichment and Field Selection ---
     final_df = pd.DataFrame()
 
-    final_df['imdb_id'] = merged_df['Const']
-    final_df['douban_id'] = merged_df['douban_id_douban'].fillna(merged_df['douban_id_imdb']).astype(str)
+    # Clean imdb_id: replace 'nan' strings with empty string
+    final_df['imdb_id'] = merged_df['Const'].apply(lambda x: x if pd.notna(x) and str(x).lower() != 'nan' and str(x).startswith('tt') else '')
+    final_df['douban_id'] = merged_df['douban_id_douban'].fillna(merged_df.get('douban_id_imdb', '')).astype(str).replace(['nan', 'None'], '')
     
     # Smartly choose the best title
     final_df['Title'] = np.where(merged_df['Title_douban'].notna(), merged_df['Title_douban'], merged_df['Title_imdb'])

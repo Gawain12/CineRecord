@@ -148,7 +148,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
             logger.log("数据已是最新。", 'success')
             try:
                 df = pd.read_csv(output_path)
-                return clean_df_for_json(df.head())
+                return clean_df_for_json(df)
             except Exception:
                 return []
 
@@ -176,7 +176,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         df_final.to_csv(output_path, index=False, encoding='utf-8-sig')
         
         logger.log(f"成功！新增 {len(df_new)} 条，总计 {len(df_final)} 条。", 'success')
-        return clean_df_for_json(df_final.head())
+        return clean_df_for_json(df_final)
 
 def run_scraper(user_id, cookie, output_path, socketio):
     logger = SocketLogger(socketio, 'douban')

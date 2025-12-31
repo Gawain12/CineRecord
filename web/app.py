@@ -423,6 +423,41 @@ def api_get_library():
             return str(int(val))  # Convert float IDs to int string
         return str(val) if val else ''
     
+    def clean_date(val):
+        """Clean date fields - normalize to YYYY-MM-DD format for proper sorting"""
+        if val is None:
+            return ''
+        if isinstance(val, float):
+            if math.isnan(val):
+                return ''
+            return str(int(val))
+        
+        date_str = str(val).strip()
+        if not date_str:
+            return ''
+        
+        # Try to parse and normalize common date formats
+        from datetime import datetime
+        formats_to_try = [
+            '%m/%d/%y',      # 12/24/25 (MM/DD/YY)
+            '%m/%d/%Y',      # 12/24/2025 (MM/DD/YYYY) 
+            '%Y-%m-%d',      # 2025-12-24 (ISO format)
+            '%d/%m/%y',      # 24/12/25 (DD/MM/YY)
+            '%d/%m/%Y',      # 24/12/2025 (DD/MM/YYYY)
+            '%Y/%m/%d',      # 2025/12/24
+            '%d %b %Y',      # 24 Dec 2025
+            '%b %d, %Y',     # Dec 24, 2025
+        ]
+        
+        for fmt in formats_to_try:
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                return dt.strftime('%Y-%m-%d')
+            except ValueError:
+                continue
+        
+        return date_str
+    
     page = int(request.args.get('page', 1))
     page_size = int(request.args.get('page_size', 20))
     platform_filter = request.args.get('platform', 'all')
@@ -451,16 +486,22 @@ def api_get_library():
                 return
             
             # Extract platform-specific data
-            # Handle ratings (convert 5-star to 10-point if needed)
+            # Handle ratings - normalize to 10-point scale
             raw_rating = movie.get('Your Rating') or movie.get('YourRating_douban') or movie.get('YourRating_imdb') or movie.get('rating') or movie.get('评分') or movie.get('Rating')
-            if platform == 'letterboxd' and raw_rating:
-                # specific handling for Letterboxd 5-star scale
+            
+            # Normalize ratings: Douban and Letterboxd use 5-star scale, convert to 10-point
+            if raw_rating:
                 try:
-                    user_rating = clean_value(float(raw_rating) * 2)
+                    rating_float = float(raw_rating)
+                    if platform in ['douban', 'letterboxd']:
+                        # 5-star scale -> 10-point scale
+                        user_rating = rating_float * 2
+                    else:
+                        user_rating = rating_float
                 except:
                     user_rating = clean_value(raw_rating)
             else:
-                user_rating = clean_value(raw_rating)
+                user_rating = ''
 
             # Platform ratings (public scores)
             douban_rating_val = clean_value(movie.get('Douban Rating') or movie.get('豆瓣评分') or '')
@@ -488,7 +529,7 @@ def api_get_library():
                         if poster:
                             break
                 
-                date_rated = clean_value(movie.get('Date Rated') or movie.get('date_rated') or movie.get('标记日期') or movie.get('Watched Date') or '')
+                date_rated = clean_date(movie.get('Date Rated') or movie.get('date_rated') or movie.get('标记日期') or movie.get('Watched Date') or '')
                 imdb_id = clean_id(movie.get('Const') or movie.get('imdb_id') or movie.get('IMDB ID') or movie.get('IMDb ID'))
                 douban_id = clean_id(movie.get('douban_id') or movie.get('movie_id'))
                 tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID'))
@@ -1206,14 +1247,40 @@ def handle_get_unified_library(data):
             return val
         
         def clean_date(val):
-            """Clean date fields - ensure string format YYYY-MM-DD"""
+            """Clean date fields - normalize to YYYY-MM-DD format for proper sorting"""
             if val is None:
                 return ''
             if isinstance(val, float):
                 if math.isnan(val):
                     return ''
-                return str(int(val))  # Convert float dates like 2023.0 to string
-            return str(val).strip()
+                return str(int(val))
+            
+            date_str = str(val).strip()
+            if not date_str:
+                return ''
+            
+            # Try to parse and normalize common date formats
+            from datetime import datetime
+            formats_to_try = [
+                '%m/%d/%y',      # 12/24/25 (MM/DD/YY)
+                '%m/%d/%Y',      # 12/24/2025 (MM/DD/YYYY) 
+                '%Y-%m-%d',      # 2025-12-24 (ISO format - already correct)
+                '%d/%m/%y',      # 24/12/25 (DD/MM/YY) - European format
+                '%d/%m/%Y',      # 24/12/2025 (DD/MM/YYYY)
+                '%Y/%m/%d',      # 2025/12/24
+                '%d %b %Y',      # 24 Dec 2025
+                '%b %d, %Y',     # Dec 24, 2025
+            ]
+            
+            for fmt in formats_to_try:
+                try:
+                    dt = datetime.strptime(date_str, fmt)
+                    return dt.strftime('%Y-%m-%d')  # Output as YYYY-MM-DD
+                except ValueError:
+                    continue
+            
+            # If no format matches, return original string
+            return date_str
 
         def clean_id(val):
             """Clean ID fields - convert NaN/None to empty string"""
@@ -1246,16 +1313,22 @@ def handle_get_unified_library(data):
                 return
             
             # Extract platform-specific data
-            # Handle ratings (convert 5-star to 10-point if needed)
+            # Handle ratings - normalize to 10-point scale
             raw_rating = movie.get('Your Rating') or movie.get('YourRating_douban') or movie.get('YourRating_imdb') or movie.get('rating') or movie.get('评分') or movie.get('Rating')
-            if platform == 'letterboxd' and raw_rating:
-                # specific handling for Letterboxd 5-star scale
+            
+            # Normalize ratings: Douban and Letterboxd use 5-star scale, convert to 10-point
+            if raw_rating:
                 try:
-                    user_rating = clean_value(float(raw_rating) * 2)
+                    rating_float = float(raw_rating)
+                    if platform in ['douban', 'letterboxd']:
+                        # 5-star scale -> 10-point scale
+                        user_rating = rating_float * 2
+                    else:
+                        user_rating = rating_float
                 except:
                     user_rating = clean_value(raw_rating)
             else:
-                user_rating = clean_value(raw_rating)
+                user_rating = ''
 
             # Platform ratings (public scores)
             douban_rating_val = clean_value(movie.get('Douban Rating') or movie.get('豆瓣评分') or '')

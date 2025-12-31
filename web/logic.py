@@ -24,20 +24,17 @@ class SocketLogger:
         self.socketio.emit('progress', {'current': current, 'total': total, 'step': step})
 
 
-def get_diff_movies(douban_csv_path, imdb_csv_path, source, logger, sync_mode='ratings_only'):
+def get_diff_movies(douban_csv_path, imdb_csv_path, source, target, logger):
     """
-    Get movies that exist in source but not in target.
+    Get movies that exist in source but not in target (full sync mode).
     
-    Args:
-        sync_mode: 'ratings_only' - only sync rated movies
-                  'watched_and_ratings' - sync all watched movies (including unrated)
+    Returns:
+        dict with 'syncable' (movies that can be synced) and 'unrated' (need rating for IMDb)
     """
-    # (No changes needed in this function, it will use the logger passed to it)
     if not os.path.exists(douban_csv_path) or not os.path.exists(imdb_csv_path):
         logger.log("错误: 一个或两个评分CSV文件未找到。", 'error')
         return None
-    # For diff calculation, we don't need to save the merged file permanently,
-    # but the function requires an output path. We'll use a temporary one.
+    
     temp_dir = os.path.join(os.path.dirname(douban_csv_path), 'temp')
     os.makedirs(temp_dir, exist_ok=True)
     temp_output_path = os.path.join(temp_dir, 'temp_merged_for_diff.csv')
@@ -46,29 +43,31 @@ def get_diff_movies(douban_csv_path, imdb_csv_path, source, logger, sync_mode='r
     if merged_df is None:
         logger.log("由于合并过程中出错，操作中止。", 'error')
         return None
+    
     merged_df['YourRating_imdb'] = pd.to_numeric(merged_df['YourRating_imdb'], errors='coerce')
     merged_df['YourRating_douban'] = pd.to_numeric(merged_df['YourRating_douban'], errors='coerce')
     
+    # Full sync: Get all movies from source not in target
     if source == 'douban':
-        if sync_mode == 'ratings_only':
-            # Only sync movies that have a rating in source but not in target
-            diff_df = merged_df[merged_df['YourRating_douban'].notna() & merged_df['YourRating_imdb'].isna()].copy()
-        else:
-            # 'watched_and_ratings' - sync all movies from source not in target
-            # For douban, any movie in the list is "watched", rating can be 0 or empty
-            diff_df = merged_df[merged_df['YourRating_imdb'].isna() & merged_df['douban_id'].notna()].copy()
+        diff_df = merged_df[merged_df['YourRating_imdb'].isna() & merged_df['douban_id'].notna()].copy()
+        rating_col = 'YourRating_douban'
     else:
-        if sync_mode == 'ratings_only':
-            diff_df = merged_df[merged_df['YourRating_imdb'].notna() & merged_df['YourRating_douban'].isna()].copy()
-        else:
-            # For IMDB, sync all watched movies
-            diff_df = merged_df[merged_df['YourRating_douban'].isna() & merged_df['imdb_id'].notna()].copy()
+        diff_df = merged_df[merged_df['YourRating_douban'].isna() & merged_df['imdb_id'].notna()].copy()
+        rating_col = 'YourRating_imdb'
     
     date_col = 'DateRated_douban' if source == 'douban' else 'DateRated_imdb'
     if date_col in diff_df.columns:
         diff_df[date_col] = pd.to_datetime(diff_df[date_col], errors='coerce')
         diff_df.sort_values(by=date_col, ascending=True, inplace=True)
-    return diff_df
+    
+    # For IMDb target: separate rated (syncable) from unrated
+    if target == 'imdb':
+        syncable_df = diff_df[diff_df[rating_col].notna() & (diff_df[rating_col] > 0)].copy()
+        unrated_df = diff_df[diff_df[rating_col].isna() | (diff_df[rating_col] == 0)].copy()
+        return {'syncable': syncable_df, 'unrated': unrated_df}
+    else:
+        # For Douban/Trakt target: all movies are syncable (can mark as watched without rating)
+        return {'syncable': diff_df, 'unrated': pd.DataFrame()}
 
 
 def safe_df_to_records(df):
@@ -91,13 +90,12 @@ def safe_df_to_records(df):
         records.append(record)
     return records
 
-def perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, douban_cookie, imdb_cookie, socketio, sync_mode='ratings_only'):
+def perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, douban_cookie, imdb_cookie, socketio):
     """
-    Main logic function modified to use SocketLogger for real-time updates.
+    Main sync logic - Full sync mode (all watched movies + ratings).
     
-    Args:
-        sync_mode: 'ratings_only' - only sync rated movies
-                  'watched_and_ratings' - sync all watched movies (including unrated)
+    For IMDb target: separates unrated movies (cannot sync) and shows them as reminder.
+    For Douban/Trakt target: syncs all (can mark as watched even without rating).
     """
     logger = SocketLogger(socketio)
     source, target = direction.split('-to-')
@@ -109,21 +107,31 @@ def perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, douban_coo
     if os.path.exists(failure_log_path):
         try:
             failures_df = pd.read_csv(failure_log_path)
-            # Add both douban and imdb ids to the failure set, handling potential missing columns
             if 'douban_id' in failures_df.columns:
                 failed_ids.update(failures_df['douban_id'].dropna().astype(str))
             if 'imdb_id' in failures_df.columns:
                 failed_ids.update(failures_df['imdb_id'].dropna().astype(str))
         except pd.errors.EmptyDataError:
-            pass # File is empty, which is fine
+            pass
     
-    logger.log(f"开始处理: 从 {source} 同步到 {target} (模式: {sync_mode})", 'info')
+    logger.log(f"开始处理: 从 {source} 同步到 {target} (全量同步)", 'info')
     
-    movies_to_sync = get_diff_movies(douban_path, imdb_path, source, logger, sync_mode)
+    diff_result = get_diff_movies(douban_path, imdb_path, source, target, logger)
 
-    if movies_to_sync is None:
+    if diff_result is None:
         logger.log("无法获取差异数据，操作终止。", 'error')
         return
+    
+    movies_to_sync = diff_result['syncable']
+    unrated_movies = diff_result['unrated']
+    
+    # Emit unrated movies for IMDb target (as a reminder)
+    if target == 'imdb' and not unrated_movies.empty:
+        logger.log(f"⚠️ 发现 {len(unrated_movies)} 部待评价电影（无法同步到 IMDb）", 'info')
+        socketio.emit('sync_unrated', {
+            'movies': safe_df_to_records(unrated_movies),
+            'count': len(unrated_movies)
+        })
 
     # --- Permanent Fail List & Actual Sync Logic ---
     newly_failed_items = []
@@ -221,19 +229,9 @@ def perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, douban_coo
                         failure_df = pd.DataFrame([{'douban_id': row.get('douban_id'), 'imdb_id': row.get('imdb_id'), 'Title': row.get('Title'), 'failed_at': pd.Timestamp.now()}])
                         failure_df.to_csv(failure_log_path, mode='a', header=not os.path.exists(failure_log_path), index=False)
                 else:
-                    # No rating (watched only) - in watched_and_ratings mode
-                    if sync_mode == 'watched_and_ratings':
-                        # Use rating 1 as placeholder for "watched but not rated"
-                        placeholder_rating = 2  # IMDB uses 1-10, 2 = 1星 in douban scale
-                        if rate_on_imdb(imdb_id, placeholder_rating, headers, movie_title=row.get('Title')):
-                            logger.log(f"✅ {i+1}/{total_movies}: {row['Title']} -> IMDb (占位1分)", 'success')
-                            successful_syncs += 1
-                        else:
-                            logger.log(f"❌ {i+1}/{total_movies}: {row['Title']} - API 调用失败", 'error')
-                            failed_count += 1
-                    else:
-                        logger.log(f"⚠️ {i+1}/{total_movies}: {row['Title']} - 跳过 (无评分)", 'info')
-                        skipped_count += 1
+                    # No rating - should not happen since we pre-filter, but just in case
+                    logger.log(f"⚠️ {i+1}/{total_movies}: {row['Title']} - 跳过 (无评分)", 'info')
+                    skipped_count += 1
                 
                 time.sleep(random.uniform(1, 3))
 
@@ -266,16 +264,14 @@ def perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, douban_coo
                         failure_df = pd.DataFrame([{'douban_id': row.get('douban_id'), 'imdb_id': row.get('imdb_id'), 'Title': row.get('Title'), 'failed_at': pd.Timestamp.now()}])
                         failure_df.to_csv(failure_log_path, mode='a', header=not os.path.exists(failure_log_path), index=False)
                 else:
-                    # No rating (watched only)
-                    if sync_mode == 'watched_and_ratings':
-                        # Douban supports marking as watched without rating
-                        # We can use rating=0 which marks as "看过" without stars
-                        # But we'll skip for now to avoid noise
-                        logger.log(f"⏭️ {i+1}/{total_movies}: {row['Title']} - 仅观看记录(无评分)，跳过", 'info')
-                        skipped_count += 1
+                    # No rating - mark as watched only (豆瓣支持仅标记"看过"不评分)
+                    # Use rating=0 to mark as watched without rating
+                    if rate_on_douban(str(int(douban_id)), 0, headers, ck, movie_title=row.get('Title')):
+                        logger.log(f"✅ {i+1}/{total_movies}: {row['Title']} -> 豆瓣 (仅标记看过)", 'success')
+                        successful_syncs += 1
                     else:
-                        logger.log(f"⚠️ {i+1}/{total_movies}: {row['Title']} - 跳过 (无评分)", 'info')
-                        skipped_count += 1
+                        logger.log(f"❌ {i+1}/{total_movies}: {row['Title']} - API 调用失败", 'error')
+                        failed_count += 1
                 
                 time.sleep(random.uniform(1, 3))
 

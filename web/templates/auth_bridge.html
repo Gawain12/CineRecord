@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineRecord 授权</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 520px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .platform-name {
+            color: #10b981;
+            font-weight: 700;
+        }
+
+        .step-container {
+            margin: 24px 0;
+            text-align: left;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .step-number {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+            margin-right: 16px;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h3 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+        }
+
+        .step-content p {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.5;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            margin: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .bookmarklet-container {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 2px dashed rgba(16, 185, 129, 0.4);
+            border-radius: 12px;
+        }
+
+        .bookmarklet-btn {
+            display: inline-block;
+            padding: 16px 40px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-radius: 12px;
+            text-decoration: none;
+            cursor: grab;
+            box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+            transition: all 0.3s;
+        }
+
+        .bookmarklet-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 30px rgba(16, 185, 129, 0.5);
+        }
+
+        .bookmarklet-btn:active {
+            cursor: grabbing;
+        }
+
+        .drag-hint {
+            margin-top: 12px;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .status {
+            margin: 24px 0;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 0.95rem;
+        }
+
+        .status.success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #10b981;
+        }
+
+        .status.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #ef4444;
+        }
+
+        .checkmark {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            background: #10b981;
+            border-radius: 50%;
+            vertical-align: middle;
+            margin-right: 8px;
+            position: relative;
+        }
+
+        .checkmark::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .note {
+            margin-top: 20px;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .alternative {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .alternative-title {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="logo">🎬</div>
+        <h1>CineRecord 一键授权</h1>
+        <p>正在连接 <span class="platform-name" id="platform-display">--</span></p>
+
+        <div id="main-content">
+            <div class="step-container">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>拖拽按钮到书签栏</h3>
+                        <p>将下方的绿色按钮拖到浏览器书签栏（按 Cmd+Shift+B 显示书签栏）</p>
+                    </div>
+                </div>
+
+                <div class="bookmarklet-container">
+                    <a id="bookmarklet" class="bookmarklet-btn" href="#">
+                        📥 提取 Cookie
+                    </a>
+                    <p class="drag-hint">👆 拖拽我到书签栏</p>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>打开并登录 <span id="platform-step2">平台</span></h3>
+                        <p>点击下方按钮打开平台网站，确保您已登录</p>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin: 16px 0;">
+                    <a id="btn-open-platform" class="btn btn-primary" href="#" target="_blank">
+                        🔗 打开 <span id="platform-btn">--</span>
+                    </a>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>点击书签栏中的「提取 Cookie」</h3>
+                        <p>在平台网站上点击刚才拖拽的书签，Cookie 将自动发送回 CineRecord</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="status-success" class="status success hidden">
+            <span class="checkmark"></span> 授权成功！正在返回 CineRecord...
+        </div>
+
+        <div id="status-error" class="status error hidden">
+            ❌ <span id="error-message">授权失败</span>
+        </div>
+
+        <div class="alternative">
+            <p class="alternative-title">或者手动输入 Cookie</p>
+            <button class="btn btn-secondary" onclick="showManualInput()">📋 手动输入</button>
+        </div>
+
+        <div id="manual-input" class="hidden" style="margin-top: 20px;">
+            <textarea id="cookie-input" placeholder="粘贴 Cookie 字符串..." style="width: 100%; height: 80px; padding: 12px; border-radius: 8px; 
+                background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); 
+                color: #fff; font-family: monospace; resize: vertical;"></textarea>
+            <button class="btn btn-primary" onclick="submitManual()" style="margin-top: 12px;">
+                提交 Cookie
+            </button>
+        </div>
+
+        <p class="note">完成后此页面将自动关闭</p>
+    </div>
+
+    <script>
+        // Get platform and token from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const platform = urlParams.get('platform') || 'douban';
+        const authToken = urlParams.get('token') || '';
+        const callbackUrl = urlParams.get('callback') || 'http://127.0.0.1:8000';
+
+        // Platform config
+        const platformConfig = {
+            douban: {
+                name: '豆瓣',
+                loginUrl: 'https://www.douban.com/',
+                domain: 'douban.com'
+            },
+            imdb: {
+                name: 'IMDB',
+                loginUrl: 'https://www.imdb.com/',
+                domain: 'imdb.com'
+            }
+        };
+
+        const config = platformConfig[platform] || platformConfig.douban;
+        
+        // Update UI with platform info
+        document.getElementById('platform-display').textContent = config.name;
+        document.getElementById('platform-step2').textContent = config.name;
+        document.getElementById('platform-btn').textContent = config.name;
+        document.getElementById('btn-open-platform').href = config.loginUrl;
+
+        // Create bookmarklet code
+        // The bookmarklet will:
+        // 1. Get document.cookie
+        // 2. Send it to our callback endpoint
+        // 3. Show success/error message
+        const bookmarkletCode = `javascript:(function(){
+            var c=document.cookie;
+            if(!c){alert('未找到 Cookie，请确保已登录');return;}
+            var xhr=new XMLHttpRequest();
+            xhr.open('POST','${callbackUrl}/auth/callback');
+            xhr.setRequestHeader('Content-Type','application/json');
+            xhr.onload=function(){
+                try{
+                    var r=JSON.parse(xhr.responseText);
+                    if(r.success){
+                        alert('✅ 授权成功！用户: '+r.user_id+'\\n\\n请关闭此页面返回 CineRecord');
+                    }else{
+                        alert('❌ 授权失败: '+(r.error||'Cookie 无效'));
+                    }
+                }catch(e){
+                    alert('❌ 解析响应失败');
+                }
+            };
+            xhr.onerror=function(){
+                alert('❌ 请求失败，请确保 CineRecord 正在运行');
+            };
+            xhr.send(JSON.stringify({platform:'${platform}',cookie:c,token:'${authToken}'}));
+        })()`;
+
+        document.getElementById('bookmarklet').href = bookmarkletCode;
+
+        function showManualInput() {
+            document.getElementById('manual-input').classList.remove('hidden');
+        }
+
+        async function submitManual() {
+            const cookie = document.getElementById('cookie-input').value.trim();
+            if (!cookie) {
+                alert('请输入 Cookie');
+                return;
+            }
+
+            try {
+                const response = await fetch(callbackUrl + '/auth/callback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        platform: platform,
+                        cookie: cookie,
+                        token: authToken
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSuccess(result.user_id);
+                } else {
+                    showError(result.error || 'Cookie 无效或已过期');
+                }
+            } catch (e) {
+                console.error('Submit error:', e);
+                showError('提交失败，请确保 CineRecord 正在运行');
+            }
+        }
+
+        function showSuccess(userId) {
+            document.getElementById('main-content').classList.add('hidden');
+            document.getElementById('manual-input').classList.add('hidden');
+            document.querySelector('.alternative').classList.add('hidden');
+            document.getElementById('status-success').classList.remove('hidden');
+            document.getElementById('status-success').innerHTML = 
+                '<span class="checkmark"></span> 授权成功！用户: ' + userId + '<br>正在返回 CineRecord...';
+
+            // Close window after delay
+            setTimeout(() => {
+                window.close();
+                // If can't close, update message
+                document.querySelector('.note').textContent = '授权成功！您可以关闭此页面并返回 CineRecord';
+            }, 2000);
+        }
+
+        function showError(message) {
+            document.getElementById('status-error').classList.remove('hidden');
+            document.getElementById('error-message').textContent = message;
+        }
+
+        // Listen for messages from the bookmarklet (fallback method)
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'cinerecord-auth-success') {
+                showSuccess(event.data.userId);
+            }
+        });
+    </script>
+</body>
+
+</html>

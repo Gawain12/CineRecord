@@ -1,71 +1,182 @@
-# CineRecord: 豆瓣 & IMDb 评分同步与数据备份工具
+# 🎬 CineRecord Hub
 
-CineRecord 是一款基于Web的图形化工具，旨在帮助您轻松同步豆瓣和IMDb的电影评分数据。它提供了一个直观的用户界面，让您可以获取、预览、同步和合并两大平台的评分，并内置了强大的永久失败清单功能，以避免重复同步已知会失败的项目。
+<div align="center">
 
-![CineRecord UI](./web/static/images/cinerecord_ui.png)
+**您的私人电影数据管理中心**
 
-## 主要功能
+支持豆瓣、IMDB、Trakt、Letterboxd、TMDB 多平台同步与备份
 
-- **图形化操作界面**：所有操作都在一个清晰的双栏布局Web界面中完成，无需记忆复杂的命令行参数。
-- **数据获取与预览**：轻松输入用户ID和Cookie，一键抓取豆瓣和IMDb的评分数据，并在界面上实时预览样本。
-- **智能同步预览**：在执行真正的同步操作前，可以预览将要同步的电影列表，让您对数据变更了如指掌。
-- **双向同步**：支持从豆瓣同步到IMDb，也支持从IMDb同步到豆瓣。
-- **永久失败清单**：对于因API问题或数据不完整而同步失败的项目，系统会自动将其添加到一个永久失败清单（`failed_sync_items.csv`）中。在后续的同步操作中，这些项目会被自动跳过，并清晰地展示在“同步失败”列表中，大大提高了同步效率和用户体验。
-- **合并数据视图**：同步完成后，会自动生成一个合并后的数据文件（`merged_ratings_*.csv`），并在UI上展示其摘要，方便您进行数据核对和下载。
-- **配置持久化**：您的用户ID和Cookie等配置会自动保存到本地`config/config.py`文件中，下次使用时无需重复输入。
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
+[![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg)](https://flask.palletsprojects.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com)
 
-## 如何运行
+</div>
 
-1.  **安装依赖:**
-    确保您已安装Python 3.x环境和pip。然后安装项目所需的库：
-    ```bash
-    pip install -r requirements.txt
-    ```
+---
 
-2.  **启动Web服务:**
-    运行`web/app.py`脚本来启动Flask Web服务器。
-    ```bash
-    python web/app.py
-    ```
-    脚本会自动在您的默认浏览器中打开 `http://127.0.0.1:8000`。
+## ✨ 功能特性
 
-## 使用步骤
+### 🎬 多平台支持
 
-1.  **身份验证**：在左侧的“身份验证”区域填入您的豆瓣和IMDb的用户ID及Cookie。
-    - *提示*：点击输入框旁的“?”按钮可以获取如何查找Cookie的帮助。
-2.  **保存配置**：点击“💾 保存配置到本地”按钮，您的凭据将被安全地存储起来。
-3.  **获取数据**：
-    - 在“数据获取”区域，分别点击“更新数据”按钮来抓取豆瓣和IMDb的评分。
-    - 抓取过程中，您可以在下方的“运行状态”日志区看到实时进度。
-    - 抓取完成后，右侧会显示数据摘要和前5条记录的预览。如果本地已有数据文件，应用启动时会自动加载。
-4.  **同步中心**：
-    - 当两个平台的数据都“已就绪”后，“同步中心”的按钮将被激活。
-    - 选择您想要的“同步方向”。
-    - **预览差异**：点击“🔍 预览差异”按钮，系统会计算并显示将要从源平台同步到目标平台的电影列表。
-    - **执行同步**：确认无误后，点击“✨ 执行同步”按钮。系统会开始进行API调用，将评分逐一同步。
-5.  **查看结果**：
-    - **同步失败**：在同步过程中，任何因API调用失败、数据不完整或已存在于永久失败清单中的项目，都会实时显示在“同步失败”卡片中。
-    - **合并数据预览**：同步操作成功结束后，界面会自动切换，显示新生成的合并CSV文件的内容预览。
-    - 您可以随时点击数据预览区右上角的下载图标来获取完整的CSV文件。
+| 平台 | 数据获取 | 评分同步 | 认证方式 |
+|------|:--------:|:--------:|----------|
+| **豆瓣** | ✅ | ✅ | Cookie / 自动登录 |
+| **IMDB** | ✅ | ✅ | Cookie / 自动登录 |
+| **Trakt** | ✅ | ✅ | OAuth 设备授权 |
+| **Letterboxd** | ✅ | ✅ | CSV 导入导出 |
+| **TMDB** | ✅ | ✅ | Session 授权 |
 
-## 数据所有权与工具理念
+### 🔄 核心能力
 
-CineRecord 不仅仅是一个平台间的数据同步工具，它更是一个帮助您下载、保存和掌控个人观影记录的助手。我们坚信，您的数据完全归您自己所有。
+- **统一电影库** - 合并所有平台数据，按时间排序，智能去重
+- **评分归一化** - 豆瓣(5分制)和Letterboxd自动转换为10分制
+- **双向同步** - 豆瓣 ↔ IMDB ↔ Trakt 评分互通
+- **智能匹配** - 通过 IMDB ID / 名称+年份 自动匹配
+- **数据备份** - 一键导出 CSV / JSON 格式
 
--   **您的数据，您的资产**：您在豆瓣、IMDb等平台上标记的每一部电影、写下的每一个评分，都是您宝贵的原创内容（UGC）。这些数据的所有权应当且仅属于您本人。本工具旨在帮助您将这些数字记忆掌握在自己手中。
--   **保存您的数字记忆**：网络平台上的条目可能会因各种不可抗力而消失，导致您的观影记录出现空白。通过 CineRecord，您可以轻松地将这些记忆备份到本地，创建一个永不丢失的个人电影档案。
--   **自由迁移与探索**：拥有了自己数据的完整副本，您就获得了真正的自由。无论是想要尝试一个新的影评平台，还是希望将数据用于个人分析项目，您都不再受单一平台的限制。
+### 🖥️ 现代化界面
 
-我们开发此工具的初衷，就是为了在变动的互联网环境中，为您提供一个保存个人记忆、实现数据自主的可靠选择。
+- 深色主题设计，舒适护眼
+- 电影封面展示，评分徽章快速跳转
+- 实时日志窗口，追踪任务状态
+- 响应式布局，适配各种屏幕
 
-## 项目结构
+---
 
--   `web/app.py`: Flask Web应用的主入口。
--   `web/logic.py`: 包含了核心的数据处理、差异计算和同步逻辑。
--   `web/templates/index.html`: 应用的前端HTML结构。
--   `web/static/`: 存放CSS和JavaScript文件。
--   `scrapers/`: 包含独立的豆瓣和IMDb爬虫脚本。
--   `utils/`: 包含数据合并等辅助工具脚本。
--   `data/`: 存放所有生成的CSV文件，包括原始评分、合并数据和失败清单。
--   `config/`: 存放配置文件。
--   `requirements.txt`: 项目的Python依赖列表。
+## 🚀 快速开始
+
+### 方式一：本地运行
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/YOUR_USERNAME/CineRecord.git
+cd CineRecord
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 启动应用
+python web/app.py
+```
+
+浏览器将自动打开 `http://127.0.0.1:8000`
+
+### 方式二：Docker 部署
+
+```bash
+# 使用 Docker Compose
+docker-compose up -d
+
+# 或直接使用 Docker
+docker build -t cinerecord .
+docker run -d -p 8000:8000 \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/data:/app/data \
+  --name cinerecord cinerecord
+```
+
+访问 `http://localhost:8000`
+
+---
+
+## 📖 使用指南
+
+### 1. 连接账户
+
+**豆瓣 / IMDB (自动登录)**
+1. 点击 "🔑 自动登录" 按钮
+2. 在弹出窗口完成登录
+3. 登录成功后自动获取用户信息
+
+**Trakt (设备授权)**
+1. 点击 "🔗 连接 Trakt"
+2. 复制显示的8位代码
+3. 在打开的 trakt.tv/activate 页面输入代码
+4. 确认授权后自动连接
+
+**Letterboxd**
+1. 在 Letterboxd 导出数据 (Settings → Data → Export Your Data)
+2. 解压 ZIP 文件，找到 `diary.csv`
+3. 点击 "📥 上传 diary.csv"
+
+### 2. 浏览数据
+
+切换到 **数据** 页面查看统一电影库：
+
+- **共有** - 多平台共同标记的电影
+- **独占** - 仅在单一平台标记的电影
+- 点击平台徽章可直接跳转到对应网站
+
+### 3. 同步评分
+
+切换到 **同步** 页面：
+
+1. 选择源平台和目标平台
+2. 点击 "预览差异" 查看将要同步的内容
+3. 确认后点击 "开始同步"
+
+---
+
+## 📁 项目结构
+
+```
+CineRecord/
+├── web/                   # Web 应用核心
+│   ├── app.py             # Flask 后端入口
+│   ├── auth_helper.py     # 自动登录辅助
+│   ├── webview_login.py   # WebView 登录窗口
+│   ├── static/            # CSS/JS 前端资源
+│   └── templates/         # HTML 模板
+├── scrapers/              # 数据爬取模块
+│   ├── douban_scraper.py  # 豆瓣
+│   ├── imdb_scraper.py    # IMDB
+│   ├── trakt_client.py    # Trakt
+│   └── tmdb_client.py     # TMDB
+├── utils/                 # 工具模块
+│   └── merge_data.py      # 数据合并逻辑
+├── config/                # 用户配置 (自动创建)
+├── data/                  # 导出数据 (自动创建)
+├── Dockerfile             # Docker 配置
+├── docker-compose.yml     # Docker Compose 配置
+└── requirements.txt       # Python 依赖
+```
+
+---
+
+## 🛡️ 隐私与安全
+
+| 特性 | 说明 |
+|------|------|
+| ✅ **本地存储** | Cookie 和配置仅保存在您的电脑 |
+| ✅ **无云服务** | 数据不上传任何第三方服务器 |
+| ✅ **开源透明** | 代码完全可审计 |
+| ✅ **自主可控** | 您的数据，您做主 |
+
+---
+
+## 📋 开发计划
+
+| 状态 | 功能 |
+|:----:|------|
+| ✅ | 豆瓣/IMDB/Trakt/Letterboxd/TMDB 支持 |
+| ✅ | 统一电影库 & 封面展示 |
+| ✅ | 评分归一化 (5分→10分) |
+| ✅ | macOS / Windows 应用打包 |
+| ✅ | Docker 部署支持 |
+| 🚧 | 数据可视化报告 |
+| 📋 | 移动端 PWA 支持 |
+
+详细计划请参阅 [ROADMAP.md](./ROADMAP.md)
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+---
+
+## 📜 许可证
+
+[MIT License](./LICENSE)

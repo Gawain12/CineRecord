@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  cinerecord:
+    build: .
+    container_name: cinerecord
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist config and data
+      - ./config:/app/config
+      - ./data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+# Optional: for development
+# services:
+#   cinerecord-dev:
+#     build: .
+#     ports:
+#       - "8000:8000"
+#     volumes:
+#       - .:/app
+#     environment:
+#       - FLASK_ENV=development
+#     command: python web/app.py

@@ -183,7 +183,7 @@ def run_scraper(user_id, cookie, output_path, socketio):
             logger.log("数据已是最新。", 'success')
             try:
                 df = pd.read_csv(output_path)
-                return clean_df_for_json(df.head())
+                return clean_df_for_json(df)
             except Exception:
                 return []
 
@@ -196,7 +196,7 @@ def run_scraper(user_id, cookie, output_path, socketio):
         df_final.to_csv(scraper.output_filename, index=False, encoding='utf-8-sig')
 
         logger.log(f"成功！共 {len(df_final)} 条记录。", 'success')
-        return clean_df_for_json(df_final.head())
+        return clean_df_for_json(df_final)
 
     except Exception as e:
         logger.log(f"发生严重错误: {e}", 'error'); traceback.print_exc(); return None
