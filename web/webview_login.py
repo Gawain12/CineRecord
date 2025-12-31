@@ -42,19 +42,20 @@ def main():
         with open(log_path, 'a') as f: f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
 
     def get_all_cookies(window):
-        """Cross-platform cookie access."""
+        """Cross-platform cookie access with proper platform separation."""
         cookie_parts = []
         found_indicator = False
         names_found = []
         
-        # 1. macOS Native Path (Most reliable for HTTPOnly)
-        if HAS_OBJC and sys.platform == 'darwin':
+        # ========== macOS: Use native NSHTTPCookieStorage (most reliable) ==========
+        if sys.platform == 'darwin' and HAS_OBJC:
             try:
                 storage = NSHTTPCookieStorage.sharedHTTPCookieStorage()
                 cookies = storage.cookies()
                 if cookies:
                     for c in cookies:
                         domain = str(c.domain())
+                        # Check if this cookie belongs to our target platform
                         if platform in domain:
                             n, v = str(c.name()), str(c.value())
                             cookie_parts.append(f"{n}={v}")
@@ -62,27 +63,37 @@ def main():
                             for ind in indicators:
                                 if ind.lower() in n.lower():
                                     found_indicator = True
+                
+                # If we found cookies on macOS, return immediately
+                if cookie_parts:
+                    debug_log(f"macOS native: found {len(cookie_parts)} cookies, indicator={found_indicator}")
+                    return "; ".join(cookie_parts), found_indicator, names_found
             except Exception as e:
-                debug_log(f"MacOS native cookie error: {e}")
-
-        # 2. PyWebView Cross-platform Path (Experimental/Newer versions)
-        if not found_indicator:
+                debug_log(f"macOS native cookie error: {e}")
+        
+        # ========== Windows/Linux: Try pywebview's get_cookies() ==========
+        if sys.platform != 'darwin':
             try:
-                # pywebview >= 4.0 provides get_cookies() on some platforms
+                # pywebview >= 4.0 provides get_cookies() on Windows
                 cookies = window.get_cookies()
-                for c in cookies:
-                    if platform in c.domain:
-                        n, v = c.name, c.value
-                        cookie_parts.append(f"{n}={v}")
-                        names_found.append(n)
-                        for ind in indicators:
-                            if ind.lower() in n.lower():
-                                found_indicator = True
-            except:
-                pass
-
-        # 3. JS Fallback (Standard)
-        if not found_indicator:
+                if cookies:
+                    for c in cookies:
+                        if hasattr(c, 'domain') and platform in str(c.domain):
+                            n, v = str(c.name), str(c.value)
+                            cookie_parts.append(f"{n}={v}")
+                            names_found.append(n)
+                            for ind in indicators:
+                                if ind.lower() in n.lower():
+                                    found_indicator = True
+                    
+                    if cookie_parts:
+                        debug_log(f"pywebview get_cookies: found {len(cookie_parts)} cookies, indicator={found_indicator}")
+                        return "; ".join(cookie_parts), found_indicator, names_found
+            except Exception as e:
+                debug_log(f"pywebview get_cookies error: {e}")
+        
+        # ========== Fallback: JavaScript document.cookie ==========
+        try:
             js_cookies = window.evaluate_js('document.cookie') or ""
             if js_cookies:
                 for part in js_cookies.split(';'):
@@ -92,10 +103,13 @@ def main():
                         for ind in indicators:
                             if ind.lower() in n.lower():
                                 found_indicator = True
-                if found_indicator:
-                    return js_cookies, True, names_found
-
-        return "; ".join(cookie_parts), found_indicator, names_found
+                
+                debug_log(f"JS fallback: {len(names_found)} cookies, indicator={found_indicator}")
+                return js_cookies, found_indicator, names_found
+        except Exception as e:
+            debug_log(f"JS cookie error: {e}")
+        
+        return "", False, []
 
     def check_login(window):
         start_time = time.time()
