@@ -490,14 +490,17 @@ def api_get_library():
             raw_rating = movie.get('Your Rating') or movie.get('YourRating_douban') or movie.get('YourRating_imdb') or movie.get('rating') or movie.get('评分') or movie.get('Rating')
             
             # Normalize ratings: Douban and Letterboxd use 5-star scale, convert to 10-point
-            if raw_rating:
+            user_rating = ''
+            if raw_rating is not None:
                 try:
                     rating_float = float(raw_rating)
-                    if platform in ['douban', 'letterboxd']:
-                        # 5-star scale -> 10-point scale
-                        user_rating = rating_float * 2
-                    else:
-                        user_rating = rating_float
+                    # Check for NaN - NaN is not valid JSON
+                    if not math.isnan(rating_float):
+                        if platform in ['douban', 'letterboxd']:
+                            # 5-star scale -> 10-point scale
+                            user_rating = rating_float * 2
+                        else:
+                            user_rating = rating_float
                 except:
                     user_rating = clean_value(raw_rating)
             else:
@@ -1317,14 +1320,17 @@ def handle_get_unified_library(data):
             raw_rating = movie.get('Your Rating') or movie.get('YourRating_douban') or movie.get('YourRating_imdb') or movie.get('rating') or movie.get('评分') or movie.get('Rating')
             
             # Normalize ratings: Douban and Letterboxd use 5-star scale, convert to 10-point
-            if raw_rating:
+            user_rating = ''
+            if raw_rating is not None:
                 try:
                     rating_float = float(raw_rating)
-                    if platform in ['douban', 'letterboxd']:
-                        # 5-star scale -> 10-point scale
-                        user_rating = rating_float * 2
-                    else:
-                        user_rating = rating_float
+                    # Check for NaN - NaN is not valid JSON
+                    if not math.isnan(rating_float):
+                        if platform in ['douban', 'letterboxd']:
+                            # 5-star scale -> 10-point scale
+                            user_rating = rating_float * 2
+                        else:
+                            user_rating = rating_float
                 except:
                     user_rating = clean_value(raw_rating)
             else:
