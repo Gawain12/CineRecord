@@ -2846,12 +2846,12 @@ function renderUnifiedLibrary(data) {
         const sourceCount = movie.sources ? movie.sources.length : 0;
         const isShared = sourceCount >= 2;
 
-        const buildBadge = (platform, url, rating, votes, label) => {
-            // Requirement: "后面的独占只要本平台链接" 
-            // If it's a platform-specific view, we might only want that one.
-            // But we already filtered the list in backend.
-            // Here, we only show badges that are in the movie's sources.
-            if (!movie.sources.includes(platform)) return '';
+        const buildBadge = (platform, url, rating, votes, label, forceShow = false) => {
+            // For shared movies: show all available platform links
+            // For exclusive movies: only show the source platform
+            if (!isShared && !movie.sources.includes(platform)) return '';
+            // For shared movies, show if forceShow is true OR if platform is in sources
+            if (isShared && !forceShow && !movie.sources.includes(platform)) return '';
 
             const voteText = votes ? formatVotes(votes) : '';
             return `
@@ -2865,31 +2865,31 @@ function renderUnifiedLibrary(data) {
         // IMDb
         if (movie.imdb_id || movie.imdb_url) {
             const url = movie.imdb_url || `https://www.imdb.com/title/${movie.imdb_id}/`;
-            platformBadgesHtml += buildBadge('imdb', url, movie.imdb_rating, movie.imdb_votes, 'IMDb');
+            platformBadgesHtml += buildBadge('imdb', url, movie.imdb_rating, movie.imdb_votes, 'IMDb', true);
         }
 
         // Douban
         if (movie.douban_id || movie.douban_url) {
             const url = movie.douban_url || `https://movie.douban.com/subject/${movie.douban_id}/`;
-            platformBadgesHtml += buildBadge('douban', url, movie.douban_rating, movie.douban_votes, '豆瓣');
+            platformBadgesHtml += buildBadge('douban', url, movie.douban_rating, movie.douban_votes, '豆瓣', true);
         }
 
         // Trakt
         if (movie.trakt_id || movie.trakt_url || movie.sources.includes('trakt')) {
             const url = movie.trakt_url || '#';
-            platformBadgesHtml += buildBadge('trakt', url, '', '', 'Trakt');
+            platformBadgesHtml += buildBadge('trakt', url, '', '', 'Trakt', true);
         }
 
-        // Letterboxd
-        if (movie.letterboxd_url || (movie.imdb_id && movie.sources.includes('letterboxd'))) {
+        // Letterboxd - for shared movies, always show if we have imdb_id
+        if (movie.letterboxd_url || (isShared && movie.imdb_id) || movie.sources.includes('letterboxd')) {
             const url = movie.letterboxd_url || `https://letterboxd.com/imdb/${movie.imdb_id}/`;
-            platformBadgesHtml += buildBadge('letterboxd', url, '', '', 'LB');
+            platformBadgesHtml += buildBadge('letterboxd', url, '', '', 'LB', true);
         }
 
         // TMDB
         if (movie.tmdb_id || movie.tmdb_url) {
             const url = movie.tmdb_url || `https://www.themoviedb.org/movie/${movie.tmdb_id}`;
-            platformBadgesHtml += buildBadge('tmdb', url, movie.tmdb_rating, '', 'TMDB');
+            platformBadgesHtml += buildBadge('tmdb', url, movie.tmdb_rating, '', 'TMDB', true);
         }
 
         // Cover image
