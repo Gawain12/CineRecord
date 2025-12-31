@@ -881,7 +881,10 @@ def validate_cookie_platform(platform, cookie, user_id):
             # Test douban by accessing mine page
             resp = requests.get('https://www.douban.com/mine/', 
                               headers=headers, timeout=10, allow_redirects=True)
-            m = re.search(r'/people/([^/\?"]+)', resp.url)
+            # Douban sometimes redirects through sec.douban.com with encoded URL
+            from urllib.parse import unquote
+            url_to_check = unquote(resp.url)
+            m = re.search(r'/people/([^/\?"]+)', url_to_check)
             if m:
                 actual_user_id = m.group(1)
                 socketio.emit('platform_validated', {
@@ -2755,7 +2758,11 @@ def handle_login_popup(json_data):
                     timeout=10,
                     allow_redirects=True
                 )
-                m = re.search(r'/people/([^/\?"]+)', resp.url)
+                # Douban sometimes redirects through sec.douban.com with encoded URL
+                # Check both the final URL and any encoded URL in query params
+                from urllib.parse import unquote
+                url_to_check = unquote(resp.url)  # Decode URL-encoded characters
+                m = re.search(r'/people/([^/\?"]+)', url_to_check)
                 return m.group(1) if m else None
                 
             elif plat == 'imdb':
