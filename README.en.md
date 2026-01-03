@@ -19,17 +19,17 @@ Sync, Back up, and Manage your movie ratings across Douban, IMDb, Trakt, TMDB, a
 ## 📸 Interface Preview
 
 <div align="center">
-  <img src="docs/images/app_demo.webp" width="800" alt="App Walkthrough Demo">
-  <p><i>Quick Walkthrough: Dashboard Overview & One-Click Sync</i></p>
+  <img src="docs/images/app_demo_dual.webp" width="800" alt="App Walkthrough Demo">
+  <p><i>Quick Walkthrough: Dashboard Overview & Task Flow (Bilingual Demo)</i></p>
 
   <br>
 
-  <img src="docs/images/dashboard_preview.png" width="800" alt="Dashboard Preview">
+  <img src="docs/images/dashboard_en.png" width="800" alt="Dashboard Preview">
   <p><i>Dashboard: Account Status & Overview (Masked User Info)</i></p>
   
   <br>
   
-  <img src="docs/images/library_preview.png" width="800" alt="Library Preview">
+  <img src="docs/images/library_en.png" width="800" alt="Library Preview">
   <p><i>Unified Library: Cross-Platform Collection</i></p>
 </div>
 
@@ -92,7 +92,7 @@ Navigate to the **Accounts** tab or different platform cards.
 Go to the **Sync** tab.
 
 <div align="center">
-  <img src="docs/images/sync_preview.png" width="800" alt="Sync Page Preview">
+  <img src="docs/images/sync_en.png" width="800" alt="Sync Page Preview">
 </div>
 
 -   **Manual Sync**: Select Source (e.g., Douban) and Target (e.g., Trakt), click "Preview", then "Execute".
@@ -102,7 +102,7 @@ Go to the **Sync** tab.
 The **Data** tab serves as your unified movie database. Filter by platform exclusives to see which movies are missing from your other profiles.
 
 <div align="center">
-  <img src="docs/images/library_preview.png" width="800" alt="Library Preview">
+  <img src="docs/images/library_en.png" width="800" alt="Library Preview">
 </div>
 
 ---
@@ -137,7 +137,7 @@ CineRecord/
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please check `agent.md` for development guidelines.
+Contributions are welcome! Please check `AI_ROADMAP.md` for development guidelines.
 
 ## 📜 License
 

@@ -16,6 +16,31 @@
 
 ---
 
+
+## 📸 界面展示
+
+<div align="center">
+  <img src="docs/images/app_demo_dual.webp" width="800" alt="应用演示 (中英双语)">
+  <p><i>快速演示：仪表盘概览与任务流程 (中英双语演示)</i></p>
+
+  <br>
+
+  <img src="docs/images/dashboard_cn.png" width="800" alt="仪表盘预览">
+  <p><i>仪表盘：账户状态与概览 (个人信息已打码处理)</i></p>
+
+  <br>
+
+  <img src="docs/images/library_cn.png" width="800" alt="影片库预览">
+  <p><i>支持多平台数据聚合与 CSV 导出功能</i></p>
+
+  <br>
+
+  <img src="docs/images/sync_cn.png" width="800" alt="同步任务预览">
+  <p><i>可视化任务调度与实时状态监控</i></p>
+</div>
+
+---
+
 ## ✨ 核心特性
 
 ### 🌐 多平台支持
@@ -109,7 +134,7 @@ CineRecord/
 
 ## 🤝 贡献
 
-欢迎提交贡献！请查阅 `agent.md` 获取开发指南。
+欢迎提交贡献！请查阅 `AI_ROADMAP.md` 获取开发指南。
 
 ## 📜 许可证
 
