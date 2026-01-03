@@ -85,11 +85,20 @@ Navigate to the **Accounts** tab or different platform cards.
 
 ### 2. Sync Ratings
 Go to the **Sync** tab.
+
+<div align="center">
+  <img src="docs/images/sync_preview.png" width="800" alt="Sync Page Preview">
+</div>
+
 -   **Manual Sync**: Select Source (e.g., Douban) and Target (e.g., Trakt), click "Preview", then "Execute".
 -   **Scheduled Sync**: Click "New Task", choose your sync direction and frequency (e.g., "Daily at 2:00 AM"), and enable it. The app will handle the rest in the background.
 
 ### 3. View Library
 The **Data** tab serves as your unified movie database. Filter by platform exclusives to see which movies are missing from your other profiles.
+
+<div align="center">
+  <img src="docs/images/library_preview.png" width="800" alt="Library Preview">
+</div>
 
 ---
 
