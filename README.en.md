@@ -19,6 +19,11 @@ Sync, Back up, and Manage your movie ratings across Douban, IMDb, Trakt, TMDB, a
 ## 📸 Interface Preview
 
 <div align="center">
+  <img src="docs/images/app_demo.webp" width="800" alt="App Walkthrough Demo">
+  <p><i>Quick Walkthrough: Dashboard Overview & One-Click Sync</i></p>
+
+  <br>
+
   <img src="docs/images/dashboard_preview.png" width="800" alt="Dashboard Preview">
   <p><i>Dashboard: Account Status & Overview (Masked User Info)</i></p>
   
