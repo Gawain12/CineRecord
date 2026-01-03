@@ -2379,7 +2379,7 @@ def handle_sync_imdb_to_trakt(data):
                             # Compare with target's latest record (use timezone-aware comparison)
                             target_dt = target_latest_ts.replace(tzinfo=timezone.utc) if target_latest_ts.tzinfo is None else target_latest_ts
                             
-                            if movie_dt > target_dt:
+                            if movie_dt >= target_dt:
                                 filtered_movies.append(movie)
                         except Exception:
                             # If date parsing fails, include to be safe
@@ -2490,7 +2490,7 @@ def handle_sync_trakt_to_douban(data):
                             # Compare with target's latest record
                             target_dt = target_latest_ts.replace(tzinfo=timezone.utc) if target_latest_ts.tzinfo is None else target_latest_ts
                             
-                            if movie_dt > target_dt:
+                            if movie_dt >= target_dt:
                                 filtered_movies.append(movie)
                         except Exception:
                             filtered_movies.append(movie)
