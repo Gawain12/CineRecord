@@ -2379,7 +2379,9 @@ def handle_sync_imdb_to_trakt(data):
                             # Compare with target's latest record (use timezone-aware comparison)
                             target_dt = target_latest_ts.replace(tzinfo=timezone.utc) if target_latest_ts.tzinfo is None else target_latest_ts
                             
-                            if movie_dt >= target_dt:
+                            # Robustness: Look back 1 day to handle same-day updates and timezone differences
+                            threshold_dt = target_dt - timedelta(days=1)
+                            if movie_dt >= threshold_dt:
                                 filtered_movies.append(movie)
                         except Exception:
                             # If date parsing fails, include to be safe
@@ -2456,7 +2458,7 @@ def handle_sync_trakt_to_douban(data):
     
     def do_sync():
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime, timezone, timedelta
             
             # ========== NEW: Target-first incremental logic ==========
             # Step 1: Try to get Douban's latest record timestamp
@@ -2490,7 +2492,9 @@ def handle_sync_trakt_to_douban(data):
                             # Compare with target's latest record
                             target_dt = target_latest_ts.replace(tzinfo=timezone.utc) if target_latest_ts.tzinfo is None else target_latest_ts
                             
-                            if movie_dt >= target_dt:
+                            # Robustness: Look back 1 day to handle same-day updates and timezone differences
+                            threshold_dt = target_dt - timedelta(days=1)
+                            if movie_dt >= threshold_dt:
                                 filtered_movies.append(movie)
                         except Exception:
                             filtered_movies.append(movie)
