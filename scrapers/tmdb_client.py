@@ -52,7 +52,7 @@ class TMDBClient:
         all_params = self._get_params(params)
         
         try:
-            logger.info(f"TMDB GET: {endpoint}")
+            logger.debug(f"TMDB GET: {endpoint}")
             response = self._http_session.get(url, params=all_params, timeout=45)
             response.raise_for_status()
             return response.json()
@@ -196,23 +196,36 @@ class TMDBClient:
         all_movies = []
         page = 1
         
+        logger.info("Starting TMDB ratings fetch...")
+        
         while True:
+            logger.info(f"Fetching TMDB ratings page {page}...")
             result = self.get_rated_movies(page)
             if not result:
+                logger.warning(f"Failed to fetch page {page}")
                 break
             
             movies = result.get('results', [])
             if not movies:
+                logger.info("No more movies found.")
                 break
+            
+            # Debug first movie of first page to see keys
+            if page == 1 and movies:
+                logger.info(f"DEBUG: Sample TMDB Movie Keys: {list(movies[0].keys())}")
+                logger.info(f"DEBUG: Sample TMDB Movie Data: {movies[0]}")
             
             all_movies.extend(movies)
             
             total_pages = result.get('total_pages', 1)
+            logger.info(f"Page {page}/{total_pages} fetched. Total so far: {len(all_movies)}")
+            
             if page >= total_pages:
                 break
             
             page += 1
         
+        logger.info(f"Finished fetching {len(all_movies)} TMDB ratings.")
         return all_movies
     
     def rate_movie(self, movie_id: int, rating: float) -> bool:
@@ -301,7 +314,7 @@ class TMDBClient:
                 'Title': movie.get('title', ''),
                 'Year': movie.get('release_date', '')[:4] if movie.get('release_date') else '',
                 'Your Rating': movie.get('rating', 0),  # User's rating
-                'Date Rated': movie.get('rated_at', ''),  # When rated (if available)
+                'Date Rated': movie.get('rated_at') or movie.get('created_at', ''),  # When rated
                 'Genres': ', '.join([str(g) for g in movie.get('genre_ids', [])]),
                 'Overview': movie.get('overview', ''),
                 'Cover URL': f"https://image.tmdb.org/t/p/w500{movie.get('poster_path')}" if movie.get('poster_path') else '',

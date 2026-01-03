@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import time
 import random
+import logging
 
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -10,6 +11,10 @@ from utils.merge_data import merge_movie_data
 from utils.sync_rate import rate_on_imdb, rate_on_douban, get_douban_ck_from_cookie
 # Import the robust data cleaner function
 from scrapers.douban_scraper import clean_df_for_json
+from web.data_utils import safe_df_to_records
+
+# Get Python logger for debug messages
+py_logger = logging.getLogger(__name__)
 
 
 class SocketLogger:
@@ -24,274 +29,460 @@ class SocketLogger:
         self.socketio.emit('progress', {'current': current, 'total': total, 'step': step})
 
 
-def get_diff_movies(douban_csv_path, imdb_csv_path, source, target, logger):
+
+from adapters.registry import AdapterRegistry
+# ... existing imports ...
+from datetime import datetime
+from web.sync_cache import get_cache
+
+def normalize_date(date_str):
     """
-    Get movies that exist in source but not in target (full sync mode).
+    Normalize date string to YYYY-MM-DD
+    Handles:
+    - YYYY-MM-DD (ISO)
+    - M/D/YY (Douban short)
+    - YYYY-M-D (Douban)
+    Returns "0000-00-00" for empty/invalid dates to ensure they sort before all valid dates.
+    """
+    if not date_str:
+        return "0000-00-00"
     
+    date_str = str(date_str).strip()
+    
+    # Handle pandas NaN converted to string
+    if date_str.lower() in ['nan', 'nat', 'none', '']:
+        return "0000-00-00"
+    
+    # Already YYYY-MM-DD?
+    if len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-':
+        return date_str
+        
+    try:
+        # Try M/D/YY (e.g. 9/9/21)
+        if '/' in date_str:
+            parts = date_str.split('/')
+            if len(parts) == 3:
+                m, d, y = map(int, parts)
+                # Handle 2-digit year
+                if y < 100: y = y + 2000 # Assume 21st century
+                return f"{y:04d}-{m:02d}-{d:02d}"
+                
+        # Try parsing via datetime (fallback)
+        for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y', '%m/%d/%y'):
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                return dt.strftime('%Y-%m-%d')
+            except:
+                pass
+                
+        # Return minimum date if all parsing fails
+        return "0000-00-00"
+    except:
+        return "0000-00-00"
+
+def normalize_movie(row, platform):
+    """
+    Normalize a movie record from any platform into a standard format.
     Returns:
-        dict with 'syncable' (movies that can be synced) and 'unrated' (need rating for IMDb)
+        {
+            'title': str,
+            'year': str,
+            'rating': float (0-10 scale),
+            'ids': {'imdb': 'tt...', 'douban': '123...', ...},
+            'raw': dict (original row)
+        }
     """
-    if not os.path.exists(douban_csv_path) or not os.path.exists(imdb_csv_path):
-        logger.log("错误: 一个或两个评分CSV文件未找到。", 'error')
+    ids = {}
+    title = str(row.get('Title', 'Unknown'))
+    year = str(row.get('Year', ''))
+    
+    # ID Normalization
+    if platform == 'douban':
+        if row.get('douban_id'): ids['douban'] = str(row.get('douban_id'))
+        if row.get('Const'): ids['imdb'] = str(row.get('Const'))
+    elif platform == 'imdb':
+        if row.get('Const'): ids['imdb'] = str(row.get('Const'))
+        if row.get('imdb_id'): ids['imdb'] = str(row.get('imdb_id'))
+        if row.get('IMDb ID'): ids['imdb'] = str(row.get('IMDb ID'))
+    elif platform == 'trakt':
+        # Trakt export often has spaces in keys 'Trakt ID', 'IMDb ID' etc
+        if row.get('Trakt ID'): ids['trakt'] = str(row.get('Trakt ID'))
+        if row.get('trakt_id'): ids['trakt'] = str(row.get('trakt_id'))
+        if row.get('IMDb ID'): ids['imdb'] = str(row.get('IMDb ID'))
+        if row.get('imdb_id'): ids['imdb'] = str(row.get('imdb_id'))
+        if row.get('TMDB ID'): ids['tmdb'] = str(row.get('TMDB ID'))
+        if row.get('tmdb_id'): ids['tmdb'] = str(row.get('tmdb_id'))
+        if row.get('ids', {}).get('trakt'): ids['trakt'] = str(row.get('ids', {}).get('trakt'))
+        if row.get('ids', {}).get('imdb'): ids['imdb'] = str(row.get('ids', {}).get('imdb'))
+    elif platform == 'tmdb':
+        if row.get('tmdb_id'): ids['tmdb'] = str(row.get('tmdb_id'))
+        if row.get('imdb_id'): ids['imdb'] = str(row.get('imdb_id'))
+    elif platform == 'letterboxd':
+        if row.get('Letterboxd URI'): ids['letterboxd'] = str(row.get('Letterboxd URI'))
+        if row.get('imdb_id'): ids['imdb'] = str(row.get('imdb_id'))
+        if row.get('tmdb_id'): ids['tmdb'] = str(row.get('tmdb_id'))
+
+    # Rating Normalization (0-10 scale)
+    raw_rating = row.get('Your Rating') or row.get('Douban Rating') or row.get('rating') or row.get('Rating')
+    rating = 0.0
+    try:
+        if raw_rating:
+            val = float(raw_rating)
+            if platform == 'douban': val *= 2  # 5-star -> 10-point
+            if platform == 'letterboxd': val *= 2 # 0.5-5 -> 1-10
+            rating = val
+    except:
+        pass
+
+    return {
+        'title': title,
+        'year': year,
+        'rating': rating,
+        'ids': ids,
+        'raw': row
+    }
+
+
+def get_unified_diff(source, target, logger, app_data=None):
+    """
+    Simplified sync strategy: Take most recent N items from source, 
+    check if their IDs exist in target, sync only missing ones.
+    
+    This avoids timestamp dependency and rating comparison complexity.
+    """
+    RECENT_ITEMS_LIMIT = 100  # Only check the most recent 100 items
+    
+    if app_data is None:
+        logger.log("❌ App data context missing.", 'error')
         return None
     
-    temp_dir = os.path.join(os.path.dirname(douban_csv_path), 'temp')
-    os.makedirs(temp_dir, exist_ok=True)
-    temp_output_path = os.path.join(temp_dir, 'temp_merged_for_diff.csv')
-    
-    merged_df, _ = merge_movie_data(douban_csv_path, imdb_csv_path, temp_output_path)
-    if merged_df is None:
-        logger.log("由于合并过程中出错，操作中止。", 'error')
+    source_df = app_data.get(f'{source}_df')
+    target_df = app_data.get(f'{target}_df')
+
+    if source_df is None or source_df.empty:
+        logger.log(f"❌ {source} cache is empty. Please fetch data first.", 'error')
         return None
+        
+    movies_to_sync = []
     
-    merged_df['YourRating_imdb'] = pd.to_numeric(merged_df['YourRating_imdb'], errors='coerce')
-    merged_df['YourRating_douban'] = pd.to_numeric(merged_df['YourRating_douban'], errors='coerce')
+    # 1. Build target ID index (all existing IDs in target)
+    target_index = set()  # Set of "id_type:id_value" strings for fast lookup
+    target_records = []
     
-    # Full sync: Get all movies from source not in target
-    if source == 'douban':
-        diff_df = merged_df[merged_df['YourRating_imdb'].isna() & merged_df['douban_id'].notna()].copy()
-        rating_col = 'YourRating_douban'
-    else:
-        diff_df = merged_df[merged_df['YourRating_douban'].isna() & merged_df['imdb_id'].notna()].copy()
-        rating_col = 'YourRating_imdb'
+    if target_df is not None and not target_df.empty:
+        target_records = target_df.to_dict('records')
+        for row in target_records:
+            norm_target = normalize_movie(row, target)
+            for id_type, id_val in norm_target['ids'].items():
+                target_index.add(f"{id_type}:{id_val}")
+        
+        logger.log(f"📚 目标平台已有 {len(target_records)} 条记录", 'info')
     
-    date_col = 'DateRated_douban' if source == 'douban' else 'DateRated_imdb'
-    if date_col in diff_df.columns:
-        diff_df[date_col] = pd.to_datetime(diff_df[date_col], errors='coerce')
-        diff_df.sort_values(by=date_col, ascending=True, inplace=True)
+    # 2. Get source records and sort by date (newest first)
+    source_records = source_df.to_dict('records')
     
-    # For IMDb target: separate rated (syncable) from unrated
-    if target == 'imdb':
-        syncable_df = diff_df[diff_df[rating_col].notna() & (diff_df[rating_col] > 0)].copy()
-        unrated_df = diff_df[diff_df[rating_col].isna() | (diff_df[rating_col] == 0)].copy()
-        return {'syncable': syncable_df, 'unrated': unrated_df}
-    else:
-        # For Douban/Trakt target: all movies are syncable (can mark as watched without rating)
-        return {'syncable': diff_df, 'unrated': pd.DataFrame()}
-
-
-def safe_df_to_records(df):
-    """
-    A robust, manual DataFrame to list-of-dicts converter that guarantees
-    JSON-serializable output by explicitly handling special types.
-    """
-    records = []
-    # Replace all special Pandas nulls with a standard one
-    df = df.replace({pd.NaT: None, pd.NA: None, float('nan'): None})
+    def get_date(r):
+        return normalize_date(str(r.get('Date Rated', '')))
     
-    for row in df.itertuples(index=False):
-        record = {}
-        for col, val in zip(df.columns, row):
-            # Explicitly convert any remaining problematic types
-            if isinstance(val, (pd.Timestamp, pd.Timedelta)):
-                record[col] = str(val)
-            else:
-                record[col] = val
-        records.append(record)
-    return records
-
-def perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, douban_cookie, imdb_cookie, socketio):
-    """
-    Main sync logic - Full sync mode (all watched movies + ratings).
+    source_records.sort(key=get_date, reverse=True)
     
-    For IMDb target: separates unrated movies (cannot sync) and shows them as reminder.
-    For Douban/Trakt target: syncs all (can mark as watched even without rating).
-    """
-    logger = SocketLogger(socketio)
-    source, target = direction.split('-to-')
+    # 3. Take only the most recent N items from source
+    recent_source_records = source_records[:RECENT_ITEMS_LIMIT]
     
-    failure_log_path = os.path.join(os.path.dirname(douban_path), 'sync_failures.csv')
-
-    # Load existing failures
-    failed_ids = set()
-    if os.path.exists(failure_log_path):
-        try:
-            failures_df = pd.read_csv(failure_log_path)
-            if 'douban_id' in failures_df.columns:
-                failed_ids.update(failures_df['douban_id'].dropna().astype(str))
-            if 'imdb_id' in failures_df.columns:
-                failed_ids.update(failures_df['imdb_id'].dropna().astype(str))
-        except pd.errors.EmptyDataError:
-            pass
+    logger.log(f"🔍 检查最近 {len(recent_source_records)} 条源记录...", 'info')
     
-    logger.log(f"开始处理: 从 {source} 同步到 {target} (全量同步)", 'info')
+    # 4. Check each recent item - sync if not found in target
+    for row in recent_source_records:
+        norm_source = normalize_movie(row, source)
+        
+        # Check if any ID from this source item exists in target
+        found_in_target = False
+        for id_type, id_val in norm_source['ids'].items():
+            if f"{id_type}:{id_val}" in target_index:
+                found_in_target = True
+                break
+        
+        if not found_in_target:
+            # This item is not in target - need to sync
+            # Resolve target linking ID
+            target_linking_id = None
+            
+            if target == 'imdb':
+                target_linking_id = norm_source['ids'].get('imdb')
+            elif target == 'douban':
+                target_linking_id = norm_source['ids'].get('douban')
+            elif target == 'trakt':
+                target_linking_id = norm_source['ids'].get('trakt') or norm_source['ids'].get('imdb')
+            elif target == 'tmdb':
+                target_linking_id = norm_source['ids'].get('tmdb') or norm_source['ids'].get('imdb')
+            elif target == 'letterboxd':
+                target_linking_id = norm_source['ids'].get('imdb') or norm_source['ids'].get('tmdb')
+            
+            # Only add if we have a valid target ID
+            if target_linking_id:
+                movies_to_sync.append({
+                    'Title': norm_source['title'],
+                    'Year': norm_source['year'],
+                    'source_rating': norm_source['rating'],
+                    'target_linking_id': target_linking_id,
+                    'action': 'new'
+                })
     
-    diff_result = get_diff_movies(douban_path, imdb_path, source, target, logger)
-
-    if diff_result is None:
-        logger.log("无法获取差异数据，操作终止。", 'error')
-        return
+    # Filter out items without target_linking_id (cannot sync these)
+    movies_to_sync = [m for m in movies_to_sync if m.get('target_linking_id')]
     
-    movies_to_sync = diff_result['syncable']
-    unrated_movies = diff_result['unrated']
-    
-    # Emit unrated movies for IMDb target (as a reminder)
-    if target == 'imdb' and not unrated_movies.empty:
-        logger.log(f"⚠️ 发现 {len(unrated_movies)} 部待评价电影（无法同步到 IMDb）", 'info')
-        socketio.emit('sync_unrated', {
-            'movies': safe_df_to_records(unrated_movies),
-            'count': len(unrated_movies)
-        })
-
-    # --- Permanent Fail List & Actual Sync Logic ---
-    newly_failed_items = []
-    
-    # The logic to check against the permanent fail list should ONLY run during a real sync.
-    if not is_dry_run:
-        fail_list_path = os.path.join(os.path.dirname(douban_path), 'failed_sync_items.csv')
-        try:
-            failed_df = pd.read_csv(fail_list_path)
-            date_col = f'DateRated_{source}'
-
-            if 'Title' in failed_df.columns and date_col in failed_df.columns and date_col in movies_to_sync.columns:
-                movies_to_sync[date_col] = pd.to_datetime(movies_to_sync[date_col], errors='coerce').dt.strftime('%Y-%m-%d')
-                failed_df[date_col] = pd.to_datetime(failed_df[date_col], errors='coerce').dt.strftime('%Y-%m-%d')
-                
-                merged = pd.merge(movies_to_sync, failed_df[['Title', date_col]].dropna(), on=['Title', date_col], how='left', indicator=True)
-                
-                skipped_df = merged[merged['_merge'] == 'both']
-                
-                if not skipped_df.empty:
-                    logger.log(f"🧠 已根据永久失败清单跳过 {len(skipped_df)} 个已知会失败的项目。", 'info')
-                    for _, row in skipped_df.iterrows():
-                        # During a real sync, skipped items are immediately marked as failed items in the UI.
-                        socketio.emit('sync_item_failed', safe_df_to_records(pd.DataFrame([row]))[0])
-                
-                movies_to_sync = merged[merged['_merge'] == 'left_only'].drop(columns=['_merge'])
-                
-        except (FileNotFoundError, KeyError):
-            pass # It's okay if the file doesn't exist yet.
-    
-    # --- Dry Run (Preview) Logic ---
-    if is_dry_run:
-        logger.log("--- 预览模式 ---", 'info')
-        total_movies_preview = len(movies_to_sync)
-        if total_movies_preview == 0:
-            logger.log("✅ 平台已同步，无需操作。", 'success')
-            # Still return an empty list so the frontend can clear the preview.
-            return []
-        else:
-            logger.log(f"发现 {total_movies_preview} 部电影需要同步。", 'info')
-            return safe_df_to_records(movies_to_sync)
-
-    # --- The rest of the function is now ONLY for the actual sync ---
-    
-    # Filter out movies that have previously failed (legacy check, can be removed if merge logic is trusted)
+    # Filter out blacklisted items (known failures)
+    cache = get_cache()
     initial_count = len(movies_to_sync)
-    movies_to_sync['douban_id'] = movies_to_sync['douban_id'].astype(str)
-    movies_to_sync = movies_to_sync[
-        ~movies_to_sync['douban_id'].isin(failed_ids) & 
-        ~movies_to_sync['imdb_id'].isin(failed_ids)
+    movies_to_sync = [
+        m for m in movies_to_sync 
+        if not cache.is_blacklisted(source, target, m.get('target_linking_id', ''))
     ]
     filtered_count = initial_count - len(movies_to_sync)
     if filtered_count > 0:
-        logger.log(f"ℹ️ 已根据失败清单自动跳过 {filtered_count} 部电影。", 'info')
+        logger.log(f"⏩ 已跳过 {filtered_count} 部已知无法同步的电影（黑名单缓存）", 'info')
+    
+    logger.log(f"🔍 预览: 发现 {len(movies_to_sync)} 部可同步电影。", 'info')
+    
+    return movies_to_sync
 
+def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
+    """
+    Unified Sync Logic Entrypoint
+    """
+    logger = SocketLogger(socketio)
+    try:
+        source, target = direction.split('-to-')
+    except:
+        logger.log(f"Invalid direction: {direction}", 'error')
+        return
+    
+    logger.log(f"🚀 开始处理: {source.upper()} -> {target.upper()}", 'info')
+    
+    # 1. Calculate Diff
+    try:
+        movies_to_sync = get_unified_diff(source, target, logger, app_data)
+    except Exception as e:
+        logger.log(f"Diff calculation failed: {str(e)}", 'error')
+        return
+
+    if not movies_to_sync:
+        logger.log("✅ 没有发现需要同步的项目。", 'success')
+        return
+
+    # Pre-process for validation/preview/skip
+    import math
+    for item in movies_to_sync:
+        # User Feedback: Only IMDb rejects unrated items. Others allow it (as watched).
+        if target == 'imdb':
+            r = item.get('source_rating')
+            is_valid = False
+            try:
+                if r and float(r) > 0 and not math.isnan(float(r)):
+                    is_valid = True
+            except:
+                pass
+            
+            if not is_valid:
+                if is_dry_run:
+                    item['Title'] = f"{item.get('Title')} ⚠️(无评分-跳过)"
+                else:
+                    item['_skip_reason'] = 'unrated'
+        else:
+             # For other platforms, missing rating is fine (e.g. mark as watched)
+             pass
+
+    if is_dry_run:
+        logger.log(f"🔍 预览: 发现 {len(movies_to_sync)} 部可同步电影。", 'info')
+        return movies_to_sync
+
+    # 2. Perform Sync (Actual Write)
+    logger.progress(0, len(movies_to_sync), "准备同步...")
+    
+    # Get adapter for target platform
+    adapter = AdapterRegistry.get(target)
+    if not adapter:
+        logger.log(f"❌ 找不到平台适配器: {target}", 'error')
+        return
+        
+    # Initialize adapter instance with config (cookies etc need to be accessible)
+    # Construct a temporary config dict from args or app state if needed
+    # For now, we assume the adapter can be instantiated with minimal config or reuses global config
+    from web.config_helper import read_config
+    config = read_config()
+    
+    # Update config with current session cookies if provided (important for Douban/IMDb)
+    # The adapter might need specific keys
+    if target == 'douban':
+         # logic.py imports get_douban_ck_from_cookie
+        from utils.sync_rate import get_douban_ck_from_cookie
+        config['douban_cookie'] = config.get('douban_cookie') # Ensure it uses what's passed or stored
+        config['douban_ck'] = get_douban_ck_from_cookie(config.get('douban_cookie'))
+    elif target == 'imdb':
+        config['imdb_cookie'] = config.get('imdb_cookie')
+
+    # Instantiate adapter
+    # Note: Adapter constructors usually take (logger, config)
+    adapter_instance = adapter(logger, config)
+    
+    if not adapter_instance.supports_sync:
+        logger.log(f"❌ 平台 {target} 不支持写入同步。", 'error')
+        return
+
+    # Collect detailed results
+    sync_results = {
+        'success': [],
+        'failed': [],
+        'skipped': []
+    }
     
     successful_syncs = 0
-    skipped_count = 0
     failed_count = 0
-    total_movies = len(movies_to_sync)
+    skipped_count = 0 
+    total = len(movies_to_sync)
 
-    if total_movies == 0:
-        logger.log("✅ 平台已同步，无需操作。", 'success')
-    else:
-        logger.log(f"发现 {total_movies} 部电影需要同步。", 'info')
-        logger.progress(0, total_movies, "准备同步...")
+    # Helper function to get platform URL
+    def get_platform_url(platform, movie_id, movie_data):
+        if platform == 'douban' and movie_id:
+            return f"https://movie.douban.com/subject/{movie_id}/"
+        elif platform == 'imdb' and movie_id:
+            return f"https://www.imdb.com/title/{movie_id}/"
+        elif platform == 'tmdb' and movie_id:
+            return f"https://www.themoviedb.org/movie/{movie_id}"
+        elif platform == 'trakt' and movie_id:
+            # Trakt needs slug, fallback to IMDb ID
+            imdb_id = movie_data.get('ids', {}).get('imdb')
+            if imdb_id:
+                return f"https://trakt.tv/search/imdb/{imdb_id}"
+        return '#'
 
-        # --- Actual Sync API Calls ---
-        if target == 'imdb':
-            headers = {'cookie': imdb_cookie, 'Content-Type': 'application/json'}
-            for i, (idx, row) in enumerate(movies_to_sync.iterrows()):
-                imdb_id = row.get('imdb_id')
-                rating_raw = row.get('YourRating_douban')
-                rating = rating_raw * 2 if pd.notna(rating_raw) and rating_raw > 0 else None
-                
-                # Always update progress first
-                logger.progress(i + 1, total_movies, f"同步至IMDb ({i+1}/{total_movies})")
-                
-                if pd.isna(imdb_id):
-                    # No IMDB ID - skip
-                    logger.log(f"⚠️ {i+1}/{total_movies}: {row.get('Title')} - 无 IMDb ID，跳过", 'info')
-                    skipped_count += 1
-                    continue
-                
-                if rating and rating > 0:
-                    # Has rating - sync rating
-                    if rate_on_imdb(imdb_id, int(rating), headers, movie_title=row.get('Title')):
-                        logger.log(f"✅ {i+1}/{total_movies}: {row['Title']} -> IMDb 评分: {int(rating)}", 'success')
-                        successful_syncs += 1
-                    else:
-                        logger.log(f"❌ {i+1}/{total_movies}: {row['Title']} - API 调用失败", 'error')
-                        socketio.emit('sync_item_failed', safe_df_to_records(pd.DataFrame([row]))[0])
-                        newly_failed_items.append(row)
-                        failed_count += 1
-                        failure_df = pd.DataFrame([{'douban_id': row.get('douban_id'), 'imdb_id': row.get('imdb_id'), 'Title': row.get('Title'), 'failed_at': pd.Timestamp.now()}])
-                        failure_df.to_csv(failure_log_path, mode='a', header=not os.path.exists(failure_log_path), index=False)
-                else:
-                    # No rating - should not happen since we pre-filter, but just in case
-                    logger.log(f"⚠️ {i+1}/{total_movies}: {row['Title']} - 跳过 (无评分)", 'info')
-                    skipped_count += 1
-                
-                time.sleep(random.uniform(1, 3))
-
-        elif target == 'douban':
-            ck = get_douban_ck_from_cookie(douban_cookie)
-            headers = { 'Cookie': douban_cookie, 'Content-Type': 'application/x-www-form-urlencoded' }
-            for i, (idx, row) in enumerate(movies_to_sync.iterrows()):
-                douban_id = row.get('douban_id')
-                rating_raw = row.get('YourRating_imdb')
-                rating = int(rating_raw) if pd.notna(rating_raw) and rating_raw > 0 else None
-                
-                # Always update progress first
-                logger.progress(i + 1, total_movies, f"同步至豆瓣 ({i+1}/{total_movies})")
-                
-                if pd.isna(douban_id) or not str(douban_id).replace('.', '', 1).isdigit():
-                    logger.log(f"⚠️ {i+1}/{total_movies}: {row.get('Title')} - 无有效豆瓣 ID，跳过", 'info')
-                    skipped_count += 1
-                    continue
-                
-                if rating and rating > 0:
-                    # Has rating - sync rating
-                    if rate_on_douban(str(int(douban_id)), int(rating), headers, ck, movie_title=row.get('Title')):
-                        logger.log(f"✅ {i+1}/{total_movies}: {row['Title']} -> 豆瓣评分: {int(rating)}", 'success')
-                        successful_syncs += 1
-                    else:
-                        logger.log(f"❌ {i+1}/{total_movies}: {row['Title']} - API 调用失败", 'error')
-                        socketio.emit('sync_item_failed', safe_df_to_records(pd.DataFrame([row]))[0])
-                        newly_failed_items.append(row)
-                        failed_count += 1
-                        failure_df = pd.DataFrame([{'douban_id': row.get('douban_id'), 'imdb_id': row.get('imdb_id'), 'Title': row.get('Title'), 'failed_at': pd.Timestamp.now()}])
-                        failure_df.to_csv(failure_log_path, mode='a', header=not os.path.exists(failure_log_path), index=False)
-                else:
-                    # No rating - mark as watched only (豆瓣支持仅标记"看过"不评分)
-                    # Use rating=0 to mark as watched without rating
-                    if rate_on_douban(str(int(douban_id)), 0, headers, ck, movie_title=row.get('Title')):
-                        logger.log(f"✅ {i+1}/{total_movies}: {row['Title']} -> 豆瓣 (仅标记看过)", 'success')
-                        successful_syncs += 1
-                    else:
-                        logger.log(f"❌ {i+1}/{total_movies}: {row['Title']} - API 调用失败", 'error')
-                        failed_count += 1
-                
-                time.sleep(random.uniform(1, 3))
-
-    # --- After loop, update the permanent fail list ---
-    if newly_failed_items:
-        new_fails_df = pd.DataFrame(newly_failed_items)
+    for i, row in enumerate(movies_to_sync):
+        logger.progress(i + 1, total, f"同步至 {target.upper()} ({i+1}/{total})")
+        
+        movie_title = row.get('Title', 'Unknown')
+        movie_year = row.get('Year', '')
+        target_id = row.get('target_linking_id')
+        rating = row.get('source_rating')
+        
+        # Get source URL from original data
+        source_url = row.get('URL', '#')
+        if not source_url or source_url == '#':
+            # Try to construct from IDs
+            source_id = row.get('ids', {}).get(source) if 'ids' in row else None
+            if source_id:
+                source_url = get_platform_url(source, source_id, row)
+        
+        # Check explicit skip reason
+        if row.get('_skip_reason') == 'unrated':
+            logger.log(f"⏩ 跳过 {movie_title} (无评分)", 'info')
+            sync_results['skipped'].append({
+                'title': movie_title,
+                'year': movie_year,
+                'source_url': source_url,
+                'reason': '无评分'
+            })
+            skipped_count += 1
+            continue
+        
+        if not target_id:
+             logger.log(f"⚠️ 跳过 {movie_title} (找不到目标ID)", 'info')
+             sync_results['skipped'].append({
+                 'title': movie_title,
+                 'year': movie_year,
+                 'source_url': source_url,
+                 'reason': '找不到目标ID'
+             })
+             skipped_count += 1
+             continue
+              
+        # Perform the sync action
         try:
-            # Append new failures, avoiding duplicates
-            existing_fails_df = pd.read_csv(fail_list_path)
-            combined_fails_df = pd.concat([existing_fails_df, new_fails_df], ignore_index=True)
-        except FileNotFoundError:
-            combined_fails_df = new_fails_df
-        
-        # Define a robust unique key for each item
-        unique_key = ['Title', 'DateRated_douban', 'DateRated_imdb', 'YourRating_douban', 'YourRating_imdb']
-        # Keep only columns that exist in the dataframe to prevent errors
-        existing_unique_key = [col for col in unique_key if col in combined_fails_df.columns]
-        
-        combined_fails_df.drop_duplicates(subset=existing_unique_key, keep='last', inplace=True)
-        combined_fails_df.to_csv(fail_list_path, index=False, encoding='utf-8-sig')
-        logger.log(f"永久失败清单已更新，新增 {len(new_fails_df)} 条记录。", 'info')
+            # Validate rating - skip if no valid rating
+            normalized_rating = 0
+            try:
+                if rating and str(rating).strip() and str(rating).lower() not in ['nan', 'none', '']:
+                    normalized_rating = float(rating)
+                    if normalized_rating < 0 or normalized_rating > 10:
+                        raise ValueError("Rating out of range")
+            except (ValueError, TypeError):
+                normalized_rating = 0
+            
+            # Skip movies without valid ratings ONLY for IMDb target
+            # Other platforms (TMDB, Trakt, Douban) allow rating=0 as "watched only"
+            if normalized_rating <= 0 and target == 'imdb':
+                logger.log(f"⏩ 跳过 {movie_title} (IMDb不支持无评分记录)", 'info')
+                sync_results['skipped'].append({
+                    'title': movie_title,
+                    'year': movie_year,
+                    'source_url': source_url,
+                    'reason': 'IMDb不支持无评分'
+                })
+                skipped_count += 1
+                continue
+            
+            success = adapter_instance.sync_movie(
+                item_id=target_id,
+                rating=normalized_rating,
+                comment=f"Synced from {source.title()}",
+                tags=[f"sync:{source}"]
+            )
+            
+            target_url = get_platform_url(target, target_id, row)
+            
+            if success:
+                logger.log(f"✅ 同步成功: {movie_title} (评分: {rating}/10)", 'success')
+                sync_results['success'].append({
+                    'title': movie_title,
+                    'year': movie_year,
+                    'source_rating': rating,
+                    'source_url': source_url,
+                    'target_url': target_url,
+                    'target_id': target_id
+                })
+                successful_syncs += 1
+            else:
+                 logger.log(f"❌ 同步失败: {movie_title}", 'error')
+                 
+                 # Add to blacklist cache
+                 cache.add_failure(source, target, target_id, movie_title, "API返回失败")
+                 
+                 sync_results['failed'].append({
+                     'title': movie_title,
+                     'year': movie_year,
+                     'source_url': source_url,
+                     'error_msg': 'API返回失败'
+                 })
+                 failed_count += 1
+                 
+            time.sleep(random.uniform(1.0, 3.0)) # Polite delay
+            
+        except Exception as e:
+            logger.log(f"❌ 异常 {movie_title}: {str(e)}", 'error')
+            
+            # Add to blacklist cache
+            cache.add_failure(source, target, target_id, movie_title, str(e))
+            
+            sync_results['failed'].append({
+                'title': movie_title,
+                'year': movie_year,
+                'source_url': source_url,
+                'error_msg': str(e)
+            })
+            failed_count += 1
+            
+    logger.log(f"同步完成! ✅ 成功: {successful_syncs} / ⏩ 跳过: {skipped_count} / ❌ 失败: {failed_count}", 'success')
+    
+    # Send detailed results to frontend
+    if hasattr(logger, 'socketio'):
+        logger.socketio.emit('sync_results_data', {
+            'results': sync_results,
+            'summary': {
+                'success': successful_syncs,
+                'failed': failed_count,
+                'skipped': skipped_count
+            },
+            'source': source,
+            'target': target
+        })
 
-    logger.log(f"同步完成! ✅ 成功: {successful_syncs} / ⏭️ 跳过: {skipped_count} / ❌ 失败: {failed_count}", 'success')
+

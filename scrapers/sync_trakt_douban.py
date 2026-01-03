@@ -254,15 +254,19 @@ def sync_trakt_to_douban(
         'details': []
     }
     
-    # Get already watched movies on Douban
-    if socketio:
-        socketio.emit('log', {'message': '📥 获取豆瓣已看列表...', 'type': 'info'})
+    # Optimization: Skip fetching watched list for small syncs
+    # Fetching all watched movies is very slow (100+ pages, minutes)
+    # For incremental sync, just try to mark and handle "already watched" response
+    total = len(trakt_movies)
+    skip_watched_check = total < 20  # Skip for < 20 movies
     
     existing_watched = set()
-    if douban_user_id:
+    if douban_user_id and not skip_watched_check:
+        if socketio:
+            socketio.emit('log', {'message': '📥 获取豆瓣已看列表...', 'type': 'info'})
         existing_watched = set(client.get_watched_movies())
-    
-    total = len(trakt_movies)
+    elif skip_watched_check and socketio:
+        socketio.emit('log', {'message': f'⚡ 快速模式: 直接同步 {total} 部电影...', 'type': 'info'})
     
     if socketio:
         socketio.emit('log', {'message': f'📊 开始同步 {total} 部电影到豆瓣...', 'type': 'info'})
@@ -270,7 +274,18 @@ def sync_trakt_to_douban(
     for i, movie in enumerate(trakt_movies):
         imdb_id = movie.get('IMDb ID')
         title = movie.get('Title', 'Unknown')
-        rating = movie.get('Your Rating') if with_ratings else None
+        # Handle NaN ratings - convert to None
+        raw_rating = movie.get('Your Rating') if with_ratings else None
+        rating = None
+        if raw_rating is not None:
+            try:
+                # Check if it's NaN
+                if raw_rating != raw_rating:  # NaN != NaN is True
+                    rating = None
+                else:
+                    rating = int(raw_rating)
+            except (ValueError, TypeError):
+                rating = None
         
         if not imdb_id:
             results['not_found'] += 1
@@ -294,7 +309,14 @@ def sync_trakt_to_douban(
         
         if success:
             results['synced'] += 1
-            results['details'].append({'title': title, 'status': 'synced', 'rating': rating})
+            results['details'].append({
+                'title': title, 
+                'status': 'synced', 
+                'rating': rating,
+                'douban_id': douban_id,
+                'imdb_id': imdb_id,
+                'year': movie.get('Year')
+            })
         else:
             results['failed'] += 1
             results['details'].append({'title': title, 'status': 'failed'})
@@ -310,8 +332,19 @@ def sync_trakt_to_douban(
             })
     
     if socketio:
+        message_parts = []
+        if results['synced'] > 0:
+            message_parts.append(f"{results['synced']} 新增")
+        if results['already_watched'] > 0:
+            message_parts.append(f"{results['already_watched']} 已存在")
+        if results['not_found'] > 0:
+            message_parts.append(f"{results['not_found']} 未找到")
+        if results['failed'] > 0:
+            message_parts.append(f"{results['failed']} 失败")
+        
+        message = f"✅ 同步完成: {', '.join(message_parts)}" if message_parts else "✅ 同步完成"
         socketio.emit('log', {
-            'message': f'✅ 同步完成: {results["synced"]} 新增, {results["already_watched"]} 已存在, {results["not_found"]} 未找到',
+            'message': message,
             'type': 'success'
         })
     

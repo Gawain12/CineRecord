@@ -6,7 +6,7 @@ from adapters.base import PlatformAdapter, MovieRecord
 from adapters.logger import SocketLogger, CLILogger
 
 # Auto-register all platform adapters
-from adapters import douban, imdb, trakt, letterboxd
+from adapters import douban, imdb, trakt, letterboxd, tmdb
 
 __all__ = [
     'AdapterRegistry',

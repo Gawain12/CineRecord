@@ -11,6 +11,52 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('[Socket] Connected with ID:', socket.id);
     });
 
+    // Initialize i18n system
+    if (typeof i18n !== 'undefined') {
+        i18n.init();
+
+        // Connect language button
+        const langBtn = document.getElementById('lang-btn');
+        if (langBtn) {
+            langBtn.addEventListener('click', () => i18n.toggleLanguage());
+        }
+    }
+
+    // Theme Manager
+    class ThemeManager {
+        constructor() {
+            this.themeBtn = document.getElementById('theme-btn');
+            this.currentTheme = localStorage.getItem('theme') || 'dark';
+            this.init();
+        }
+
+        init() {
+            this.applyTheme(this.currentTheme);
+            if (this.themeBtn) {
+                this.themeBtn.addEventListener('click', () => this.toggleTheme());
+            }
+        }
+
+        toggleTheme() {
+            this.currentTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('theme', this.currentTheme);
+            this.applyTheme(this.currentTheme);
+        }
+
+        applyTheme(theme) {
+            if (theme === 'light') {
+                document.body.classList.add('light-mode');
+                if (this.themeBtn) this.themeBtn.innerText = '☀️';
+            } else {
+                document.body.classList.remove('light-mode');
+                if (this.themeBtn) this.themeBtn.innerText = '🌙';
+            }
+        }
+    }
+
+    // Initialize Managers
+    new ThemeManager();
+
     // Application state
     const appState = {
         douban_ready: false,
@@ -160,6 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Save session state when tab changes
         saveSessionState();
     }
+
 
     // ========================================
     // Socket.IO Event Handlers
@@ -508,7 +555,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (data.valid) {
             // Validation successful - show connected state
-            log(`✅ ${platform.toUpperCase()} 验证成功`, 'success');
+            // log(`✅ ${platform.toUpperCase()} 验证成功`, 'success');
 
             if (platform === 'douban' || platform === 'imdb') {
                 appState[`${platform}_ready`] = true;
@@ -1743,14 +1790,68 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('data');
     }
 
-    function triggerSync(isDryRun) {
-        // Use direct DOM query instead of cached ui reference (ui.syncDirection may be null)
-        const syncDirEl = document.getElementById('sync-direction');
-        const direction = syncDirEl?.value || 'douban-to-imdb';
+    // ========================================
+    // Sync Logic
+    // ========================================
 
+    // Handle source platform change to update target options
+    const syncSourceEl = document.getElementById('sync-source');
+    const syncTargetEl = document.getElementById('sync-target');
+
+    if (syncSourceEl && syncTargetEl) {
+        syncSourceEl.addEventListener('change', () => {
+            const source = syncSourceEl.value;
+
+            // Enable all options first
+            Array.from(syncTargetEl.options).forEach(opt => {
+                opt.disabled = false;
+                if (opt.value === source) {
+                    opt.disabled = true; // Disable same platform
+                }
+            });
+
+            // Auto-select a valid target if current selection is disabled
+            if (syncTargetEl.value === source) {
+                const firstValid = Array.from(syncTargetEl.options).find(opt => !opt.disabled);
+                if (firstValid) syncTargetEl.value = firstValid.value;
+            }
+        });
+
+        // Trigger once on init
+        syncSourceEl.dispatchEvent(new Event('change'));
+    }
+
+    async function triggerSync(isDryRun) {
+        // Get source and target platform
+        const sourceEl = document.getElementById('sync-source');
+        const targetEl = document.getElementById('sync-target');
+
+        if (!sourceEl || !targetEl) {
+            console.error("Sync selectors not found!");
+            return;
+        }
+
+        const sourcePlatform = sourceEl.value;
+        const targetPlatform = targetEl.value;
+
+        // Validate platforms are different
+        if (sourcePlatform === targetPlatform) {
+            log('❌ 源平台和目标平台不能相同', 'error');
+            return;
+        }
+
+        const direction = `${sourcePlatform}-to-${targetPlatform}`;
+
+        // Simplified generic validation - rely on backend for checks
+        // Just check if we need source data first
+        if (['douban', 'imdb', 'letterboxd', 'trakt', 'tmdb'].includes(sourcePlatform)) {
+            // For any source, we ideally want some data loaded
+            // But we shouldn't block blindly. Let the backend handle specific requirements.
+        }
 
         // Validate based on sync direction
-        if (direction === 'douban-to-imdb' || direction === 'imdb-to-douban') {
+        if (direction === 'douban-to-imdb' || direction === 'imdb-to-douban' || direction === 'letterboxd-to-imdb') {
+
             if (!appState.douban_ready && !appState.imdb_ready) {
                 log('❌ 请先在"数据"标签页获取豆瓣和IMDB数据', 'error');
                 switchTab('data');
@@ -2136,6 +2237,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderMergedDataPreview(data) {
+        // Disabled per user request - data is already shown in data page
+        // and this preview doesn't support pagination
+        return;
+
         if (!ui.mergedDataCard || !ui.mergedSummary || !ui.mergedPreview) return;
 
         ui.mergedDataCard.style.display = 'block';
@@ -2221,17 +2326,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (imdbRating) publicRatingHtml += `<span class="platform-rating imdb">IMDb ${imdbRating}</span>`;
 
             html += `
-                <div class="movie-item">
-                    <img class="movie-cover" src="${coverUrl}" alt="${title}" onerror="this.style.display='none'">
-                    <div class="movie-info">
-                        <h4>
-                            <a href="${movieUrl}" target="_blank">${title}${year ? ` (${year})` : ''}</a>
-                            ${publicRatingHtml}
-                        </h4>
-                        <p class="meta">${genres}${directors ? ' / ' + directors : ''}</p>
-                        <p class="user-rating-line">
-                            ${rating ? `<span class="my-score">★ 我的评分: ${rating}</span>` : ''}
-                        </p>
+                <div class="preview-compact-item">
+                    <div class="compact-title">
+                        <a href="${movieUrl}" target="_blank" title="${title}">${title}</a>
+                    </div>
+                    <div class="compact-meta">
+                        <span class="compact-year">${year}</span>
+                        ${rating ? `<span class="compact-rating">★ ${rating}</span>` : ''}
                     </div>
                 </div>
             `;
@@ -2282,6 +2383,117 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
         ui.syncFailedList.appendChild(item);
+    };
+
+    // Render detailed sync results
+    function renderSyncResults(results, summary, source, target) {
+        // Create or get results panel
+        let resultsPanel = document.getElementById('sync-results-panel');
+        if (!resultsPanel) {
+            resultsPanel = document.createElement('div');
+            resultsPanel.id = 'sync-results-panel';
+            resultsPanel.className = 'sync-results-panel';
+
+            // Insert after preview card
+            const previewCard = document.getElementById('sync-preview-card');
+            if (previewCard && previewCard.parentNode) {
+                previewCard.parentNode.insertBefore(resultsPanel, previewCard.nextSibling);
+            } else {
+                document.querySelector('.content-main').appendChild(resultsPanel);
+            }
+        }
+
+        resultsPanel.style.display = 'block';
+
+        // Build HTML
+        let html = `
+            <div class="sync-results-header">
+                <h3>🏁 同步结果: ${source.toUpperCase()} → ${target.toUpperCase()}</h3>
+                <div class="results-summary">
+                    ✅ 成功 ${summary.success} · ❌ 失败 ${summary.failed} · ⏭️ 跳过 ${summary.skipped}
+                </div>
+            </div>
+            
+            <div class="results-tabs">
+                <button class="results-tab active" data-tab="success">✅ 成功 (${summary.success})</button>
+                <button class="results-tab" data-tab="failed">❌ 失败 (${summary.failed})</button>
+                <button class="results-tab" data-tab="skipped">⏭️ 跳过 (${summary.skipped})</button>
+            </div>
+            
+            <div class="results-content">
+                <div class="results-tab-content active" data-content="success">
+                    <div class="preview-compact-grid">
+                        ${results.success.map(movie => `
+                            <div class="preview-compact-item sync-result-success">
+                                <div class="compact-title">
+                                    <a href="${movie.target_url}" target="_blank" title="${movie.title}">${movie.title}</a>
+                                </div>
+                                <div class="compact-meta">
+                                    <span class="compact-year">${movie.year}</span>
+                                    <span class="compact-rating">★ ${movie.source_rating}/10</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ${results.success.length === 0 ? '<p class="empty-state">无成功记录</p>' : ''}
+                </div>
+                
+                <div class="results-tab-content" data-content="failed">
+                    <div class="preview-compact-grid">
+                        ${results.failed.map(movie => `
+                            <div class="preview-compact-item sync-result-failed">
+                                <div class="compact-title">
+                                    <a href="${movie.source_url}" target="_blank" title="${movie.title}">${movie.title}</a>
+                                </div>
+                                <div class="compact-meta">
+                                    <span class="compact-year">${movie.year}</span>
+                                    <span class="compact-error">${movie.error_msg}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ${results.failed.length === 0 ? '<p class="empty-state">无失败记录</p>' : ''}
+                </div>
+                
+                <div class="results-tab-content" data-content="skipped">
+                    <div class="preview-compact-grid">
+                        ${results.skipped.map(movie => `
+                            <div class="preview-compact-item sync-result-skipped">
+                                <div class="compact-title">
+                                    <a href="${movie.source_url}" target="_blank" title="${movie.title}">${movie.title}</a>
+                                </div>
+                                <div class="compact-meta">
+                                    <span class="compact-year">${movie.year}</span>
+                                    <span class="compact-reason">${movie.reason}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ${results.skipped.length === 0 ? '<p class="empty-state">无跳过记录</p>' : ''}
+                </div>
+            </div>
+        `;
+
+        resultsPanel.innerHTML = html;
+
+        // Add tab click handlers
+        const tabs = resultsPanel.querySelectorAll('.results-tab');
+        const tabContents = resultsPanel.querySelectorAll('.results-tab-content');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const targetTab = tab.dataset.tab;
+
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+
+                tab.classList.add('active');
+                resultsPanel.querySelector(`[data-content="${targetTab}"]`).classList.add('active');
+            });
+        });
+
+        // Scroll to results
+        resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
     function renderUnratedMovies(data) {
@@ -2724,6 +2936,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setButtonsState(false);  // Re-enable buttons
         // Disable sync button again until next preview
         if (ui.syncBtn) ui.syncBtn.disabled = true;
+    });
+
+    // Handle detailed sync results
+    socket.on('sync_results_data', (data) => {
+        renderSyncResults(data.results, data.summary, data.source, data.target);
     });
 
     // Handle preview complete - enable Execute button and show preview in UI

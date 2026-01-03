@@ -95,51 +95,16 @@ from scrapers.trakt_client import TraktClient  # Keep original for backward comp
 from scrapers.tmdb_client import TMDBClient  # TMDB integration
 from scrapers.sync_trakt_douban import sync_trakt_to_douban
 
+# Scheduled Sync
+from web.scheduler import get_scheduler
+
 
 # Global state
 CORE_COLUMNS = ['Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id']
 ESSENTIAL_COLUMNS = ['Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id', 'Year', 'URL', 'Cover URL', 'Douban Rating', 'IMDb Rating', 'Num Votes', 'Genres', 'Directors']
 APP_DATA = {}
 
-def safe_df_to_records(df):
-    """Convert DataFrame to records, ensuring all values are JSON serializable"""
-    if df is None or df.empty: return []
-    try:
-        import json
-        import numpy as np
-        
-        # Convert DataFrame to records
-        records = df.to_dict('records')
-        
-        # Convert each value to JSON-safe type
-        def convert_value(v):
-            if v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
-                return None
-            if isinstance(v, (np.integer, np.int64, np.int32)):
-                return int(v)
-            if isinstance(v, (np.floating, np.float64, np.float32)):
-                return float(v) if not np.isnan(v) else None
-            if isinstance(v, np.bool_):
-                return bool(v)
-            if isinstance(v, (np.ndarray, list)):
-                return [convert_value(x) for x in v]
-            if pd.isna(v):
-                return None
-            return v
-        
-        clean_records = []
-        for record in records:
-            clean_record = {}
-            for k, v in record.items():
-                clean_record[k] = convert_value(v)
-            clean_records.append(clean_record)
-        
-        return clean_records
-    except Exception as e:
-        logging.error(f"Error converting DataFrame to records: {e}")
-        import traceback
-        logging.error(traceback.format_exc())
-        return []
+from web.data_utils import safe_df_to_records
 
 @app.route('/')
 def index():
@@ -246,6 +211,134 @@ def auth_start(platform):
     webbrowser.open(auth_url)
     
     return jsonify({'success': True, 'message': 'Auth page opened in browser'})
+
+# ==========================================
+# Scheduled Tasks Socket.IO Events
+# ==========================================
+
+@socketio.on('get_scheduled_tasks')
+def handle_get_scheduled_tasks():
+    """Get all scheduled tasks"""
+    try:
+        scheduler = get_scheduler(socketio)
+        tasks = scheduler.list_jobs()
+        emit('scheduled_tasks_list', {'success': True, 'tasks': tasks})
+    except Exception as e:
+        logger.error(f"Failed to get scheduled tasks: {e}")
+        emit('scheduled_tasks_list', {'success': False, 'error': str(e), 'tasks': []})
+
+@socketio.on('add_scheduled_task')
+def handle_add_scheduled_task(data):
+    """Add a new scheduled task"""
+    try:
+        name = data.get('name')
+        source = data.get('source')
+        target = data.get('target')
+        schedule = data.get('schedule')
+        paused = data.get('paused', False)
+        
+        # Generate task ID
+        import time
+        task_id = f"{source}_to_{target}_{int(time.time())}"
+        
+        scheduler = get_scheduler(socketio)
+        success = scheduler.add_sync_job(
+            job_id=task_id,
+            source=source,
+            target=target,
+            cron_expression=schedule,
+            paused=paused,
+            name=name
+        )
+        
+        if success:
+            emit('task_added', {'success': True, 'task_id': task_id})
+            # Notify all clients to refresh task list
+            socketio.emit('task_list_updated', {})
+        else:
+            emit('task_added', {'success': False, 'error': 'Failed to create task'})
+            
+    except Exception as e:
+        logger.error(f"Failed to add scheduled task: {e}")
+        emit('task_added', {'success': False, 'error': str(e)})
+
+@socketio.on('update_scheduled_task')
+def handle_update_scheduled_task(data):
+    """Update an existing scheduled task"""
+    try:
+        task_id = data.get('task_id')
+        
+        scheduler = get_scheduler(socketio)
+        
+        # Remove old task
+        scheduler.remove_job(task_id)
+        
+        # Add updated task with same ID
+        success = scheduler.add_sync_job(
+            job_id=task_id,
+            source=data.get('source'),
+            target=data.get('target'),
+            cron_expression=data.get('schedule'),
+            paused=data.get('paused', False),
+            name=data.get('name')
+        )
+        
+        if success:
+            emit('task_updated', {'success': True, 'task_id': task_id})
+            socketio.emit('task_list_updated', {})
+        else:
+            emit('task_updated', {'success': False, 'error': 'Failed to update task'})
+            
+    except Exception as e:
+        logger.error(f"Failed to update scheduled task: {e}")
+        emit('task_updated', {'success': False, 'error': str(e)})
+
+@socketio.on('delete_scheduled_task')
+def handle_delete_scheduled_task(data):
+    """Delete a scheduled task"""
+    try:
+        task_id = data.get('task_id')
+        
+        scheduler = get_scheduler(socketio)
+        success = scheduler.remove_job(task_id)
+        
+        if success:
+            emit('task_deleted', {'success': True, 'task_id': task_id})
+            socketio.emit('task_list_updated', {})
+        else:
+            emit('task_deleted', {'success': False, 'error': 'Task not found'})
+            
+    except Exception as e:
+        logger.error(f"Failed to delete scheduled task: {e}")
+        emit('task_deleted', {'success': False, 'error': str(e)})
+
+@socketio.on('toggle_scheduled_task')
+def handle_toggle_scheduled_task(data):
+    """Toggle (pause/resume) a scheduled task"""
+    try:
+        task_id = data.get('task_id')
+        paused = data.get('paused', False)
+        
+        scheduler = get_scheduler(socketio)
+        
+        if paused:
+            success = scheduler.pause_job(task_id)
+        else:
+            success = scheduler.resume_job(task_id)
+        
+        if success:
+            emit('task_status_changed', {'success': True, 'task_id': task_id, 'paused': paused})
+            socketio.emit('task_list_updated', {})
+        else:
+            emit('task_status_changed', {'success': False, 'error': 'Failed to toggle task'})
+            
+    except Exception as e:
+        logger.error(f"Failed to toggle scheduled task: {e}")
+        emit('task_status_changed', {'success': False, 'error': str(e)})
+
+# ==========================================
+# Main Entry Point
+# ==========================================
 
 @app.route('/proxy/avatar')
 def proxy_avatar():
@@ -399,6 +492,89 @@ def download_data(platform):
             }
         )
 
+# ==========================================
+# Scheduled Sync API
+# ==========================================
+
+@app.route('/api/scheduler/jobs', methods=['GET'])
+def list_scheduled_jobs():
+    """Get all scheduled sync jobs"""
+    from flask import jsonify
+    try:
+        scheduler = get_scheduler(socketio)
+        jobs = scheduler.list_jobs()
+        return jsonify({'success': True, 'jobs': jobs})
+    except Exception as e:
+        logger.error(f"Failed to list jobs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/scheduler/jobs', methods=['POST'])
+def create_scheduled_job():
+    """Create a new scheduled sync job"""
+    from flask import request, jsonify
+    try:
+        data = request.get_json()
+        job_id = data.get('job_id') or f"{data['source']}-{data['target']}-{int(time.time())}"
+        source = data.get('source')
+        target = data.get('target')
+        cron_expr = data.get('cron')
+        enabled = data.get('enabled', True)
+        
+        if not all([source, target, cron_expr]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        scheduler = get_scheduler(socketio)
+        success = scheduler.add_sync_job(job_id, source, target, cron_expr, enabled)
+        
+        if success:
+            return jsonify({'success': True, 'job_id': job_id})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to create job'}), 500
+            
+    except Exception as e:
+        logger.error(f"Failed to create job: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/scheduler/jobs/<job_id>', methods=['DELETE'])
+def delete_scheduled_job(job_id):
+    """Delete a scheduled job"""
+    from flask import jsonify
+    try:
+        scheduler = get_scheduler(socketio)
+        success = scheduler.remove_job(job_id)
+        return jsonify({'success': success})
+    except Exception as e:
+        logger.error(f"Failed to delete job: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/scheduler/jobs/<job_id>/toggle', methods=['POST'])
+def toggle_scheduled_job(job_id):
+    """Toggle (pause/resume) a scheduled job"""
+    from flask import request, jsonify
+    try:
+        data = request.get_json()
+        action = data.get('action', 'toggle')  # 'pause' or 'resume'
+        
+        scheduler = get_scheduler(socketio)
+        
+        if action == 'pause':
+            success = scheduler.pause_job(job_id)
+        elif action == 'resume':
+            success = scheduler.resume_job(job_id)
+        else:
+            # Auto-detect current state and toggle
+            jobs = scheduler.list_jobs()
+            current_job = next((j for j in jobs if j['id'] == job_id), None)
+            if current_job and current_job.get('paused'):
+                success = scheduler.resume_job(job_id)
+            else:
+                success = scheduler.pause_job(job_id)
+        
+        return jsonify({'success': success})
+    except Exception as e:
+        logger.error(f"Failed to toggle job: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/library')
 def api_get_library():
     """REST API endpoint for unified library - bypasses socket issues"""
@@ -549,7 +725,7 @@ def api_get_library():
                 if not imdb_url and imdb_id and str(imdb_id).startswith('tt'):
                     imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
                 letterboxd_url = clean_value(movie.get('letterboxd_url') or movie.get('Letterboxd URI') or '')
-                trakt_url = clean_value(movie.get('trakt_url') or '')
+                trakt_url = clean_value(movie.get('trakt_url') or (movie.get('URL') if platform == 'trakt' else '') or '')
                 tmdb_url = ''
                 if tmdb_id:
                     tmdb_url = f"https://www.themoviedb.org/movie/{tmdb_id}"
@@ -636,8 +812,10 @@ def api_get_library():
                         all_movies[key]['letterboxd_url'] = movie.get('letterboxd_url') or movie.get('Letterboxd URI') or ''
                     all_movies[key]['letterboxd_rating'] = user_rating or all_movies[key].get('letterboxd_rating', '')
                 elif platform == 'trakt':
-                    if not all_movies[key].get('trakt_url'):
-                        all_movies[key]['trakt_url'] = movie.get('trakt_url') or ''
+                    # Always update Trakt URL if source has one (fix for shared items)
+                    new_trakt_url = movie.get('trakt_url') or movie.get('URL')
+                    if new_trakt_url:
+                        all_movies[key]['trakt_url'] = new_trakt_url
                     all_movies[key]['trakt_rating'] = user_rating or all_movies[key].get('trakt_rating', '')
                 elif platform == 'tmdb':
                     if not all_movies[key].get('tmdb_url') and tmdb_id:
@@ -769,7 +947,7 @@ def handle_check_session(data):
                         'count': len(df),
                         'user_id': user_id
                     }
-                    logger.info(f"Loaded cached {platform} data: {len(df)} records")
+                    logger.debug(f"Loaded cached {platform} data: {len(df)} records")
                 except Exception as e:
                     logger.error(f"Error loading cached {platform} data: {e}")
     
@@ -795,7 +973,7 @@ def handle_check_session(data):
                     'count': len(df),
                     'user_id': trakt_user_id
                 }
-                logger.info(f"Loaded cached Trakt data: {len(df)} records")
+                logger.debug(f"Loaded cached Trakt data: {len(df)} records")
             except Exception as e:
                 logger.error(f"Error loading cached Trakt data: {e}")
 
@@ -817,7 +995,7 @@ def handle_check_session(data):
                 'count': len(df),
                 'user_id': 'letterboxd'
             }
-            logger.info(f"Loaded cached Letterboxd data: {len(df)} records")
+            logger.debug(f"Loaded cached Letterboxd data: {len(df)} records")
         except Exception as e:
             logger.error(f"Error loading cached Letterboxd data: {e}")
 
@@ -843,7 +1021,7 @@ def handle_check_session(data):
                 'count': len(df),
                 'user_id': tmdb_user_id or 'tmdb'
             }
-            logger.info(f"Loaded cached TMDB data: {len(df)} records")
+            logger.debug(f"Loaded cached TMDB data: {len(df)} records")
         except Exception as e:
             logger.error(f"Error loading cached TMDB data: {e}")
     
@@ -863,11 +1041,15 @@ def handle_check_session(data):
             }
     
     # OAuth platforms (Trakt/TMDB)
-    if config.get('trakt_access_token') and config.get('trakt_user_id'):
-        platforms_pending['trakt'] = {
-            'status': 'validating',
-            'user_id': config.get('trakt_user_id')
-        }
+    trakt_id = config.get('trakt_client_id')
+    trakt_token = config.get('trakt_access_token')
+    logger.info(f"DEBUG: Trakt Config Check - ID: {'Found' if trakt_id else 'Missing'}, Token: {'Found' if trakt_token else 'Missing'}")
+    # Don't mark Trakt as validating since we disabled auto-validation
+    # if trakt_id and trakt_token:
+    #     platforms_pending['trakt'] = {
+    #         'status': 'validating',
+    #         'user_id': config.get('trakt_user_id')
+    #     }
     
     tmdb_session_id = config.get('tmdb_session_id')
     tmdb_username = config.get('tmdb_username', '')
@@ -889,22 +1071,41 @@ def handle_check_session(data):
     # ========================================
     def validate_all_platforms():
         import time
-        time.sleep(0.2)  # Small delay to let frontend render initial state
+        import threading
         
-        # Validate Cookie-based platforms
-        for platform in ['douban', 'imdb']:
-            user_id = config.get(f'{platform}_user_id')
-            cookie = config.get(f'{platform}_cookie')
-            if user_id and cookie:
-                validate_cookie_platform(platform, cookie, user_id)
-        
-        # Validate Trakt
-        if config.get('trakt_access_token'):
-            validate_trakt_connection()
-        
-        # Validate TMDB
-        if tmdb_session_id:
-            validate_tmdb_connection(config)
+        # Simple lock to prevent multiple validation threads
+        global VALIDATION_LOCK
+        if 'VALIDATION_LOCK' not in globals():
+            VALIDATION_LOCK = threading.Lock()
+            
+        if not VALIDATION_LOCK.acquire(blocking=False):
+            return
+
+        try:
+            time.sleep(0.2)  # Small delay to let frontend render initial state
+            
+            
+            # Validate Cookie-based platforms
+            for platform in ['douban', 'imdb']:
+                user_id = config.get(f'{platform}_user_id')
+                cookie = config.get(f'{platform}_cookie')
+                if user_id and cookie:
+                    validate_cookie_platform(platform, cookie, user_id)
+            
+            # Validate Trakt - DISABLED: Only validate on explicit user request
+            # Automatic validation causes SSL timeouts that interfere with sync preview
+            # logger.info("DEBUG: Checking Trakt config in thread")
+            # if config.get('trakt_access_token'):
+            #     logger.info("DEBUG: Calling validate_trakt_connection from thread")
+            #     validate_trakt_connection()
+            
+            # Validate TMDB
+            if tmdb_session_id:
+                validate_tmdb_connection(config)
+        except Exception as e:
+            logger.exception("FATAL: validate_all_platforms thread crashed")
+        finally:
+            VALIDATION_LOCK.release()
     
     import threading
     threading.Thread(target=validate_all_platforms, daemon=True).start()
@@ -922,28 +1123,62 @@ def validate_cookie_platform(platform, cookie, user_id):
     
     try:
         if platform == 'douban':
-            # Test douban by accessing mine page
-            resp = requests.get('https://www.douban.com/mine/', 
-                              headers=headers, timeout=10, allow_redirects=True)
-            # Douban sometimes redirects through sec.douban.com with encoded URL
-            from urllib.parse import unquote
-            url_to_check = unquote(resp.url)
-            m = re.search(r'/people/([^/\?"]+)', url_to_check)
-            if m:
-                actual_user_id = m.group(1)
+            valid = False
+            found_id = None
+            
+            # Method 1: If we have user_id, test mobile page (less strict anti-bot)
+            if user_id:
+                try:
+                    # Access a public movie page with credentials to check login status
+                    # Note: mobile page doesn't strictly check login for public pages, 
+                    # but invalid cookie might cause issues. 
+                    # Better check: mobile profile page
+                    m_url = f"https://m.douban.com/people/{user_id}/"
+                    m_resp = requests.get(m_url, headers=headers, timeout=10, allow_redirects=False)
+                    
+                    if m_resp.status_code == 200:
+                        valid = True
+                        found_id = user_id
+                        logger.debug(f"Douban validation successful (Mobile Profile): {user_id}")
+                except Exception as e:
+                    logger.debug(f"Mobile validation failed: {e}")
+
+            # Method 2: PC Mine Page (strict, often redirects to sec.douban.com)
+            if not valid:
+                resp = requests.get('https://www.douban.com/mine/', 
+                                  headers=headers, timeout=10, allow_redirects=True)
+                
+                # Douban sometimes redirects through sec.douban.com with encoded URL
+                from urllib.parse import unquote
+                url_to_check = unquote(resp.url)
+                
+                # Check 1: URL match (e.g. /people/username/)
+                m = re.search(r'/people/([^/\?"]+)', url_to_check)
+                if m:
+                    found_id = m.group(1)
+                    valid = True
+                    logger.debug(f"Douban validation successful (URL match): {found_id}")
+                
+                # Check 2: Content match (fallback for redirect/sec pages)
+                elif 'accounts/logout' in resp.text:
+                    m2 = re.search(r'douban\.com/people/([^/"]+)/', resp.text)
+                    found_id = m2.group(1) if m2 else user_id
+                    valid = True
+                    logger.debug(f"Douban validation successful (Content match): {found_id}")
+
+            if valid and found_id:
                 socketio.emit('platform_validated', {
                     'platform': platform,
                     'valid': True,
-                    'user_id': actual_user_id
+                    'user_id': found_id
                 })
-                logger.info(f"Douban validation successful: {actual_user_id}")
             else:
                 socketio.emit('platform_validated', {
                     'platform': platform,
                     'valid': False,
-                    'error': 'Cookie 已过期或无效'
+                    'error': '验证失败: 未检测到登录状态'
                 })
-                logger.warning(f"Douban validation failed - cookie expired")
+                logger.warning(f"Douban validation failed - all methods tried")
                 
         elif platform == 'imdb':
             # Test IMDB by checking if we can access user page
@@ -962,7 +1197,7 @@ def validate_cookie_platform(platform, cookie, user_id):
                     'valid': True,
                     'user_id': user_id
                 })
-                logger.info(f"IMDB validation successful: {user_id}")
+                logger.debug(f"IMDB validation successful: {user_id}")
                 
     except requests.RequestException as e:
         logger.error(f"{platform} validation error: {e}")
@@ -975,11 +1210,12 @@ def validate_cookie_platform(platform, cookie, user_id):
 
 def validate_trakt_connection():
     """Validate Trakt access token by making API call"""
+    # logger.debug("Entered validate_trakt_connection")
     config = read_config()
-    client_id = config.get('trakt_client_id', '')
-    client_secret = config.get('trakt_client_secret', '')
-    access_token = config.get('trakt_access_token', '')
-    refresh_token = config.get('trakt_refresh_token', '')
+    client_id = config.get('trakt_client_id', '').strip()
+    client_secret = config.get('trakt_client_secret', '').strip()
+    access_token = config.get('trakt_access_token', '').strip()
+    refresh_token = config.get('trakt_refresh_token', '').strip()
     
     if not client_id or not access_token:
         socketio.emit('platform_validated', {
@@ -989,34 +1225,58 @@ def validate_trakt_connection():
         })
         return
     
+    global TRAKT_LAST_VALIDATED
+    current_time = time.time()
+    
+    # Throttle validation (debounce 5 minutes unless forced?)
+    # We use a global variable to track last validation timestamp
+    if 'TRAKT_LAST_VALIDATED' not in globals():
+        TRAKT_LAST_VALIDATED = 0
+        
+    if current_time - TRAKT_LAST_VALIDATED < 300: # 5 minutes
+        logger.debug(f"Trakt validation skipped (throttled). Last: {TRAKT_LAST_VALIDATED}")
+        return
+
     try:
-        client = TraktClient(client_id, client_secret, access_token, refresh_token)
+        token_expires = config.get('trakt_token_expires')
+        client = TraktClient(client_id, client_secret, access_token, refresh_token, token_expires=token_expires)
         
         # Try to refresh token if expired
-        if client.is_token_expired():
+        is_expired = client.is_token_expired()
+        if is_expired:
+            logger.info("Trakt token expired, attempting refresh...")
             if client.refresh_access_token():
                 config['trakt_access_token'] = client.access_token
                 config['trakt_refresh_token'] = client.refresh_token
-                config['trakt_token_expires'] = client.token_expires.isoformat()
+                if client.token_expires:
+                    config['trakt_token_expires'] = client.token_expires.isoformat()
                 write_config(config)
-                logger.info("Trakt token refreshed successfully")
+                logger.info("Trakt token refreshed and saved.")
             else:
                 socketio.emit('platform_validated', {
                     'platform': 'trakt',
                     'valid': False,
                     'error': 'Token 刷新失败，请重新授权'
                 })
+                # Do not update timestamp so we retry later? Or backoff?
                 return
         
         # Get profile to verify connection
+        # Only fetch profile if we haven't recently or if we just refreshed
         profile = client.get_user_profile()
         if profile:
-            stats = client.get_user_stats('me')
+            TRAKT_LAST_VALIDATED = current_time # Update success timestamp
+            
+            # Try to get stats, but don't fail if SSL error occurs
             movies_watched = 0
             movies_rated = 0
-            if stats:
-                movies_watched = stats.get('movies', {}).get('watched', 0) or 0
-                movies_rated = stats.get('movies', {}).get('ratings', 0) or 0
+            try:
+                stats = client.get_user_stats('me')
+                if stats:
+                    movies_watched = stats.get('movies', {}).get('watched', 0) or 0
+                    movies_rated = stats.get('movies', {}).get('ratings', 0) or 0
+            except Exception as e:
+                logger.warning(f"Failed to fetch Trakt stats (non-critical): {e}")
             
             socketio.emit('platform_validated', {
                 'platform': 'trakt',
@@ -1031,16 +1291,16 @@ def validate_trakt_connection():
                     'profile_link': f"https://trakt.tv/users/{profile.get('ids', {}).get('slug')}"
                 }
             })
-            logger.info(f"Trakt validation successful: {profile.get('username')}")
+            logger.debug(f"Trakt validation successful: {profile.get('username')}")
         else:
             socketio.emit('platform_validated', {
                 'platform': 'trakt',
                 'valid': False,
-                'error': '无法获取用户信息'
+                'error': '无法获取用户信息 (API Connection Failed)'
             })
             
     except Exception as e:
-        logger.error(f"Trakt validation error: {e}")
+        logger.exception(f"Trakt validation error: {e}")
         socketio.emit('platform_validated', {
             'platform': 'trakt',
             'valid': False,
@@ -1080,7 +1340,7 @@ def validate_tmdb_connection(config):
                     'profile_link': f"https://www.themoviedb.org/u/{account.get('username')}"
                 }
             })
-            logger.info(f"TMDB validation successful: {account.get('username')}")
+            logger.debug(f"TMDB validation successful: {account.get('username')}")
         else:
             socketio.emit('platform_validated', {
                 'platform': 'tmdb',
@@ -1171,36 +1431,60 @@ def handle_fetch(data):
 
 @socketio.on('start_sync')
 def handle_sync(data):
+    logger.info(f"🔍 DEBUG: handle_sync called with data: {data}")
     direction = data.get('direction')
     is_dry_run = data.get('is_dry_run', False)
-    config = read_config()
+    logger.info(f"🔍 DEBUG: direction={direction}, is_dry_run={is_dry_run}")
     
-    douban_user = config.get('douban_user_id')
-    imdb_user = config.get('imdb_user_id')
-    
-    douban_path = os.path.join(DATA_DIR, f'douban_{douban_user}_ratings.csv')
-    imdb_path = os.path.join(DATA_DIR, f'imdb_{imdb_user}_ratings.csv')
-    
-    if not (os.path.exists(douban_path) and os.path.exists(imdb_path)):
-        emit('log', {'message': '❌ 缺失本地数据，同步前请先点击“更新数据”。', 'type': 'error'})
-        return
+    # Run sync in a background thread to prevent blocking Socket.IO heartbeat
+    def sync_worker(direction, is_dry_run, app_data):
+        logger.info(f"🔍 DEBUG: sync_worker thread started for {direction}")
+        from web.logic import perform_sync_logic
+        try:
+            # Perform sync logic
+            logger.info(f"🔍 DEBUG: Calling perform_sync_logic...")
+            result = perform_sync_logic(direction, is_dry_run, socketio, app_data)
+            logger.info(f"🔍 DEBUG: perform_sync_logic returned: {len(result) if result else 0} items")
+            
+            if is_dry_run:
+                # Sanitize data for JSON (handle NaN, dates)
+                from web.data_utils import safe_df_to_records
+                # import pandas as pd # REMOVED: prevents UnboundLocalError in else block
+                preview_items = safe_df_to_records(pd.DataFrame(result)) if result else []
+                
+                socketio.emit('sync_preview', {
+                    'movies': preview_items,
+                    'total': len(preview_items)
+                })
+                logger.info(f"🔍 DEBUG: Emitted sync_preview with {len(preview_items)} items")
+            else:
+                socketio.emit('finished')
+                # Update merged preview
+                config = read_config()
+                douban_user = config.get('douban_user_id', '')
+                imdb_user = config.get('imdb_user_id', '')
+                douban_path = os.path.join(DATA_DIR, f'douban_{douban_user}_ratings.csv')
+                imdb_path = os.path.join(DATA_DIR, f'imdb_{imdb_user}_ratings.csv')
+                
+                merged_output = os.path.join(DATA_DIR, f'merged_ratings_{douban_user[:8]}.csv')
+                # Attempt lazy merge update
+                if os.path.exists(douban_path) and os.path.exists(imdb_path):
+                     from utils.merge_data import merge_movie_data
+                     from web.data_utils import safe_df_to_records
+                     _, _ = merge_movie_data(douban_path, imdb_path, merged_output)
+                     if os.path.exists(merged_output):
+                        df = pd.read_csv(merged_output)
+                        socketio.emit('merged_data_preview', {'sample': safe_df_to_records(df.head()), 'total_count': len(df), 'headers': list(df.columns)})
 
-    try:
-        # Always use full_sync mode now
-        result = perform_sync_logic(douban_path, imdb_path, direction, is_dry_run, config.get('douban_cookie'), config.get('imdb_cookie'), socketio)
-        if is_dry_run:
-            emit('sync_preview', {'movies': result if result else []})
-        else:
-            emit('finished')
-            # Extra: Update merged preview
-            merged_output = os.path.join(DATA_DIR, f'merged_ratings_{douban_user[:8]}.csv')
-            _, _ = merge_movie_data(douban_path, imdb_path, merged_output)
-            if os.path.exists(merged_output):
-                df = pd.read_csv(merged_output)
-                emit('merged_data_preview', {'sample': safe_df_to_records(df.head()), 'total_count': len(df), 'headers': list(df.columns)})
-    except Exception as e:
-        logger.exception("Sync fail")
-        emit('log', {'message': f'同步错误: {e}', 'type': 'error'})
+        except Exception as e:
+            logger.exception("Sync fail in thread")
+            socketio.emit('log', {'message': f'同步错误: {e}', 'type': 'error'})
+
+    import threading
+    # Pass APP_DATA (copy/ref) to thread
+    logger.info(f"🔍 DEBUG: Starting sync_worker thread...")
+    threading.Thread(target=sync_worker, args=(direction, is_dry_run, APP_DATA), daemon=True).start()
+    logger.info(f"🔍 DEBUG: sync_worker thread spawned")
 
 @socketio.on('get_page')
 def handle_get_page(data):
@@ -1844,12 +2128,12 @@ def handle_trakt_test_connection(data):
             emit('log', {'message': f'✅ Trakt 连接成功！{movies_watched} 部已观看', 'type': 'success'})
         else:
             emit('trakt_test_result', {'success': False, 'error': 'Failed to get profile'})
-            emit('log', {'message': '❌ Trakt 连接失败', 'type': 'error'})
+            # emit('log', {'message': '❌ Trakt 连接失败', 'type': 'error'})
             
     except Exception as e:
         logger.exception("Trakt test connection error")
         emit('trakt_test_result', {'success': False, 'error': str(e)})
-        emit('log', {'message': f'❌ Trakt 测试失败: {e}', 'type': 'error'})
+        # emit('log', {'message': f'❌ Trakt 测试失败: {e}', 'type': 'error'})
 
 @socketio.on('fetch_trakt_data')
 def handle_fetch_trakt_data(data):
@@ -2235,7 +2519,8 @@ def handle_sync_trakt_to_douban(data):
                     'source': 'trakt',
                     'target': 'douban',
                     'count': len(trakt_movies),
-                    'movies': trakt_movies[:100]
+                    # Use safe serialization to prevent NaN/datetime issues
+                    'movies': [{k: (None if v != v else (str(v) if hasattr(v, 'isoformat') else v)) for k, v in movie.items()} for movie in trakt_movies[:100]]
                 }
                 logger.info(f"[SYNC_PREVIEW] Emitting sync_preview_complete with {len(preview_data['movies'])} movies")
                 socketio.emit('sync_preview_complete', preview_data)
@@ -2248,6 +2533,61 @@ def handle_sync_trakt_to_douban(data):
                 with_ratings=with_ratings,
                 socketio=socketio
             )
+            
+            # Update local CSV with synced movies
+            synced_items = [item for item in result.get('details', []) if item.get('status') == 'synced']
+            if synced_items:
+                try:
+                    import datetime
+                    csv_path = os.path.join(DATA_DIR, f'douban_{douban_user_id}_ratings.csv')
+                    
+                    new_rows = []
+                    today = datetime.datetime.now().strftime('%Y-%m-%d')
+                    
+                    for item in synced_items:
+                        # Construct record matching Douban CSV format
+                        new_rows.append({
+                            'Const': item.get('imdb_id', ''),
+                            'Your Rating': item.get('rating') or 0,
+                            'Date Rated': today,
+                            'Title': item.get('title', ''),
+                            'Directors': '',  # Metadata not available from simple sync
+                            'Actors': '',
+                            'Country': '',
+                            'Year': item.get('year', ''),
+                            'Genres': '',
+                            'Douban Rating': 0,
+                            'Num Votes': 0,
+                            'MyComment': '',
+                            'URL': f"https://movie.douban.com/subject/{item.get('douban_id')}/",
+                            'Cover URL': '',
+                            'douban_id': item.get('douban_id', '')
+                        })
+                    
+                    if new_rows:
+                        # Load existing
+                        if os.path.exists(csv_path):
+                            existing_df = pd.read_csv(csv_path, dtype=str)
+                        else:
+                            existing_df = pd.DataFrame(columns=['Const', 'Your Rating', 'Date Rated', 'Title', 'Directors', 'Actors', 'Country', 'Year', 'Genres', 'Douban Rating', 'Num Votes', 'MyComment', 'URL', 'Cover URL', 'douban_id'])
+                        
+                        # Concat
+                        new_df = pd.DataFrame(new_rows)
+                        combined_df = pd.concat([new_df, existing_df], ignore_index=True)
+                        
+                        # Dedup by douban_id
+                        combined_df.drop_duplicates(subset=['douban_id'], keep='first', inplace=True)
+                        
+                        # Save
+                        combined_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                        
+                        # Update memory cache
+                        APP_DATA['douban_df'] = combined_df
+                        socketio.emit('log', {'message': f'💾 已更新本地数据: 新增 {len(new_rows)} 条记录', 'type': 'success'})
+                        
+                except Exception as e:
+                    logger.error(f"Failed to update local CSV: {e}")
+                    socketio.emit('log', {'message': f'⚠️ 本地数据更新失败: {e}', 'type': 'warning'})
             
             socketio.emit('sync_complete', {'source': 'trakt', 'target': 'douban', 'result': result})
             
@@ -2372,6 +2712,7 @@ def handle_sync_imdb_to_tmdb(data):
 @socketio.on('sync_trakt_to_tmdb')
 def handle_sync_trakt_to_tmdb(data):
     """Sync Trakt ratings to TMDB"""
+    logger.info(f"🔍 DEBUG: handle_sync_trakt_to_tmdb called with data: {data}")
     config = read_config()
     
     # Check TMDB auth
@@ -2397,61 +2738,56 @@ def handle_sync_trakt_to_tmdb(data):
     emit('log', {'message': '🔄 开始同步 Trakt → TMDB...', 'type': 'info'})
     
     def do_sync():
+        logger.info(f"🔍 DEBUG: do_sync thread started for trakt->tmdb")
         try:
-            client = TMDBClient(api_key, session_id)
+            # Use unified diff logic to filter movies
+            from web.logic import get_unified_diff, SocketLogger
+            socket_logger = SocketLogger(socketio)
             
-            # Convert DataFrame to list of dicts
-            trakt_movies = trakt_df.to_dict('records')
-            total_movies = len(trakt_movies)
+            movies_to_sync = get_unified_diff('trakt', 'tmdb', socket_logger, APP_DATA)
+            
+            if not movies_to_sync:
+                socketio.emit('log', {'message': '✅ 无需同步，所有数据已一致', 'type': 'success'})
+                return
             
             if is_dry_run:
                 socketio.emit('log', {
-                    'message': f'👀 预览模式: 将同步 {total_movies} 部电影',
+                    'message': f'👀 预览模式: 将同步 {len(movies_to_sync)} 部电影',
                     'type': 'info'
                 })
                 socketio.emit('sync_preview_complete', {
                     'source': 'trakt',
                     'target': 'tmdb',
-                    'count': total_movies,
-                    'movies': trakt_movies[:100]
+                    'count': len(movies_to_sync),
+                    'movies': safe_df_to_records(pd.DataFrame(movies_to_sync).head(100))
                 })
                 return
             
-            socketio.emit('log', {'message': f'📊 正在同步 {total_movies} 部电影...', 'type': 'info'})
+            client = TMDBClient(api_key, session_id)
+            
+            socketio.emit('log', {'message': f'📊 正在同步 {len(movies_to_sync)} 部电影...', 'type': 'info'})
             
             synced = 0
             failed = 0
             skipped = 0
             
-            for i, movie in enumerate(trakt_movies):
-                # Trakt movies have TMDB ID directly
-                tmdb_id = movie.get('tmdb_id') or movie.get('TMDB ID')
-                imdb_id = movie.get('imdb_id') or movie.get('IMDB ID')
-                rating = movie.get('Your Rating', movie.get('rating'))
-                title = movie.get('Title', movie.get('title', ''))
+            for i, item in enumerate(movies_to_sync):
+                tmdb_id = item.get('target_linking_id')
+                rating = item.get('source_rating')
+                title = item.get('Title', '')
                 
-                final_tmdb_id = None
-                
-                if tmdb_id:
-                    final_tmdb_id = tmdb_id
-                elif imdb_id:
-                    # Find by IMDB ID (returns movie object directly, not dict with movie_results)
-                    tmdb_movie = client.find_by_imdb_id(imdb_id)
-                    if tmdb_movie:
-                        final_tmdb_id = tmdb_movie.get('id')
-                
-                if not final_tmdb_id:
+                if not tmdb_id:
                     failed += 1
                     continue
                 
                 if rating:
                     try:
                         tmdb_rating = float(rating)
-                        if client.rate_movie(final_tmdb_id, tmdb_rating):
+                        if client.rate_movie(int(tmdb_id), tmdb_rating):
                             synced += 1
                             if synced % 10 == 0:
                                 socketio.emit('log', {
-                                    'message': f'📊 进度: {synced}/{total_movies} ({title})',
+                                    'message': f'📊 进度: {synced}/{len(movies_to_sync)} ({title})',
                                     'type': 'info'
                                 })
                         else:
@@ -2478,7 +2814,9 @@ def handle_sync_trakt_to_tmdb(data):
             socketio.emit('log', {'message': f'❌ 同步失败: {e}', 'type': 'error'})
     
     import threading
-    threading.Thread(target=do_sync).start()
+    logger.info(f"🔍 DEBUG: Starting sync_trakt_to_tmdb thread...")
+    threading.Thread(target=do_sync, daemon=True).start()
+    logger.info(f"🔍 DEBUG: sync_trakt_to_tmdb thread spawned")
 
 @socketio.on('trakt_incremental_fetch')
 def handle_trakt_incremental_fetch(data):

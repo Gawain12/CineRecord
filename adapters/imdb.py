@@ -36,7 +36,7 @@ class IMDbAdapter(PlatformAdapter):
     platform_name_en = 'IMDb'
     auth_type = 'cookie'
     supports_fetch = True
-    supports_sync = False  # IMDB 不支持通过 API 写入
+    supports_sync = True  # Enable write support via rate_on_imdb
     supports_export = True
     
     # API 配置
@@ -152,6 +152,40 @@ class IMDbAdapter(PlatformAdapter):
     def logout(self) -> bool:
         return True
 
+    def sync_movie(self, item_id: str, rating: float, comment: str = None, tags: List[str] = None) -> bool:
+        """Rate movie on IMDb (Implementation of generic sync interface)"""
+        try:
+            from utils.sync_rate import rate_on_imdb
+            
+            if not rating:
+                return True
+                
+            # Generic rating is 0-10 float
+            import math
+            if isinstance(rating, float) and math.isnan(rating):
+                return True # Skip NaN ratings
+                
+            imdb_rating = int(round(rating))
+            if imdb_rating < 1: imdb_rating = 1
+            if imdb_rating > 10: imdb_rating = 10
+            
+            if not item_id:
+                self.logger.log(f"Failed to sync: No IMDb ID found.", 'error')
+                return False
+                
+            headers = {
+                'Cookie': self.config.get('imdb_cookie'),
+                'User-Agent': 'Mozilla/5.0'
+            }
+            
+            success = rate_on_imdb(item_id, imdb_rating, headers, item_id)
+            if success:
+                self.logger.log(f"✅ Synced {item_id} to IMDb ({imdb_rating}/10)", 'success')
+            return success
+        except Exception as e:
+            self.logger.log(f"Sync error for {item_id}: {e}", 'error')
+            return False
+
 
 class IMDbScraper:
     """IMDB 数据抓取器"""
@@ -259,7 +293,17 @@ class IMDbScraper:
                 'Title': t.get('titleText', {}).get('text'),
                 'Year': t.get('releaseYear', {}).get('year'),
                 'Cover URL': t.get('primaryImage', {}).get('url'),
-                'URL': f"https://www.imdb.com/title/{imdb_id}/"
+                'URL': f"https://www.imdb.com/title/{imdb_id}/",
+                'IMDb Rating': t.get('ratingsSummary', {}).get('aggregateRating', ''),
+                'Num Votes': t.get('ratingsSummary', {}).get('voteCount', ''),
+                'Runtime (mins)': int(t.get('runtime', {}).get('seconds', 0) / 60) if t.get('runtime', {}).get('seconds') else '',
+                'Genres': ', '.join([g['genre']['text'] for g in t.get('titleGenres', {}).get('genres', []) if g.get('genre')]),
+                'Directors': ', '.join([
+                    c.get('name', {}).get('nameText', {}).get('text', '')
+                    for group in t.get('principalCreditsV2', [])
+                    if 'Director' in group.get('grouping', {}).get('text', '')
+                    for c in group.get('credits', [])
+                ])
             }
         except:
             return None

@@ -42,10 +42,10 @@ class TraktAdapter(PlatformAdapter):
     
     def __init__(self, logger_instance, config: Dict[str, Any]):
         super().__init__(logger_instance, config)
-        self.client_id = config.get('trakt_client_id') or self.DEFAULT_CLIENT_ID
-        self.client_secret = config.get('trakt_client_secret') or self.DEFAULT_CLIENT_SECRET
-        self.access_token = config.get('trakt_access_token')
-        self.refresh_token = config.get('trakt_refresh_token')
+        self.client_id = (config.get('trakt_client_id') or self.DEFAULT_CLIENT_ID).strip()
+        self.client_secret = (config.get('trakt_client_secret') or self.DEFAULT_CLIENT_SECRET).strip()
+        self.access_token = (config.get('trakt_access_token') or '').strip()
+        self.refresh_token = (config.get('trakt_refresh_token') or '').strip()
         self.token_expires = None
         
         if config.get('trakt_token_expires'):

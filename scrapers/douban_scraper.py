@@ -113,14 +113,32 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         cache = load_imdb_cache()
         logger.log(f"已加载 {len(cache)} 条IMDb缓存。", 'info')
         
-        existing_ids = set()
+        existing_records = {}
+        unrated_records = set()  # 本地评分为0的记录，需要重新获取
+        
         if os.path.exists(output_path):
             try:
-                df = pd.read_csv(output_path, dtype={'douban_id': str}, usecols=['douban_id'])
-                existing_ids = set(df['douban_id'].dropna())
-                logger.log(f"发现 {len(existing_ids)} 条已有记录，将进行增量更新。", 'info')
-            except Exception:
-                logger.log(f"无法读取'{output_path}'，将重新创建。", 'info')
+                df = pd.read_csv(output_path, dtype={'douban_id': str})
+                # 使用 (douban_id, date) 组合作为唯一标识
+                for _, row in df.iterrows():
+                    movie_id = str(row['douban_id']) if pd.notna(row['douban_id']) else ''
+                    date_rated = str(row['Date Rated']) if pd.notna(row['Date Rated']) else ''
+                    rating = row.get('Your Rating', 0)
+                    
+                    if movie_id:
+                        key = f"{movie_id}_{date_rated}"
+                        existing_records[key] = True
+                        
+                        # 如果本地评分为0，标记为需要刷新
+                        try:
+                            if float(rating) == 0:
+                                unrated_records.add(movie_id)
+                        except (ValueError, TypeError):
+                            pass
+                
+                logger.log(f"发现 {len(df)} 条已有记录，其中 {len(unrated_records)} 条无评分需刷新。", 'info')
+            except Exception as e:
+                logger.log(f"无法读取'{output_path}': {e}，将重新创建。", 'info')
                 if os.path.exists(output_path): os.remove(output_path)
 
         first_page = await fetch_page(session, api_url, 0, logger, 1)
@@ -132,16 +150,43 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         logger.log(f"共发现 {total_movies} 条电影记录。", 'info')
 
         new_interests = []
+        pages_all_existing = 0
+        STOP_PAGES_THRESHOLD = 3
+        refreshed_count = 0  # 刷新的无评分记录数
+        
         for page_num in range(total_pages):
             logger.progress(page_num, total_pages, f"获取列表 {page_num+1}/{total_pages}")
             page_data = await fetch_page(session, api_url, page_num * page_size, logger, page_size)
             if not page_data or not page_data.get('interests'): break
             
-            should_stop = False
+            page_new_count = 0
             for interest in page_data['interests']:
-                if interest.get('subject', {}).get('id') in existing_ids: should_stop = True; break
-                new_interests.append(interest)
-            if should_stop: break
+                movie_id = str(interest.get('subject', {}).get('id', ''))
+                date_str = interest.get('create_time', '').split(' ')[0]
+                record_key = f"{movie_id}_{date_str}"
+                
+                # 刷新策略：本地无评分的记录需要重新获取（捕获评分变化）
+                needs_refresh = movie_id in unrated_records
+                
+                if needs_refresh:
+                    # 本地评分为0，重新获取
+                    new_interests.append(interest)
+                    page_new_count += 1
+                    refreshed_count += 1
+                elif record_key not in existing_records:
+                    # 真正的新记录
+                    new_interests.append(interest)
+                    page_new_count += 1
+            
+            if page_new_count > 0:
+                pages_all_existing = 0
+                logger.log(f"第 {page_num+1} 页: {page_new_count} 条记录", 'info')
+            else:
+                pages_all_existing += 1
+                logger.log(f"第 {page_num+1} 页全是已有记录 (连续 {pages_all_existing} 页)", 'info')
+                if pages_all_existing >= STOP_PAGES_THRESHOLD:
+                    logger.log(f"连续 {pages_all_existing} 页都是已有记录，停止抓取。", 'info')
+                    break
         logger.progress(total_pages, total_pages, "列表获取完成")
 
         if not new_interests:
@@ -165,7 +210,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         df_new = pd.DataFrame(new_movies)
         
         df_existing = pd.DataFrame()
-        if os.path.exists(output_path) and existing_ids:
+        if os.path.exists(output_path) and existing_records:
             df_existing = pd.read_csv(output_path, dtype=str, encoding='utf-8-sig')
         
         df_final = pd.concat([df_new, df_existing], ignore_index=True)
@@ -175,7 +220,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         df_final.sort_values(by='Date Rated', ascending=False, inplace=True)
         df_final.to_csv(output_path, index=False, encoding='utf-8-sig')
         
-        logger.log(f"成功！新增 {len(df_new)} 条，总计 {len(df_final)} 条。", 'success')
+        logger.log(f"成功！新增 {len(df_new)} 条（含刷新 {refreshed_count} 条无评分记录），总计 {len(df_final)} 条。", 'success')
         return clean_df_for_json(df_final)
 
 def run_scraper(user_id, cookie, output_path, socketio):

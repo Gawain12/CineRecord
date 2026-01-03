@@ -16,12 +16,21 @@ class TraktClient:
     
     BASE_URL = "https://api.trakt.tv"
     
-    def __init__(self, client_id, client_secret, access_token=None, refresh_token=None):
+    def __init__(self, client_id, client_secret, access_token=None, refresh_token=None, token_expires=None):
         self.client_id = client_id
         self.client_secret = client_secret
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.token_expires = None
+        
+        if token_expires:
+            if isinstance(token_expires, str):
+                try:
+                    self.token_expires = datetime.fromisoformat(token_expires)
+                except ValueError:
+                    pass
+            elif isinstance(token_expires, datetime):
+                self.token_expires = token_expires
     
     def _get_headers(self, auth_required=True):
         """Get headers for API requests"""
@@ -40,24 +49,27 @@ class TraktClient:
         headers = self._get_headers(auth_required)
         
         try:
-            logger.info(f"Making {method} request to {url}")
+            logger.debug(f"Making {method} request to {url}")
             if method == 'GET':
-                response = requests.get(url, headers=headers, timeout=30, **kwargs)
+                response = requests.get(url, headers=headers, timeout=5, **kwargs)
             elif method == 'POST':
                 response = requests.post(url, headers=headers, timeout=30, **kwargs)
             else:
-                raise ValueError(f"Unsupported method: {method}")
+                return None
             
-            logger.info(f"Response status: {response.status_code}")
+            logger.debug(f"Response status: {response.status_code}")
             return response
         except requests.Timeout as e:
             logger.error(f"Trakt API request timed out: {e}")
+            print(f"!!! TRAKT TIMEOUT: {e}")
             return None
         except requests.ConnectionError as e:
             logger.error(f"Trakt API connection error: {e}")
+            print(f"!!! TRAKT CONNECTION ERROR: {e}")
             return None
         except requests.RequestException as e:
             logger.exception(f"Trakt API request failed: {e}")
+            print(f"!!! TRAKT REQUEST EXCEPTION: {e}")
             return None
     
     # ==========================================

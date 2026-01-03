@@ -137,7 +137,7 @@ CineRecord/
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please check `AI_ROADMAP.md` for development guidelines.
+Contributions are welcome! Please check `ROADMAP.md` for development guidelines.
 
 ## 📜 License
 
