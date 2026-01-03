@@ -4,179 +4,113 @@
 
 **您的私人电影数据管理中心**
 
-支持豆瓣、IMDB、Trakt、Letterboxd、TMDB 多平台同步与备份
+一站式同步、备份和管理您的电影评分：支持豆瓣、IMDb、Trakt、TMDB 和 Letterboxd。
 
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
 [![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg)](https://flask.palletsprojects.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+[English](./README.en.md) | [中文文档](./README.md)
 
 </div>
 
 ---
 
-## ✨ 功能特性
+## ✨ 核心特性
 
-### 🎬 多平台支持
+### 🌐 多平台支持
 
-| 平台 | 数据获取 | 评分同步 | 认证方式 |
-|------|:--------:|:--------:|----------|
+| 平台 | 获取评分 | 同步至 | 认证方式 |
+|------|:--------:|:-------:|-------------|
 | **豆瓣** | ✅ | ✅ | Cookie / 自动登录 |
-| **IMDB** | ✅ | ✅ | Cookie / 自动登录 |
+| **IMDb** | ✅ | ✅ | Cookie / 自动登录 |
 | **Trakt** | ✅ | ✅ | OAuth 设备授权 |
-| **Letterboxd** | ✅ | ✅ | CSV 导入导出 |
-| **TMDB** | ✅ | ✅ | Session 授权 |
+| **TMDB** | ✅ | ✅ | API Key + Session |
+| **Letterboxd**| ✅ | ⚠️ | CSV 导入 / 导出 |
 
-### 🔄 核心能力
+### ⚡ 核心能力
 
-- **统一电影库** - 合并所有平台数据，按时间排序，智能去重
-- **评分归一化** - 豆瓣(5分制)和Letterboxd自动转换为10分制
-- **双向同步** - 豆瓣 ↔ IMDB ↔ Trakt 评分互通
-- **智能匹配** - 通过 IMDB ID / 名称+年份 自动匹配
-- **数据备份** - 一键导出 CSV / JSON 格式
-
-### 🖥️ 现代化界面
-
-- 深色主题设计，舒适护眼
-- 电影封面展示，评分徽章快速跳转
-- 实时日志窗口，追踪任务状态
-- 响应式布局，适配各种屏幕
+-   **统一电影库**：在一个地方查看您看过的所有电影，自动去重。
+-   **双向同步**：保持各平台评分一致（例如：自动把豆瓣评分同步到 IMDb）。
+-   **定时任务**：**[新增]** 设置自动每日/每周同步任务，彻底解放双手。
+-   **隐私优先**：所有数据和 Cookie 仅保存在您本地电脑上。
+-   **深色界面**：影院级的高级视觉体验。
 
 ---
 
 ## 🚀 快速开始
 
-### 方式一：本地运行
+### 标准安装
 
-```bash
-# 1. 克隆仓库
-git clone https://github.com/YOUR_USERNAME/CineRecord.git
-cd CineRecord
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/CineRecord.git
+    cd CineRecord
+    ```
 
-# 2. 安装依赖
-pip install -r requirements.txt
+2.  **安装依赖**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-# 3. 启动应用
-python web/app.py
-```
-
-浏览器将自动打开 `http://127.0.0.1:8000`
-
-### 方式二：Docker 部署
-
-```bash
-# 使用 Docker Compose
-docker-compose up -d
-
-# 或直接使用 Docker
-docker build -t cinerecord .
-docker run -d -p 8000:8000 \
-  -v $(pwd)/config:/app/config \
-  -v $(pwd)/data:/app/data \
-  --name cinerecord cinerecord
-```
-
-访问 `http://localhost:8000`
+3.  **启动应用**
+    ```bash
+    python web/app.py
+    ```
+    浏览器将自动打开 `http://127.0.0.1:8000`。
 
 ---
 
 ## 📖 使用指南
 
 ### 1. 连接账户
+前往 **账户**页 或各平台卡片。
+-   **豆瓣/IMDb**：使用“自动登录”按钮（macOS）或在**设置**中手动粘贴 Cookie。
+-   **Trakt**：点击“连接”，获取 8 位代码并在 Trakt.tv 完成授权。
+-   **TMDB**：在设置中输入 API Key 以启用搜索和同步。
 
-**豆瓣 / IMDB (自动登录)**
-1. 点击 "🔑 自动登录" 按钮
-2. 在弹出窗口完成登录
-3. 登录成功后自动获取用户信息
+### 2. 同步评分
+前往 **同步** 页。
+-   **手动同步**：选择源平台（如豆瓣）和目标平台（如 Trakt），点击“预览”，确认无误后点击“执行同步”。
+-   **定时同步**：点击“新建任务”，选择同步方向和频率（如“每天凌晨 2:00”），启用即可。App 将在后台自动处理。
 
-**Trakt (设备授权)**
-1. 点击 "🔗 连接 Trakt"
-2. 复制显示的8位代码
-3. 在打开的 trakt.tv/activate 页面输入代码
-4. 确认授权后自动连接
-
-**Letterboxd**
-1. 在 Letterboxd 导出数据 (Settings → Data → Export Your Data)
-2. 解压 ZIP 文件，找到 `diary.csv`
-3. 点击 "📥 上传 diary.csv"
-
-### 2. 浏览数据
-
-切换到 **数据** 页面查看统一电影库：
-
-- **共有** - 多平台共同标记的电影
-- **独占** - 仅在单一平台标记的电影
-- 点击平台徽章可直接跳转到对应网站
-
-### 3. 同步评分
-
-切换到 **同步** 页面：
-
-1. 选择源平台和目标平台
-2. 点击 "预览差异" 查看将要同步的内容
-3. 确认后点击 "开始同步"
+### 3. 查看电影库
+**数据** 页是您的统一电影数据库。您可以通过筛选“平台独占”来查看哪些电影还没有同步到其他平台。
 
 ---
 
-## 📁 项目结构
+## 🛠 项目结构
 
 ```
 CineRecord/
-├── web/                   # Web 应用核心
-│   ├── app.py             # Flask 后端入口
-│   ├── auth_helper.py     # 自动登录辅助
-│   ├── webview_login.py   # WebView 登录窗口
-│   ├── static/            # CSS/JS 前端资源
-│   └── templates/         # HTML 模板
-├── scrapers/              # 数据爬取模块
-│   ├── douban_scraper.py  # 豆瓣
-│   ├── imdb_scraper.py    # IMDB
-│   ├── trakt_client.py    # Trakt
-│   └── tmdb_client.py     # TMDB
-├── utils/                 # 工具模块
-│   └── merge_data.py      # 数据合并逻辑
-├── config/                # 用户配置 (自动创建)
-├── data/                  # 导出数据 (自动创建)
-├── Dockerfile             # Docker 配置
-├── docker-compose.yml     # Docker Compose 配置
-└── requirements.txt       # Python 依赖
+├── web/
+│   ├── app.py             # 后端应用入口
+│   ├── scheduler.py       # 定时任务服务
+│   ├── logic.py           # 同步与合并逻辑
+│   ├── static/            # 前端资源 (JS, Scheduler, i18n, CSS)
+│   └── templates/         # HTML 页面模板
+├── scrapers/              # 平台连接器
+│   ├── douban_scraper.py
+│   ├── imdb_scraper.py
+│   ├── trakt_client.py
+│   └── tmdb_client.py
+└── data/                  # 本地数据存储
 ```
 
 ---
 
 ## 🛡️ 隐私与安全
 
-| 特性 | 说明 |
-|------|------|
-| ✅ **本地存储** | Cookie 和配置仅保存在您的电脑 |
-| ✅ **无云服务** | 数据不上传任何第三方服务器 |
-| ✅ **开源透明** | 代码完全可审计 |
-| ✅ **自主可控** | 您的数据，您做主 |
-
----
-
-## 📋 开发计划
-
-| 状态 | 功能 |
-|:----:|------|
-| ✅ | 豆瓣/IMDB/Trakt/Letterboxd/TMDB 支持 |
-| ✅ | 统一电影库 & 封面展示 |
-| ✅ | 评分归一化 (5分→10分) |
-| ✅ | macOS / Windows 应用打包 |
-| ✅ | Docker 部署支持 |
-| 🚧 | 数据可视化报告 |
-| 📋 | 移动端 PWA 支持 |
-
-详细计划请参阅 [ROADMAP.md](./ROADMAP.md)
+-   **仅限本地**：您的 Cookie 和电影数据永远不会离开您的本地网络。
+-   **开源**：代码完全透明，可供审计。
+-   **无追踪**：我们不收集任何使用数据。
 
 ---
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！
-
----
+欢迎提交贡献！请查阅 `agent.md` 获取开发指南。
 
 ## 📜 许可证
 
-[MIT License](./LICENSE)
+MIT License. 详见 [LICENSE](./LICENSE)。
