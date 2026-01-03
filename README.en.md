@@ -51,9 +51,10 @@ Sync, Back up, and Manage your movie ratings across Douban, IMDb, Trakt, TMDB, a
 
 -   **Unified Library**: View all your watched movies in one place, auto-deduplicated.
 -   **Bi-Directional Sync**: Keep your ratings consistent across all platforms (e.g., Douban ↔ IMDb).
--   **Task Scheduler**: **[NEW]** Set up automated daily/weekly sync tasks.
+-   **Universal Export**: Export your aggregated data to CSV or Letterboxd-compatible formats.
+-   **Task Scheduler**: Set up automated daily/weekly sync tasks.
 -   **Privacy First**: All data and cookies are stored locally on your machine.
--   **Dark Mode UI**: A premium, cinematic visual experience.
+-   **Dark Mode**: A clean, content-focused dark interface.
 
 ---
 
