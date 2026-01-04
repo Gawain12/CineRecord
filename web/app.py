@@ -2519,6 +2519,27 @@ def handle_sync_trakt_to_douban(data):
             else:
                 socketio.emit('log', {'message': f'📊 全量同步: {total_movies} 部电影', 'type': 'info'})
             
+            # ========== Step 3: Deduplicate against existing Douban records ==========
+            douban_df = APP_DATA.get('douban_df')
+            if douban_df is not None and not douban_df.empty:
+                # Build set of existing IMDb IDs in Douban
+                existing_imdb_ids = set()
+                if 'Const' in douban_df.columns:
+                    existing_imdb_ids = set(douban_df['Const'].dropna().astype(str).str.strip())
+                
+                # Filter out movies already in Douban
+                pre_dedup_count = len(trakt_movies)
+                trakt_movies = [
+                    m for m in trakt_movies 
+                    if str(m.get('IMDb ID', '')).strip() not in existing_imdb_ids
+                ]
+                deduped_count = pre_dedup_count - len(trakt_movies)
+                if deduped_count > 0:
+                    socketio.emit('log', {
+                        'message': f'🔍 去重: 过滤掉 {deduped_count} 部已在豆瓣的电影',
+                        'type': 'info'
+                    })
+            
             if not trakt_movies:
                 socketio.emit('log', {'message': '✅ 没有新电影需要同步', 'type': 'success'})
                 return
