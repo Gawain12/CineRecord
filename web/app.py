@@ -2494,11 +2494,19 @@ def handle_sync_trakt_to_douban(data):
                             
                             # Robustness: Look back 1 day to handle same-day updates and timezone differences
                             threshold_dt = target_dt - timedelta(days=1)
+
+                            # DEBUG: Log comparison for recent movies (helps debug sync issues)
+                            time_diff = (datetime.now(timezone.utc) - movie_dt).days if movie_dt.tzinfo else 999
+                            if time_diff < 7: # Only log items from last week
+                                logger.info(f"DEBUG_SYNC: '{movie.get('Title')}' Date={movie_dt} Threshold={threshold_dt} Result={movie_dt >= threshold_dt}")
+
                             if movie_dt >= threshold_dt:
                                 filtered_movies.append(movie)
-                        except Exception:
+                        except Exception as e:
+                            logger.error(f"DEBUG_SYNC conversion error for {movie.get('Title')}: {e}")
                             filtered_movies.append(movie)
                     else:
+                        # logger.info(f"DEBUG_SYNC: No date for '{movie.get('Title')}', including")
                         filtered_movies.append(movie)
                 
                 socketio.emit('log', {
