@@ -2498,7 +2498,9 @@ def handle_sync_trakt_to_douban(data):
                             # DEBUG: Log comparison for recent movies (helps debug sync issues)
                             time_diff = (datetime.now(timezone.utc) - movie_dt).days if movie_dt.tzinfo else 999
                             if time_diff < 7: # Only log items from last week
-                                logger.info(f"DEBUG_SYNC: '{movie.get('Title')}' Date={movie_dt} Threshold={threshold_dt} Result={movie_dt >= threshold_dt}")
+                                log_msg = f"DEBUG_SYNC: '{movie.get('Title')}' Date={movie_dt} Threshold={threshold_dt} Pass={movie_dt >= threshold_dt}"
+                                logger.info(log_msg)
+                                socketio.emit('log', {'message': log_msg, 'type': 'warning'})
 
                             if movie_dt >= threshold_dt:
                                 filtered_movies.append(movie)
