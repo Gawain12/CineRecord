@@ -19,14 +19,56 @@ py_logger = logging.getLogger(__name__)
 
 class SocketLogger:
     """A logger that emits messages over a WebSocket connection."""
-    def __init__(self, socketio_instance):
+    def __init__(self, socketio_instance, task_context=None):
         self.socketio = socketio_instance
+        self.task_context = task_context  # Optional: {'task_name': '...', 'source': '...', 'target': '...'}
 
     def log(self, message, type='info'):
-        self.socketio.emit('log', {'message': message, 'type': type})
+        # Emit to sidebar log
+        if self.socketio:
+            self.socketio.emit('log', {'message': message, 'type': type})
+        # Also emit to task log panel and persist if in task context
+        if self.task_context:
+            task_name = self.task_context.get('task_name', 'Sync')
+            source = self.task_context.get('source', '')
+            target = self.task_context.get('target', '')
+            
+            if self.socketio:
+                self.socketio.emit('scheduled_task_log', {
+                    'type': type,
+                    'task_name': task_name,
+                    'source': source,
+                    'target': target,
+                    'message': message
+                })
+            
+            # Persist to file
+            try:
+                from web.task_logs import add_task_log
+                add_task_log(task_name, message, type, source, target)
+            except Exception:
+                pass
     
     def progress(self, current, total, step=""):
-        self.socketio.emit('progress', {'current': current, 'total': total, 'step': step})
+        if self.socketio:
+            self.socketio.emit('progress', {'current': current, 'total': total, 'step': step})
+        # Also emit progress to task log panel
+        if self.task_context and step:
+            task_name = self.task_context.get('task_name', 'Sync')
+            msg = f"⏳ {step} ({current}/{total})"
+            if self.socketio:
+                self.socketio.emit('scheduled_task_log', {
+                    'type': 'progress',
+                    'task_name': task_name,
+                    'message': msg
+                })
+            # Persist progress to file (less frequently - only key steps)
+            if current == total or current == 1:
+                try:
+                    from web.task_logs import add_task_log
+                    add_task_log(task_name, msg, 'progress', self.task_context.get('source', ''), self.task_context.get('target', ''))
+                except Exception:
+                    pass
 
 
 
@@ -123,15 +165,27 @@ def normalize_movie(row, platform):
         if row.get('tmdb_id'): ids['tmdb'] = str(row.get('tmdb_id'))
 
     # Rating Normalization (0-10 scale)
-    raw_rating = row.get('Your Rating') or row.get('Douban Rating') or row.get('rating') or row.get('Rating')
+    # Priority: Use user's personal rating first, then platform-public rating
     rating = 0.0
     try:
-        if raw_rating:
-            val = float(raw_rating)
-            if platform == 'douban': val *= 2  # 5-star -> 10-point
-            if platform == 'letterboxd': val *= 2 # 0.5-5 -> 1-10
-            rating = val
-    except:
+        if platform == 'douban':
+            # Douban 'Your Rating' is 1-5 stars, need *2 for 10-point scale
+            # 'Douban Rating' is already 10-point (public score)
+            user_rating = row.get('Your Rating')
+            if user_rating and str(user_rating).strip() and str(user_rating).lower() not in ['nan', 'none', '0', '0.0', '']:
+                rating = float(user_rating) * 2  # 1-5 stars → 2-10 points
+            # Don't fallback to 'Douban Rating' - that's the movie's public score, not user's
+        elif platform == 'letterboxd':
+            # Letterboxd uses 0.5-5 scale
+            raw = row.get('Your Rating') or row.get('Rating') or row.get('rating')
+            if raw and str(raw).strip() and str(raw).lower() not in ['nan', 'none', '']:
+                rating = float(raw) * 2  # 0.5-5 → 1-10
+        else:
+            # IMDB, Trakt, TMDB all use 1-10 scale
+            raw = row.get('Your Rating') or row.get('rating') or row.get('Rating')
+            if raw and str(raw).strip() and str(raw).lower() not in ['nan', 'none', '']:
+                rating = float(raw)
+    except (ValueError, TypeError):
         pass
 
     return {
@@ -143,14 +197,22 @@ def normalize_movie(row, platform):
     }
 
 
-def get_unified_diff(source, target, logger, app_data=None):
+def get_unified_diff(source, target, logger, app_data=None, options=None):
     """
     Simplified sync strategy: Take most recent N items from source, 
     check if their IDs exist in target, sync only missing ones.
     
+    Options:
+        - only_new: If True (default), only sync items NOT in target
+        - overwrite: If True, sync ALL items (even if in target, will overwrite ratings)
+    
     This avoids timestamp dependency and rating comparison complexity.
     """
     RECENT_ITEMS_LIMIT = 100  # Only check the most recent 100 items
+    
+    # Parse options
+    only_new = options.get('only_new', True) if options else True
+    overwrite = options.get('overwrite', False) if options else False
     
     if app_data is None:
         logger.log("❌ App data context missing.", 'error')
@@ -191,7 +253,7 @@ def get_unified_diff(source, target, logger, app_data=None):
     
     logger.log(f"🔍 检查最近 {len(recent_source_records)} 条源记录...", 'info')
     
-    # 4. Check each recent item - sync if not found in target
+    # 4. Check each recent item - behavior depends on options
     for row in recent_source_records:
         norm_source = normalize_movie(row, source)
         
@@ -202,7 +264,19 @@ def get_unified_diff(source, target, logger, app_data=None):
                 found_in_target = True
                 break
         
-        if not found_in_target:
+        # Decide whether to sync this item
+        should_sync = False
+        if overwrite:
+            # Overwrite mode: sync ALL items (will update ratings even if exists)
+            should_sync = True
+        elif only_new:
+            # Only new mode: sync only if NOT in target
+            should_sync = not found_in_target
+        else:
+            # Both off: sync all new items (default behavior)
+            should_sync = not found_in_target
+        
+        if should_sync:
             # This item is not in target - need to sync
             # Resolve target linking ID
             target_linking_id = None
@@ -225,7 +299,9 @@ def get_unified_diff(source, target, logger, app_data=None):
                     'Year': norm_source['year'],
                     'source_rating': norm_source['rating'],
                     'target_linking_id': target_linking_id,
-                    'action': 'new'
+                    'action': 'new',
+                    'ids': norm_source['ids'],
+                    'URL': norm_source['raw'].get('URL') or norm_source['raw'].get('Link') or norm_source['raw'].get('Subject Link')  # 涵盖常见链接字段
                 })
     
     # Filter out items without target_linking_id (cannot sync these)
@@ -246,11 +322,14 @@ def get_unified_diff(source, target, logger, app_data=None):
     
     return movies_to_sync
 
-def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
+def perform_sync_logic(direction, is_dry_run, socketio, app_data=None, options=None, task_context=None):
     """
     Unified Sync Logic Entrypoint
+    
+    Args:
+        task_context: Optional dict with {'task_name', 'source', 'target'} for scheduled task logging
     """
-    logger = SocketLogger(socketio)
+    logger = SocketLogger(socketio, task_context=task_context)
     try:
         source, target = direction.split('-to-')
     except:
@@ -260,8 +339,11 @@ def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
     logger.log(f"🚀 开始处理: {source.upper()} -> {target.upper()}", 'info')
     
     # 1. Calculate Diff
+    from web.sync_cache import get_cache
+    cache = get_cache()  # Initialize cache specifically for this sync session
+    
     try:
-        movies_to_sync = get_unified_diff(source, target, logger, app_data)
+        movies_to_sync = get_unified_diff(source, target, logger, app_data, options=options)
     except Exception as e:
         logger.log(f"Diff calculation failed: {str(e)}", 'error')
         return
@@ -269,6 +351,9 @@ def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
     if not movies_to_sync:
         logger.log("✅ 没有发现需要同步的项目。", 'success')
         return
+
+    # Sync Options
+    default_rating = options.get('default_rating', 0) if options else 0
 
     # Pre-process for validation/preview/skip
     import math
@@ -284,13 +369,35 @@ def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
                 pass
             
             if not is_valid:
-                if is_dry_run:
-                    item['Title'] = f"{item.get('Title')} ⚠️(无评分-跳过)"
+                # Apply default rating if configured
+                if default_rating > 0:
+                    item['source_rating'] = default_rating
                 else:
-                    item['_skip_reason'] = 'unrated'
+                    if is_dry_run:
+                        item['Title'] = f"{item.get('Title')} ⚠️(无评分-跳过)"
+                    else:
+                        item['_skip_reason'] = 'unrated'
+        elif target == 'tmdb':
+            r = item.get('source_rating')
+            is_valid = False
+            try:
+                if r and float(r) > 0 and not math.isnan(float(r)):
+                    is_valid = True
+            except:
+                pass
+
+            if not is_valid:
+                # Apply default rating if configured (same as IMDb)
+                if default_rating > 0:
+                    item['source_rating'] = default_rating
+                else:
+                    if is_dry_run:
+                        item['Title'] = f"{item.get('Title')} ⚠️(无评分-TMDB不支持仅标记)"
+                    else:
+                        item['_skip_reason'] = 'tmdb_unrated'
         else:
-             # For other platforms, missing rating is fine (e.g. mark as watched)
-             pass
+            # For other platforms (Trakt, Douban), missing rating is fine (mark as watched)
+            pass
 
     if is_dry_run:
         logger.log(f"🔍 预览: 发现 {len(movies_to_sync)} 部可同步电影。", 'info')
@@ -342,13 +449,14 @@ def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
     total = len(movies_to_sync)
 
     # Helper function to get platform URL
-    def get_platform_url(platform, movie_id, movie_data):
+    def get_platform_url(platform, movie_id, movie_data, media_type='movie'):
         if platform == 'douban' and movie_id:
             return f"https://movie.douban.com/subject/{movie_id}/"
         elif platform == 'imdb' and movie_id:
             return f"https://www.imdb.com/title/{movie_id}/"
         elif platform == 'tmdb' and movie_id:
-            return f"https://www.themoviedb.org/movie/{movie_id}"
+            path = 'tv' if media_type == 'tv' else 'movie'
+            return f"https://www.themoviedb.org/{path}/{movie_id}"
         elif platform == 'trakt' and movie_id:
             # Trakt needs slug, fallback to IMDb ID
             imdb_id = movie_data.get('ids', {}).get('imdb')
@@ -380,6 +488,16 @@ def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
                 'year': movie_year,
                 'source_url': source_url,
                 'reason': '无评分'
+            })
+            skipped_count += 1
+            continue
+        if row.get('_skip_reason') == 'tmdb_unrated':
+            logger.log(f"⏩ 跳过 {movie_title} (TMDB不支持仅标记已看)", 'info')
+            sync_results['skipped'].append({
+                'title': movie_title,
+                'year': movie_year,
+                'source_url': source_url,
+                'reason': 'TMDB不支持仅标记已看'
             })
             skipped_count += 1
             continue
@@ -428,7 +546,12 @@ def perform_sync_logic(direction, is_dry_run, socketio, app_data=None):
             )
             
             target_url = get_platform_url(target, target_id, row)
-            
+            if target == 'tmdb':
+                tmdb_id = getattr(adapter_instance, 'last_synced_tmdb_id', None)
+                tmdb_media = getattr(adapter_instance, 'last_synced_media_type', 'movie')
+                if tmdb_id:
+                    target_url = get_platform_url(target, tmdb_id, row, media_type=tmdb_media)
+
             if success:
                 logger.log(f"✅ 同步成功: {movie_title} (评分: {rating}/10)", 'success')
                 sync_results['success'].append({

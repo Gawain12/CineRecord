@@ -44,7 +44,12 @@ class TMDBAdapter(PlatformAdapter):
             return False
         
         try:
+            # Reset last sync info for accurate URL building
+            self.last_synced_tmdb_id = None
+            self.last_synced_media_type = None
+
             # Check if it's an IMDb ID (starts with 'tt')
+            media_type = 'movie'
             if isinstance(item_id, str) and item_id.startswith('tt'):
                 # Convert IMDb ID to TMDB ID using find API
                 self.logger.log(f"Converting IMDb ID {item_id} to TMDB ID...", 'info')
@@ -53,6 +58,11 @@ class TMDBAdapter(PlatformAdapter):
                 if result and result.get('movie_results'):
                     tmdb_id = result['movie_results'][0]['id']
                     self.logger.log(f"Found TMDB ID: {tmdb_id}", 'info')
+                    media_type = 'movie'
+                elif result and result.get('tv_results'):
+                    tmdb_id = result['tv_results'][0]['id']
+                    self.logger.log(f"Found TMDB TV ID: {tmdb_id}", 'info')
+                    media_type = 'tv'
                 else:
                     self.logger.log(f"Cannot find TMDB ID for IMDb {item_id}", 'error')
                     return False
@@ -63,18 +73,27 @@ class TMDBAdapter(PlatformAdapter):
             # TMDB uses 0.5-10 scale in 0.5 increments
             # Rating=0 means "watched without rating"
             if rating > 0:
-                success = self.client.rate_movie(tmdb_id, rating)
-                if success:
-                    self.logger.log(f"✅ Synced to TMDB ID {tmdb_id} ({rating}/10)", 'success')
+                success = False
+                if media_type == 'movie':
+                    success = self.client.rate_movie(tmdb_id, rating)
+                    if not success:
+                        fallback = self.client.rate_tv(tmdb_id, rating)
+                        if fallback:
+                            media_type = 'tv'
+                            success = True
                 else:
-                    self.logger.log(f"Failed to rate TMDB movie {tmdb_id}", 'error')
+                    success = self.client.rate_tv(tmdb_id, rating)
+                if success:
+                    label = 'TV' if media_type == 'tv' else 'Movie'
+                    self.logger.log(f"✅ Synced to TMDB {label} ID {tmdb_id} ({rating}/10)", 'success')
+                    self.last_synced_tmdb_id = tmdb_id
+                    self.last_synced_media_type = media_type
+                else:
+                    self.logger.log(f"Failed to rate TMDB {media_type} {tmdb_id}", 'error')
                 return success
             else:
-                # For rating=0, just mark as watched (add to watchlist or favorites)
-                # TMDB doesn't have a direct "watched" endpoint like Trakt
-                # So we skip adding rating but log it as success
-                self.logger.log(f"✅ Skipped rating for TMDB ID {tmdb_id} (watched only)", 'success')
-                return True
+                self.logger.log(f"⚠️ TMDB 不支持仅标记已看 (TMDB ID {tmdb_id})", 'warning')
+                return False
             
         except (ValueError, TypeError) as e:
             self.logger.log(f"Invalid TMDB movie ID '{item_id}': {e}", 'error')

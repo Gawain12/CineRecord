@@ -3,6 +3,48 @@
  * Handles UI interactions and Socket.IO communication for scheduled sync tasks
  */
 
+// Use global log if available, otherwise console fallback
+const log = window.log || function (msg, type) {
+    console.log(`[${type}] ${msg}`);
+};
+
+// Dedicated task log function - writes to the task log panel
+function taskLog(msg, type = 'info') {
+    const logContent = document.getElementById('task-log-content');
+    const logEmpty = document.getElementById('task-log-empty');
+    if (!logContent) {
+        console.log(`[TaskLog] ${msg}`);
+        return;
+    }
+
+    // Hide empty placeholder
+    if (logEmpty) logEmpty.style.display = 'none';
+
+    // Create log entry
+    const entry = document.createElement('div');
+    const now = new Date();
+    const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    // Color based on type
+    const colors = {
+        'success': '#4CAF50',
+        'error': '#f44336',
+        'warning': '#ff9800',
+        'info': '#888'
+    };
+
+    entry.style.cssText = `padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: ${colors[type] || colors.info};`;
+    entry.innerHTML = `<span style="color: #555;">[${time}]</span> ${msg}`;
+
+    // Insert at top (newest first)
+    logContent.insertBefore(entry, logContent.firstChild);
+
+    // Keep max 200 entries
+    while (logContent.children.length > 200) {
+        logContent.removeChild(logContent.lastChild);
+    }
+}
+
 // Task management state
 const scheduledTasks = {
     tasks: [],
@@ -21,6 +63,19 @@ const scheduledTasks = {
      */
     attachEventListeners() {
         console.log('🔗 Attaching event listeners...');
+
+        // Tabs: task list vs logs
+        document.querySelectorAll('.scheduled-tab-button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tab = btn.dataset.tab;
+                if (!tab) return;
+                document.querySelectorAll('.scheduled-tab-button').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.scheduled-tab-panel').forEach(el => el.classList.remove('active'));
+                btn.classList.add('active');
+                const panel = document.getElementById(`scheduled-tab-${tab}`);
+                if (panel) panel.classList.add('active');
+            });
+        });
 
         // Use event delegation for better robustness
         document.body.addEventListener('click', (e) => {
@@ -97,46 +152,91 @@ const scheduledTasks = {
 
         // Socket.IO events
         socket.on('scheduled_tasks_list', (data) => {
-            this.tasks = data.tasks || [];
-            this.renderTaskList();
+            scheduledTasks.tasks = data.tasks || [];
+            scheduledTasks.renderTaskList();
         });
 
         socket.on('task_added', (data) => {
             if (data.success) {
-                log('✅ 任务创建成功', 'success');
-                this.loadTasks();
-                this.hideTaskForm();
+                taskLog('✅ 任务创建成功', 'success');
+                scheduledTasks.loadTasks();
+                scheduledTasks.hideTaskForm();
             } else {
-                log(`❌ 创建失败: ${data.error}`, 'error');
+                taskLog(`❌ 创建失败: ${data.error}`, 'error');
             }
         });
 
         socket.on('task_updated', (data) => {
             if (data.success) {
-                log('✅ 任务更新成功', 'success');
-                this.loadTasks();
-                this.hideTaskForm();
+                taskLog('✅ 任务更新成功', 'success');
+                scheduledTasks.loadTasks();
+                scheduledTasks.hideTaskForm();
             } else {
-                log(`❌ 更新失败: ${data.error}`, 'error');
+                taskLog(`❌ 更新失败: ${data.error}`, 'error');
             }
         });
 
         socket.on('task_deleted', (data) => {
             if (data.success) {
-                log('✅ 任务已删除', 'success');
-                this.loadTasks();
+                taskLog('✅ 任务已删除', 'success');
+                scheduledTasks.loadTasks();
             } else {
-                log(`❌ 删除失败: ${data.error}`, 'error');
+                taskLog(`❌ 删除失败: ${data.error}`, 'error');
             }
         });
 
         socket.on('task_status_changed', (data) => {
             if (data.success) {
                 const action = data.paused ? '暂停' : '恢复';
-                log(`✅ 任务已${action}`, 'success');
-                this.loadTasks();
+                taskLog(`✅ 任务已${action}`, 'success');
+                scheduledTasks.loadTasks();
             }
         });
+
+        // Listen for scheduled task execution logs
+        socket.on('scheduled_task_log', (data) => {
+            const typeMap = {
+                'start': 'info',
+                'success': 'success',
+                'error': 'error',
+                'progress': 'info'
+            };
+            const logType = typeMap[data.type] || 'info';
+            taskLog(`[${data.task_name || 'Task'}] ${data.message}`, logType);
+        });
+
+        // Listen for persisted logs loaded from server
+        socket.on('task_logs_loaded', (data) => {
+            if (data.success && data.logs && data.logs.length > 0) {
+                const logContent = document.getElementById('task-log-content');
+                const logEmpty = document.getElementById('task-log-empty');
+                if (logContent) {
+                    logContent.innerHTML = ''; // Clear existing
+                    data.logs.forEach(log => {
+                        const entry = document.createElement('div');
+                        const colors = {
+                            'success': '#4CAF50',
+                            'error': '#f44336',
+                            'warning': '#ff9800',
+                            'info': '#888',
+                            'start': '#2196F3',
+                            'progress': '#9C27B0'
+                        };
+                        entry.style.cssText = `padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: ${colors[log.type] || colors.info};`;
+                        entry.innerHTML = `<span style="color: #555;">[${log.time_str}]</span> [${log.task_name}] ${log.message}`;
+                        logContent.appendChild(entry);
+                    });
+                    if (logEmpty) logEmpty.style.display = 'none';
+                }
+            }
+        });
+    },
+
+    /**
+     * Load persisted task logs from server
+     */
+    loadTaskLogs() {
+        socket.emit('get_task_logs', { limit: 200 });
     },
 
     /**
@@ -144,6 +244,8 @@ const scheduledTasks = {
      */
     loadTasks() {
         socket.emit('get_scheduled_tasks');
+        // Also load persisted logs
+        this.loadTaskLogs();
     },
 
     /**
@@ -175,7 +277,10 @@ const scheduledTasks = {
             enabledCheckbox.checked = true;
         }
 
-        formContainer.style.display = 'block';
+        formContainer.style.display = 'flex';
+        // Hide placeholder when form is visible
+        const placeholder = document.getElementById('task-form-placeholder');
+        if (placeholder) placeholder.style.display = 'none';
         formContainer.scrollIntoView({ behavior: 'smooth' });
     },
 
@@ -184,6 +289,9 @@ const scheduledTasks = {
      */
     hideTaskForm() {
         document.getElementById('task-form').style.display = 'none';
+        // Show placeholder when form is hidden
+        const placeholder = document.getElementById('task-form-placeholder');
+        if (placeholder) placeholder.style.display = 'flex';
         this.editingTaskId = null;
     },
 
@@ -237,9 +345,8 @@ const scheduledTasks = {
      * Delete task
      */
     deleteTask(taskId) {
-        if (confirm('确定要删除这个定时任务吗？')) {
-            socket.emit('delete_scheduled_task', { task_id: taskId });
-        }
+        // Confirmation is handled by the UI button state
+        socket.emit('delete_scheduled_task', { task_id: taskId });
     },
 
     /**
@@ -256,62 +363,132 @@ const scheduledTasks = {
      * Render task list
      */
     renderTaskList() {
-        const emptyDiv = document.getElementById('tasks-empty');
-        const tableDiv = document.getElementById('tasks-table');
-        const tbody = document.getElementById('tasks-tbody');
+        const container = document.getElementById('scheduled-tasks-list');
+        const emptyDiv = document.getElementById('no-tasks-placeholder');
 
-        if (this.tasks.length === 0) {
-            emptyDiv.style.display = 'block';
-            tableDiv.style.display = 'none';
+        if (!container) {
+            console.error('Task list container not found');
             return;
         }
 
-        emptyDiv.style.display = 'none';
-        tableDiv.style.display = 'block';
+        // Clear existing task items (keep placeholder)
+        container.querySelectorAll('.task-item').forEach(el => el.remove());
 
-        // Build table rows
-        tbody.innerHTML = this.tasks.map(task => {
-            const platformEmoji = {
-                'douban': '🎬',
-                'imdb': '⭐',
-                'trakt': '🎯',
-                'tmdb': '🎬',
-                'letterboxd': '🎞️'
-            };
+        if (this.tasks.length === 0) {
+            if (emptyDiv) emptyDiv.style.display = 'block';
+            return;
+        }
 
-            const statusBadge = task.paused
-                ? '<span style="background: #888; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">⏸️ 已暂停</span>'
-                : '<span style="background: var(--success); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">✅ 运行中</span>';
+        if (emptyDiv) emptyDiv.style.display = 'none';
 
-            const nextRun = task.next_run_time
-                ? new Date(task.next_run_time).toLocaleString('zh-CN')
-                : '--';
+        // Platform icons - prefer SVG, fallback to emoji
+        const platformIcons = window.platformIcons || {};
+        const platformEmoji = window.platformEmoji || {
+            'douban': '🎬',
+            'imdb': '⭐',
+            'trakt': '🎯',
+            'tmdb': '🎬',
+            'letterboxd': '🎞️'
+        };
 
-            return `
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 12px; font-weight: 600;">${task.name}</td>
-                    <td style="padding: 12px;">
-                        ${platformEmoji[task.source]} ${task.source.toUpperCase()} 
-                        <span style="color: #888;">→</span> 
-                        ${platformEmoji[task.target]} ${task.target.toUpperCase()}
-                    </td>
-                    <td style="padding: 12px; font-family: monospace; font-size: 0.85rem;">${task.schedule}</td>
-                    <td style="padding: 12px;">${statusBadge}</td>
-                    <td style="padding: 12px; color: #888; font-size: 0.85rem;">${nextRun}</td>
-                    <td style="padding: 12px;">
-                        <button class="btn btn-sm btn-outline" onclick="scheduledTasks.showTaskForm(${JSON.stringify(task).replace(/"/g, '&quot;')})" title="编辑">
-                            ✏️
-                        </button>
-                        <button class="btn btn-sm btn-outline" onclick="scheduledTasks.toggleTaskStatus('${task.id}', ${task.paused})" title="${task.paused ? '恢复' : '暂停'}">
-                            ${task.paused ? '▶️' : '⏸️'}
-                        </button>
-                        <button class="btn btn-sm btn-outline" onclick="scheduledTasks.deleteTask('${task.id}')" title="删除" style="color: var(--danger);">
-                            🗑️
-                        </button>
-                    </td>
-                </tr>
+        // Build task items
+        this.tasks.forEach(task => {
+            const item = document.createElement('div');
+            item.className = 'task-item';
+            item.style.cssText = 'padding: 12px 14px; border-radius: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.03); cursor: pointer; display: flex; flex-direction: column; gap: 8px; transition: all 0.2s ease;';
+
+            const statusColor = task.paused ? '#666' : '#4CAF50';
+            const nextRun = task.paused
+                ? '已暂停'
+                : (task.next_run ? new Date(task.next_run).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }) : 'N/A');
+
+            // Platform icons - use SVG if available, else emoji
+            let sourceIcon = platformIcons[task.source] || platformEmoji[task.source] || '📁';
+            let targetIcon = platformIcons[task.target] || platformEmoji[task.target] || '📁';
+
+            // Force larger size for images (override default 20px)
+            if (sourceIcon.includes('<img')) {
+                sourceIcon = sourceIcon.replace(/width:20px;height:20px;/g, 'width:36px;height:36px;');
+            }
+            if (targetIcon.includes('<img')) {
+                targetIcon = targetIcon.replace(/width:20px;height:20px;/g, 'width:36px;height:36px;');
+            }
+
+            item.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); white-space: normal; overflow: visible; text-overflow: unset; line-height: 1.3; flex: 1;">
+                        ${task.name || task.id}
+                    </div>
+                    <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                        <button class="btn btn-ghost btn-sm edit-task-btn" style="padding: 2px 6px; opacity: 0.6; font-size: 0.75rem;" title="编辑">✏️</button>
+                        <button class="btn btn-ghost btn-sm delete-task-btn" style="padding: 2px 6px; opacity: 0.6; font-size: 0.75rem;" title="删除">🗑️</button>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 0.78rem; color: #888;">
+                    <span style="font-size: 1.8rem; line-height: 1;">${sourceIcon}</span>
+                    <span style="color: #555;">→</span>
+                    <span style="font-size: 1.8rem; line-height: 1;">${targetIcon}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: #888;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: ${statusColor};"></span>
+                        <span>${nextRun}</span>
+                    </div>
+                </div>
             `;
-        }).join('');
+
+            // Hover effect
+            item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.06)'; });
+            item.addEventListener('mouseleave', () => { item.style.background = 'rgba(255,255,255,0.03)'; });
+
+            // Edit click
+            item.querySelector('.edit-task-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                scheduledTasks.showTaskForm(task);
+            });
+
+            // Delete click
+            // Delete click with "Click twice to confirm" logic
+            const deleteBtn = item.querySelector('.delete-task-btn');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+
+                if (deleteBtn.classList.contains('confirming')) {
+                    // Second click: Do delete
+                    scheduledTasks.deleteTask(task.id);
+                } else {
+                    // First click: Show confirm state
+                    deleteBtn.classList.add('confirming');
+                    deleteBtn.innerHTML = '确定?';
+                    deleteBtn.style.color = '#ff4d4f';
+                    deleteBtn.style.background = 'rgba(255, 77, 79, 0.1)';
+                    deleteBtn.style.fontWeight = 'bold';
+                    deleteBtn.style.opacity = '1';
+                    deleteBtn.style.width = 'auto';
+
+                    // Reset after 3 seconds
+                    setTimeout(() => {
+                        if (deleteBtn.isConnected) {
+                            deleteBtn.classList.remove('confirming');
+                            deleteBtn.innerHTML = '🗑️';
+                            deleteBtn.style.color = '';
+                            deleteBtn.style.background = '';
+                            deleteBtn.style.fontWeight = '';
+                            deleteBtn.style.opacity = '0.6';
+                            deleteBtn.style.width = '';
+                        }
+                    }, 3000);
+                }
+            });
+
+            // Click entire item to toggle pause/resume
+            item.addEventListener('click', () => {
+                scheduledTasks.toggleTaskStatus(task.id, task.paused);
+            });
+
+            container.appendChild(item);
+        });
     },
 
     /**
@@ -338,3 +515,6 @@ document.addEventListener('DOMContentLoaded', () => {
         scheduledTasks.init();
     }, 500);
 });
+
+// Expose to global scope for debugging and access from other scripts
+window.scheduledTasks = scheduledTasks;

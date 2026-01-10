@@ -103,8 +103,116 @@ from web.scheduler import get_scheduler
 CORE_COLUMNS = ['Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id']
 ESSENTIAL_COLUMNS = ['Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id', 'Year', 'URL', 'Cover URL', 'Douban Rating', 'IMDb Rating', 'Num Votes', 'Genres', 'Directors']
 APP_DATA = {}
+APP_DATA_LOADED = False
 
 from web.data_utils import safe_df_to_records
+
+def load_platform_data():
+    """Load all platform CSV data into APP_DATA on server startup."""
+    global APP_DATA_LOADED
+    
+    # Skip if we've already populated APP_DATA to avoid redundant disk IO
+    if APP_DATA_LOADED and APP_DATA:
+        return
+    
+    config = read_config()
+    logger.info("[Startup] Loading platform CSV data into APP_DATA...")
+    
+    # Load Douban and IMDb
+    for platform in ['douban', 'imdb']:
+        user_id = config.get(f'{platform}_user_id')
+        if user_id:
+            csv_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_ratings.csv')
+            if os.path.exists(csv_path):
+                try:
+                    df = pd.read_csv(csv_path)
+                    APP_DATA[f'{platform}_df'] = df
+                    APP_DATA[f'{platform}_csv_path'] = csv_path
+                    logger.info(f"[Startup] Loaded {platform}: {len(df)} records from {csv_path}")
+                except Exception as e:
+                    logger.error(f"[Startup] Error loading {platform}: {e}")
+    
+    # Load Trakt
+    trakt_user_id = config.get('trakt_user_id')
+    if trakt_user_id:
+        trakt_csv = os.path.join(DATA_DIR, f'trakt_{trakt_user_id}_ratings.csv')
+        if not os.path.exists(trakt_csv):
+            import glob
+            matches = glob.glob(os.path.join(DATA_DIR, 'trakt_*_ratings.csv'))
+            if matches:
+                trakt_csv = matches[0]
+        
+        if os.path.exists(trakt_csv):
+            try:
+                df = pd.read_csv(trakt_csv)
+                APP_DATA['trakt_df'] = df
+                APP_DATA['trakt_csv_path'] = trakt_csv
+                logger.info(f"[Startup] Loaded trakt: {len(df)} records from {trakt_csv}")
+            except Exception as e:
+                logger.error(f"[Startup] Error loading trakt: {e}")
+    
+    # Load Letterboxd
+    letterboxd_csv = os.path.join(DATA_DIR, 'letterboxd_diary.csv')
+    if not os.path.exists(letterboxd_csv):
+        import glob
+        matches = glob.glob(os.path.join(DATA_DIR, '*diary.csv'))
+        if matches:
+            letterboxd_csv = matches[0]
+    
+    if os.path.exists(letterboxd_csv):
+        try:
+            df = pd.read_csv(letterboxd_csv)
+            
+            # 自动获取IMDb ID (如果还没有的话)
+            if 'Letterboxd URI' in df.columns and 'IMDb ID' not in df.columns:
+                logger.info(f"[Startup] Letterboxd数据缺少IMDb ID，正在从URI获取...")
+                from adapters.utils.letterboxd_mapper import get_mapper
+                mapper = get_mapper()
+                
+                # 添加IMDb ID列
+                def get_id(uri):
+                    if pd.isna(uri) or not uri:
+                        return None
+                    return mapper.get_imdb_id_from_uri(str(uri))
+                
+                df['IMDb ID'] = df['Letterboxd URI'].apply(get_id)
+                imdb_found = df['IMDb ID'].notna().sum()
+                logger.info(f"[Startup] 成功获取 {imdb_found}/{len(df)} 个IMDb ID")
+                
+                # 保存更新后的CSV
+                df.to_csv(letterboxd_csv, index=False)
+                logger.info(f"[Startup] 已保存更新后的Letterboxd数据到 {letterboxd_csv}")
+            
+            APP_DATA['letterboxd_df'] = df
+            APP_DATA['letterboxd_csv_path'] = letterboxd_csv
+            logger.info(f"[Startup] Loaded letterboxd: {len(df)} records from {letterboxd_csv}")
+        except Exception as e:
+            logger.error(f"[Startup] Error loading letterboxd: {e}")
+    
+    # Load TMDB
+    tmdb_user_id = config.get('tmdb_user_id')
+    tmdb_csv = None
+    if tmdb_user_id:
+        tmdb_csv = os.path.join(DATA_DIR, f'tmdb_{tmdb_user_id}_ratings.csv')
+    
+    if not tmdb_csv or not os.path.exists(tmdb_csv):
+        import glob
+        matches = glob.glob(os.path.join(DATA_DIR, 'tmdb_*_ratings.csv'))
+        if matches:
+            tmdb_csv = matches[0]
+    
+    if tmdb_csv and os.path.exists(tmdb_csv):
+        try:
+            df = pd.read_csv(tmdb_csv)
+            APP_DATA['tmdb_df'] = df
+            APP_DATA['tmdb_csv_path'] = tmdb_csv
+            logger.info(f"[Startup] Loaded tmdb: {len(df)} records from {tmdb_csv}")
+        except Exception as e:
+            logger.error(f"[Startup] Error loading tmdb: {e}")
+    
+    APP_DATA_LOADED = True
+    logger.info(f"[Startup] Platform data loading complete. APP_DATA keys: {list(APP_DATA.keys())}")
+
 
 @app.route('/')
 def index():
@@ -246,8 +354,8 @@ def handle_add_scheduled_task(data):
             job_id=task_id,
             source=source,
             target=target,
-            cron_expression=schedule,
-            paused=paused,
+            cron_expr=schedule,
+            enabled=not paused,
             name=name
         )
         
@@ -278,8 +386,8 @@ def handle_update_scheduled_task(data):
             job_id=task_id,
             source=data.get('source'),
             target=data.get('target'),
-            cron_expression=data.get('schedule'),
-            paused=data.get('paused', False),
+            cron_expr=data.get('schedule'),
+            enabled=not data.get('paused', False),
             name=data.get('name')
         )
         
@@ -336,6 +444,29 @@ def handle_toggle_scheduled_task(data):
         logger.error(f"Failed to toggle scheduled task: {e}")
         emit('task_status_changed', {'success': False, 'error': str(e)})
 
+@socketio.on('get_task_logs')
+def handle_get_task_logs(data=None):
+    """Get persisted task execution logs"""
+    try:
+        from web.task_logs import get_task_logs
+        limit = data.get('limit', 50) if data else 50
+        logs = get_task_logs(limit)
+        emit('task_logs_loaded', {'success': True, 'logs': logs})
+    except Exception as e:
+        logger.error(f"Failed to get task logs: {e}")
+        emit('task_logs_loaded', {'success': False, 'logs': [], 'error': str(e)})
+
+@socketio.on('clear_task_logs')
+def handle_clear_task_logs():
+    """Clear all task logs"""
+    try:
+        from web.task_logs import clear_task_logs
+        clear_task_logs()
+        emit('task_logs_cleared', {'success': True})
+    except Exception as e:
+        logger.error(f"Failed to clear task logs: {e}")
+        emit('task_logs_cleared', {'success': False, 'error': str(e)})
+
 # ==========================================
 # Main Entry Point
 # ==========================================
@@ -387,24 +518,74 @@ def download_data(platform):
         config = read_config()
         
         if platform == 'merged':
-            # Try to find merged data file
-            douban_user = config.get('douban_user_id', '')
-            merged_path = os.path.join(DATA_DIR, f'merged_ratings_{douban_user[:8] if douban_user else "data"}.csv')
+            # 🔥 使用真正的并集：从 /api/library 逻辑获取所有平台数据
+            # 这会包含英文标题和所有平台的 ID
+            all_movies = {}
             
-            # If merged file doesn't exist, try to generate it
-            if not os.path.exists(merged_path):
-                # Try to merge from source files
-                imdb_user = config.get('imdb_user_id', '')
-                douban_path = os.path.join(DATA_DIR, f'douban_{douban_user}_ratings.csv')
-                imdb_path = os.path.join(DATA_DIR, f'imdb_{imdb_user}_ratings.csv')
-                
-                if os.path.exists(douban_path) and os.path.exists(imdb_path):
-                    _, _ = merge_movie_data(douban_path, imdb_path, merged_path)
-                    
-            if os.path.exists(merged_path):
-                df = pd.read_csv(merged_path)
-            else:
-                return Response("No merged data available. Please fetch both Douban and IMDB data first.", status=404)
+            # 复用 api_get_library 中的合并逻辑
+            def get_merge_key(movie):
+                imdb_id = movie.get('Const') or movie.get('imdb_id') or movie.get('IMDb ID') or ''
+                if imdb_id and str(imdb_id).startswith('tt'):
+                    return str(imdb_id)
+                title = movie.get('Title') or movie.get('Name') or ''
+                year = str(movie.get('Year', ''))[:4]
+                return f"{title}|{year}".lower()
+            
+            # 从所有平台加载数据
+            for plat in ['douban', 'imdb', 'trakt', 'letterboxd', 'tmdb']:
+                plat_df = APP_DATA.get(f'{plat}_df')
+                if plat_df is not None and not plat_df.empty:
+                    for _, row in plat_df.iterrows():
+                        movie = row.to_dict()
+                        key = get_merge_key(movie)
+                        if key not in all_movies:
+                            all_movies[key] = {
+                                'imdb_id': movie.get('Const') or movie.get('imdb_id') or movie.get('IMDb ID') or '',
+                                'tmdb_id': movie.get('tmdb_id') or movie.get('TMDB ID') or '',
+                                'trakt_id': movie.get('trakt_id') or movie.get('Trakt ID') or '',
+                                'douban_id': movie.get('douban_id') or movie.get('movie_id') or '',
+                                'title': movie.get('Title') or movie.get('Name') or '',
+                                'original_title': movie.get('original_title') or movie.get('Original Title') or '',
+                                'year': str(movie.get('Year', ''))[:4],
+                                'your_rating': movie.get('Your Rating') or movie.get('Rating') or '',
+                                'date_rated': movie.get('Date Rated') or movie.get('date_rated') or movie.get('Watched Date') or '',
+                                'directors': movie.get('Directors') or '',
+                                'genres': movie.get('Genres') or '',
+                                'douban_url': movie.get('douban_url') or movie.get('URL') if plat == 'douban' else '',
+                                'imdb_url': movie.get('imdb_url') or movie.get('URL') if plat == 'imdb' else '',
+                                'letterboxd_url': movie.get('Letterboxd URI') or movie.get('letterboxd_url') or movie.get('URL') if plat == 'letterboxd' else '',
+                                'trakt_url': movie.get('trakt_url') or movie.get('URL') if plat == 'trakt' else '',
+                                'tmdb_url': movie.get('tmdb_url') or movie.get('URL') if plat == 'tmdb' else '',
+                                'poster_url': movie.get('Cover URL') or movie.get('poster_url') or movie.get('poster') or '',
+                                'sources': [plat],
+                            }
+                        else:
+                            # 合并：补充缺失字段
+                            existing = all_movies[key]
+                            if plat not in existing['sources']:
+                                existing['sources'].append(plat)
+                            # 补充 ID
+                            if not existing['imdb_id']:
+                                existing['imdb_id'] = movie.get('Const') or movie.get('imdb_id') or movie.get('IMDb ID') or ''
+                            if not existing['tmdb_id']:
+                                existing['tmdb_id'] = movie.get('tmdb_id') or movie.get('TMDB ID') or ''
+                            # 补充英文标题
+                            if not existing['original_title']:
+                                existing['original_title'] = movie.get('original_title') or movie.get('Original Title') or movie.get('Title') or ''
+                            # 补充 URL
+                            if plat == 'letterboxd' and not existing['letterboxd_url']:
+                                existing['letterboxd_url'] = movie.get('Letterboxd URI') or movie.get('letterboxd_url') or movie.get('URL') or ''
+                            if plat == 'trakt' and not existing['trakt_url']:
+                                existing['trakt_url'] = movie.get('trakt_url') or movie.get('URL') or ''
+                            if plat == 'tmdb' and not existing['tmdb_url']:
+                                existing['tmdb_url'] = movie.get('tmdb_url') or movie.get('URL') or ''
+            
+            if not all_movies:
+                return Response("No data available from any platform", status=404)
+            
+            df = pd.DataFrame(list(all_movies.values()))
+            # 将 sources 列表转为字符串
+            df['sources'] = df['sources'].apply(lambda x: ','.join(x) if isinstance(x, list) else x)
         else:
             # Regular platform data
             user_id = config.get(f'{platform}_user_id', '')
@@ -436,26 +617,68 @@ def download_data(platform):
     elif format_type in ['letterboxd', 'letterboxd-csv']:
         # Letterboxd CSV format - handle both format names
         try:
-            # Select only columns that exist
-            cols_needed = ['Title', 'Year', 'Your Rating', 'Date Rated']
-            available_cols = [c for c in cols_needed if c in df.columns]
-            # Also try alternative column names
-            if 'Your Rating' not in df.columns and 'YourRating_douban' in df.columns:
-                df['Your Rating'] = df['YourRating_douban']
-                available_cols.append('Your Rating')
-            if 'Date Rated' not in df.columns and 'DateRated_douban' in df.columns:
-                df['Date Rated'] = df['DateRated_douban']
-                available_cols.append('Date Rated')
-            
-            lb_df = df[available_cols].copy()
-            lb_df.columns = ['Title', 'Year', 'Rating10', 'WatchedDate'][:len(available_cols)]
-            
-            # Convert Year to int to avoid .0
-            if 'Year' in lb_df.columns:
-                lb_df['Year'] = pd.to_numeric(lb_df['Year'], errors='coerce').fillna(0).astype(int)
-            if 'Rating10' in lb_df.columns:
-                lb_df['Rating10'] = pd.to_numeric(lb_df['Rating10'], errors='coerce').fillna(0) * 2
-                lb_df['Rating10'] = lb_df['Rating10'].astype(int)
+            # Build a minimal-yet-rich template for Letterboxd import
+            # Keep Title/Year/Rating/Date plus IDs (IMDb/TMDB/Trakt) and English title for better matching
+            lb_df = pd.DataFrame()
+            # 获取标题 - 优先使用英文/原始标题用于 Letterboxd 匹配
+            lb_df['Title'] = ''
+            # 优先级: original_title > Title > Name
+            if 'original_title' in df.columns:
+                lb_df['Title'] = df['original_title']
+            if 'Original Title' in df.columns:
+                lb_df['Title'] = df['Original Title'].fillna(lb_df['Title'])
+            # 如果还是空，用普通 Title
+            title_col = None
+            for col in ['Title', 'title', 'Name']:
+                if col in df.columns:
+                    title_col = col
+                    break
+            if title_col:
+                lb_df['Title'] = lb_df['Title'].replace('', pd.NA).fillna(df[title_col])
+
+            # Year
+            year_col = 'Year' if 'Year' in df.columns else 'year' if 'year' in df.columns else None
+            if year_col:
+                lb_df['Year'] = pd.to_numeric(df[year_col], errors='coerce').fillna(0).astype(int)
+            else:
+                lb_df['Year'] = 0
+
+            # Rating: 处理多种字段名，<=5 则转为10分制
+            rating_series = None
+            for col in ['your_rating', 'Your Rating', 'YourRating_douban', 'Rating']:
+                if col in df.columns:
+                    rating_series = df[col]
+                    break
+            if rating_series is not None:
+                r = pd.to_numeric(rating_series, errors='coerce')
+                lb_df['Rating10'] = r.apply(lambda x: x * 2 if pd.notna(x) and x <= 5 else x).fillna('')
+            else:
+                lb_df['Rating10'] = ''
+
+            # Watched date normalized to YYYY-MM-DD
+            date_series = None
+            for col in ['Date Rated', 'Watched Date', 'DateRated_douban', 'date_rated']:
+                if col in df.columns:
+                    date_series = df[col]
+                    break
+            if date_series is not None:
+                lb_df['WatchedDate'] = pd.to_datetime(date_series, errors='coerce', dayfirst=False).dt.strftime('%Y-%m-%d')
+            else:
+                lb_df['WatchedDate'] = ''
+
+            # IDs for downstream matching - 使用辅助函数获取列
+            def get_col(df, cols):
+                for c in cols:
+                    if c in df.columns:
+                        return df[c]
+                return ''
+            lb_df['IMDB ID'] = get_col(df, ['Const', 'imdb_id', 'IMDb ID'])
+            lb_df['TMDB ID'] = get_col(df, ['tmdb_id', 'TMDB ID'])
+            lb_df['Trakt ID'] = get_col(df, ['trakt_id', 'Trakt ID'])
+            lb_df['Letterboxd URI'] = get_col(df, ['Letterboxd URI', 'letterboxd_url', 'URL'])
+
+            # Clean NaNs to empty string
+            lb_df = lb_df.fillna('')
             
             csv_bytes = lb_df.to_csv(index=False).encode('utf-8-sig')
             return Response(
@@ -638,9 +861,21 @@ def api_get_library():
     page_size = int(request.args.get('page_size', 20))
     platform_filter = request.args.get('platform', 'all')
     
-    logger.info(f"[API Library] Request: filter={platform_filter}, page={page}")
+    # Get selected platforms from query string (comma-separated)
+    # Default to all 5 platforms if not specified
+    selected_platforms_str = request.args.get('platforms', 'douban,imdb,trakt,letterboxd,tmdb')
+    selected_platforms = set([p.strip() for p in selected_platforms_str.split(',') if p.strip()])
+    
+    # 特殊情况：如果没有选择任何平台，显示所有平台的并集
+    show_union = len(selected_platforms) == 0
+    
+    logger.info(f"[API Library] Request: filter={platform_filter}, page={page}, selected_platforms={selected_platforms}")
     
     try:
+        # Ensure platform data is loaded when running under WSGI/Flask CLI
+        if not APP_DATA or not any(k.endswith('_df') for k in APP_DATA.keys()):
+            load_platform_data()
+        
         # Collect all movies from all platforms
         all_movies = {}
         
@@ -659,13 +894,18 @@ def api_get_library():
         def add_movie(movie, platform):
             key = get_merge_key(movie)
             if not key:
+                if platform == 'letterboxd':
+                    logger.warning(f"[Letterboxd] Skipping movie - no valid merge key. Title: {movie.get('Name')}, Year: {movie.get('Year')}, IMDb ID: {movie.get('IMDb ID')}")
                 return
+            
+            if platform == 'letterboxd':
+                logger.info(f"[Letterboxd] Adding movie: key={key}, title={movie.get('Name')}, year={movie.get('Year')}")
             
             # Extract platform-specific data
             # Handle ratings - normalize to 10-point scale
             raw_rating = movie.get('Your Rating') or movie.get('YourRating_douban') or movie.get('YourRating_imdb') or movie.get('rating') or movie.get('评分') or movie.get('Rating')
             
-            # Normalize ratings: Douban and Letterboxd use 5-star scale, convert to 10-point
+            # Normalize ratings: Douban/Letterboxd可能是5分制，也可能已换算到10分制
             user_rating = ''
             if raw_rating is not None:
                 try:
@@ -673,8 +913,8 @@ def api_get_library():
                     # Check for NaN - NaN is not valid JSON
                     if not math.isnan(rating_float):
                         if platform in ['douban', 'letterboxd']:
-                            # 5-star scale -> 10-point scale
-                            user_rating = rating_float * 2
+                            # 如果原始分数 <=5，认为是5分制，需要乘2；>5 则视为已是10分制
+                            user_rating = rating_float * 2 if rating_float <= 5 else rating_float
                         else:
                             user_rating = rating_float
                 except:
@@ -711,7 +951,7 @@ def api_get_library():
                 date_rated = clean_date(movie.get('Date Rated') or movie.get('date_rated') or movie.get('标记日期') or movie.get('Watched Date') or '')
                 imdb_id = clean_id(movie.get('Const') or movie.get('imdb_id') or movie.get('IMDB ID') or movie.get('IMDb ID'))
                 douban_id = clean_id(movie.get('douban_id') or movie.get('movie_id'))
-                tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID'))
+                tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID') or movie.get('id'))
                 trakt_id = clean_id(movie.get('trakt_id') or movie.get('Trakt ID'))
                 
                 # Parse URLs
@@ -754,6 +994,8 @@ def api_get_library():
                     'tmdb_url': tmdb_url,
                     'sources': [platform],
                     'latest_date': date_rated,
+                    'earliest_date': date_rated,  # 最早观看日期
+                    'cine_id': key,  # 唯一标识符
                     # Platform-specific ratings and votes
                     'douban_rating': douban_rating_val,
                     'douban_votes': douban_votes_val,
@@ -772,10 +1014,17 @@ def api_get_library():
                 # Update existing entry - track all sources
                 if platform not in all_movies[key]['sources']:
                     all_movies[key]['sources'].append(platform)
-                # Update date if newer
-                new_date = movie.get('Date Rated') or movie.get('date_rated') or movie.get('标记日期') or movie.get('Watched Date') or ''
-                if new_date and (not all_movies[key]['latest_date'] or new_date > all_movies[key]['latest_date']):
-                    all_movies[key]['latest_date'] = new_date
+                # Update dates - track both earliest and latest
+                new_date = clean_date(movie.get('Date Rated') or movie.get('date_rated') or movie.get('标记日期') or movie.get('Watched Date') or movie.get('latest_date'))
+                if new_date:
+                    # Update latest_date if newer
+                    existing_latest = str(all_movies[key].get('latest_date') or '')
+                    if not existing_latest or str(new_date) > existing_latest:
+                        all_movies[key]['latest_date'] = new_date
+                    # Update earliest_date if older
+                    existing_earliest = str(all_movies[key].get('earliest_date') or '')
+                    if not existing_earliest or str(new_date) < existing_earliest:
+                        all_movies[key]['earliest_date'] = new_date
                 
                 # Merge metadata if missing in existing entry
                 directors = clean_value(movie.get('Directors') or '')
@@ -791,8 +1040,15 @@ def api_get_library():
                     all_movies[key]['genres'] = genres
                 if runtime and not all_movies[key].get('runtime'):
                     all_movies[key]['runtime'] = runtime
-
-                # Update URLs if not set
+                
+                # Extract IDs for this movie from current source
+                imdb_id = clean_id(movie.get('Const') or movie.get('imdb_id') or movie.get('IMDB ID') or movie.get('IMDb ID'))
+                douban_id = clean_id(movie.get('douban_id') or movie.get('movie_id'))
+                tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID') or movie.get('id'))
+                trakt_id = clean_id(movie.get('trakt_id') or movie.get('Trakt ID'))
+                
+                # Update ratings and specific platform metadata
+                # For Douban: Update all fields if coming from Douban
                 if platform == 'douban':
                     if not all_movies[key].get('douban_url'):
                         all_movies[key]['douban_url'] = movie.get('douban_url') or movie.get('url') or ''
@@ -846,55 +1102,126 @@ def api_get_library():
         }
         
         import glob
-        for platform, (user_id, path_fn) in platform_configs.items():
-            path = None
-            if user_id:
-                path = path_fn(user_id)
-            
-            # If path not found or no user_id, try to find any file for this platform (Robust Loading)
-            if not path or not os.path.exists(path):
-                patterns = []
-                if platform == 'letterboxd':
-                    patterns = ['letterboxd*diary.csv', 'letterboxd*.csv', '*diary.csv']
-                elif platform == 'tmdb':
-                    patterns = ['tmdb_*_ratings.csv', 'tmdb*.csv']
-                elif platform == 'trakt':
-                    patterns = ['trakt_*_ratings.csv', 'trakt*.csv']
-                
-                for pattern in patterns:
-                    matches = glob.glob(os.path.join(DATA_DIR, pattern))
-                    if matches:
-                        path = matches[0] # Use first match
-                        logger.info(f"Auto-discovered {platform} data: {path}")
-                        break
-
-            if path and os.path.exists(path):
-                try:
-                    df = pd.read_csv(path)
-                    platforms_with_data.append(platform)
-                    for _, row in df.iterrows():
-                        add_movie(row.to_dict(), platform)
-                except Exception as e:
-                    logger.warning(f"Failed to load {platform} data: {e}")
+        # Use APP_DATA which contains all platforms including TMDb
+        for platform in platform_configs.keys():
+            df = APP_DATA.get(f'{platform}_df')
+            if df is not None and not df.empty:
+                platforms_with_data.append(platform)
+                records = df.to_dict('records')
+                for movie in records:
+                    add_movie(movie, platform)
         
-        # Convert to list and sort
+        # Convert to list and sort by latest_date (descending - newest first)
         movies_list = list(all_movies.values())
-        movies_list.sort(key=lambda x: x.get('latest_date') or '', reverse=True)
+        # 排序函数：将日期转为可比较的格式，空日期排到最后
+        def sort_key(x):
+            date = x.get('latest_date') or ''
+            if not date:
+                return '0000-00-00'  # 空日期排最后
+            date_str = str(date).strip()[:10]
+            # 尝试解析并统一为 YYYY-MM-DD 格式
+            from datetime import datetime
+            for fmt in ['%Y-%m-%d', '%m/%d/%y', '%m/%d/%Y', '%Y/%m/%d', '%d/%m/%Y']:
+                try:
+                    dt = datetime.strptime(date_str, fmt)
+                    return dt.strftime('%Y-%m-%d')
+                except ValueError:
+                    continue
+            # 如果无法解析，假设已是正确格式
+            return date_str if len(date_str) >= 10 else '0000-00-00'
+        movies_list.sort(key=sort_key, reverse=True)
         
-        # Apply platform filter
-        if platform_filter == 'all':
-            movies_list = [m for m in movies_list if len(m['sources']) >= 2]
+        # Apply platform filter using selected platforms
+        if show_union:
+            # 特殊情况：没有勾选任何平台，显示并集
+            if platform_filter == 'all':
+                # 共有：显示所有电影
+                pass  # movies_list已经包含所有电影
+            else:
+                # 平台标签：显示该平台的所有电影
+                movies_list = [
+                    m for m in movies_list 
+                    if platform_filter in m['sources']
+                ]
         else:
-            movies_list = [m for m in movies_list if platform_filter in m['sources'] and len(m['sources']) == 1]
+            # 正常情况：有勾选平台
+            if platform_filter == 'all':
+                # Shared: Must have ALL selected platforms (交集)
+                movies_list = [
+                    m for m in movies_list 
+                    if selected_platforms.issubset(set(m['sources']))
+                ]
+            else:
+                # Platform specific: Has this platform, but NOT all selected platforms
+                # 即：该平台的所有 - 交集
+                movies_list = [
+                    m for m in movies_list 
+                    if platform_filter in m['sources'] 
+                    and not selected_platforms.issubset(set(m['sources']))
+                ]
         
         total_count = len(movies_list)
         
-        # Calculate platform counts
+        # Calculate platform counts based on selected platforms
         all_temp = list(all_movies.values())
         platform_counts = {}
+        
+        # Calculate intersection (shared) count first
+        if show_union:
+            shared_movies_count = len(all_temp)
+        else:
+            shared_movies = [m for m in all_temp if selected_platforms.issubset(set(m['sources']))]
+            shared_movies_count = len(shared_movies)
+
         for platform in platform_configs.keys():
-            platform_counts[platform] = len([m for m in all_temp if platform in m['sources'] and len(m['sources']) == 1])
-        platform_counts['shared'] = len([m for m in all_temp if len(m['sources']) >= 2])
+            # 获取该平台的所有电影
+            platform_movies = [m for m in all_temp if platform in m['sources']]
+            total_platform_count = len(platform_movies)
+            
+            if show_union:
+                # 没选平台时，显示该平台总数
+                platform_counts[platform] = total_platform_count
+            else:
+                # 选了平台时，显示该平台独占数 (总数 - 交集数)
+                # 注意：这里我们计算的是真正会在该标签页显示的电影数量
+                # 即：属于该平台 AND NOT 属于交集
+                if platform in selected_platforms:
+                     # 计算交集：即那些拥有所有selected_platforms的电影
+                    count_in_intersection = len([
+                        m for m in platform_movies 
+                        if selected_platforms.issubset(set(m['sources']))
+                    ])
+                    platform_counts[platform] = total_platform_count - count_in_intersection
+                else:
+                    # 如果该平台没被勾选，它不会参与交集计算，但在标签页
+                    # 按照我们的逻辑，它显示的是"属于该平台"的所有电影（还是除去交集？）
+                    # 之前的逻辑是：platform_filter in m['sources'] and not selected_platforms.issubset...
+                    # 所以如果selected_platforms不包含该平台，selected_platforms.issubset()对于该平台独有的电影可能是False
+                    # 为了简化，我们统一显示：该平台总数 - (该平台与Selected的交集?)
+                    # 不，上面的逻辑是：m['sources'] 包含当前tab平台，且 不全是 selected_platforms
+                    
+                    # 简单点：直接复用上面的筛选逻辑计算一遍
+                    count = len([
+                        m for m in platform_movies 
+                        if not selected_platforms.issubset(set(m['sources']))
+                    ])
+                    platform_counts[platform] = count
+        
+        # Shared count is handled separately in response
+        
+        logger.info(f"[DEBUG] selected_platforms={selected_platforms}")
+        
+        # Shared = movies with ALL selected platforms
+        if show_union:
+            # 没有选择平台时，共有=所有电影
+            shared_movies = all_temp
+        else:
+            shared_movies = [m for m in all_temp if selected_platforms.issubset(set(m['sources']))]
+        logger.info(f"[DEBUG] selected_platforms={selected_platforms}")
+        logger.info(f"[DEBUG] Sample sources: {[m['sources'] for m in all_temp[:5]]}")
+        logger.info(f"[DEBUG] Shared count={len(shared_movies)}, Sample shared: {[m.get('title') for m in shared_movies[:3]]}")
+        platform_counts['shared'] = len(shared_movies)
+        
         
         # Paginate
         start_idx = (page - 1) * page_size
@@ -1437,13 +1764,13 @@ def handle_sync(data):
     logger.info(f"🔍 DEBUG: direction={direction}, is_dry_run={is_dry_run}")
     
     # Run sync in a background thread to prevent blocking Socket.IO heartbeat
-    def sync_worker(direction, is_dry_run, app_data):
+    def sync_worker(direction, is_dry_run, app_data, options):
         logger.info(f"🔍 DEBUG: sync_worker thread started for {direction}")
         from web.logic import perform_sync_logic
         try:
             # Perform sync logic
             logger.info(f"🔍 DEBUG: Calling perform_sync_logic...")
-            result = perform_sync_logic(direction, is_dry_run, socketio, app_data)
+            result = perform_sync_logic(direction, is_dry_run, socketio, app_data, options=options)
             logger.info(f"🔍 DEBUG: perform_sync_logic returned: {len(result) if result else 0} items")
             
             if is_dry_run:
@@ -1483,7 +1810,7 @@ def handle_sync(data):
     import threading
     # Pass APP_DATA (copy/ref) to thread
     logger.info(f"🔍 DEBUG: Starting sync_worker thread...")
-    threading.Thread(target=sync_worker, args=(direction, is_dry_run, APP_DATA), daemon=True).start()
+    threading.Thread(target=sync_worker, args=(direction, is_dry_run, APP_DATA, data), daemon=True).start()
     logger.info(f"🔍 DEBUG: sync_worker thread spawned")
 
 @socketio.on('get_page')
@@ -1524,6 +1851,10 @@ def handle_get_unified_library(data):
         page = data.get('page', 1)
         page_size = data.get('page_size', 20)
         platform_filter = data.get('platform', 'all')
+        
+        # Ensure APP_DATA is hydrated when running without __main__ entrypoint
+        if not APP_DATA or not any(k.endswith('_df') for k in APP_DATA.keys()):
+            load_platform_data()
         
         def clean_value(val):
             """Convert NaN/None to empty string for JSON serialization"""
@@ -1584,12 +1915,16 @@ def handle_get_unified_library(data):
         
         def get_merge_key(movie):
             # Try to find IMDb ID - check multiple variations of the column name
-            imdb_id = movie.get('Const') or movie.get('imdb_id') or movie.get('IMDB ID') or movie.get('IMDb ID')
+            # TMDb CSV uses lowercase 'imdb_id', others use 'Const' or 'IMDb ID'
+            imdb_id = (movie.get('Const') or movie.get('imdb_id') or 
+                      movie.get('IMDB ID') or movie.get('IMDb ID') or 
+                      movie.get('ImdbId'))  # Additional fallback
+            
             if imdb_id and not (isinstance(imdb_id, float) and math.isnan(imdb_id)) and str(imdb_id).startswith('tt'):
                 return str(imdb_id)
             
             # Fallback to Title + Year
-            # Support 'Name' for Letterboxd
+            # Support 'Name' for Letterboxd, 'Title' for most platforms
             title = str(movie.get('Title') or movie.get('title') or movie.get('中文名') or movie.get('Name') or '').strip()
             year = str(movie.get('Year') or movie.get('year') or movie.get('上映年份') or '')[:4]
             return f"{title}_{year}" if title else None
@@ -1597,13 +1932,20 @@ def handle_get_unified_library(data):
         def add_movie(movie, platform):
             key = get_merge_key(movie)
             if not key:
+                if platform == 'tmdb':
+                    logger.warning(f"[TMDb] Skipped movie - no key: {movie.get('Title')}")
                 return
+            
+            # Debug: Log TMDb key generation and matching
+            if platform == 'tmdb':
+                exists = key in all_movies
+                logger.info(f"[TMDb] Key={key[:50]}, Exists={exists}, Title={movie.get('Title')[:30]}")
             
             # Extract platform-specific data
             # Handle ratings - normalize to 10-point scale
             raw_rating = movie.get('Your Rating') or movie.get('YourRating_douban') or movie.get('YourRating_imdb') or movie.get('rating') or movie.get('评分') or movie.get('Rating')
             
-            # Normalize ratings: Douban and Letterboxd use 5-star scale, convert to 10-point
+            # Normalize ratings: Douban/Letterboxd may be 5-point; if >5 assume already 10-point
             user_rating = ''
             if raw_rating is not None:
                 try:
@@ -1611,8 +1953,7 @@ def handle_get_unified_library(data):
                     # Check for NaN - NaN is not valid JSON
                     if not math.isnan(rating_float):
                         if platform in ['douban', 'letterboxd']:
-                            # 5-star scale -> 10-point scale
-                            user_rating = rating_float * 2
+                            user_rating = rating_float * 2 if rating_float <= 5 else rating_float
                         else:
                             user_rating = rating_float
                 except:
@@ -1631,9 +1972,11 @@ def handle_get_unified_library(data):
             imdb_votes_val = votes if platform == 'imdb' else ''
             
             # Extract common IDs and Data first
+            # TMDb CSV uses lowercase column names, others vary
             imdb_id = clean_id(movie.get('Const') or movie.get('imdb_id') or movie.get('IMDB ID') or movie.get('IMDb ID'))
             douban_id = clean_id(movie.get('douban_id') or movie.get('movie_id'))
-            tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID'))
+            # TMDb: tmdb_id column, others might use TMDB ID
+            tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID') or movie.get('id'))
             trakt_id = clean_id(movie.get('trakt_id') or movie.get('Trakt ID'))
             
             if key not in all_movies:
@@ -1712,9 +2055,13 @@ def handle_get_unified_library(data):
                 # Update existing entry - track all sources
                 if platform not in all_movies[key]['sources']:
                     all_movies[key]['sources'].append(platform)
+                    if platform == 'tmdb':
+                        logger.info(f"[TMDb] ADDED to sources for key={key[:50]}, sources now={all_movies[key]['sources']}")
                 # Update date if newer
                 new_date = clean_date(movie.get('Date Rated') or movie.get('date_rated') or movie.get('标记日期') or movie.get('Watched Date') or movie.get('latest_date'))
-                if new_date and (not all_movies[key]['latest_date'] or new_date > all_movies[key]['latest_date']):
+                # Safe comparison: both dates must be strings (clean_date returns string)
+                existing_date = str(all_movies[key]['latest_date'] or '')
+                if new_date and (not existing_date or str(new_date) > existing_date):
                     all_movies[key]['latest_date'] = new_date
                 
                 # Merge metadata if missing in existing entry
@@ -1731,6 +2078,12 @@ def handle_get_unified_library(data):
                     all_movies[key]['genres'] = genres
                 if runtime and not all_movies[key].get('runtime'):
                     all_movies[key]['runtime'] = runtime
+
+                # Extract IDs for this movie from current source
+                imdb_id = clean_id(movie.get('Const') or movie.get('imdb_id') or movie.get('IMDB ID') or movie.get('IMDb ID'))
+                douban_id = clean_id(movie.get('douban_id') or movie.get('movie_id'))
+                tmdb_id = clean_id(movie.get('tmdb_id') or movie.get('TMDB ID') or movie.get('id'))
+                trakt_id = clean_id(movie.get('trakt_id') or movie.get('Trakt ID'))
 
                 # Update Platform-Specific info if not set
                 if platform == 'douban':
@@ -1778,7 +2131,13 @@ def handle_get_unified_library(data):
         all_platforms = ['douban', 'imdb', 'trakt', 'letterboxd', 'tmdb']
         
         for platform in all_platforms:
-            df = APP_DATA.get(f'{platform}_df')
+            # Fix: Ensure key matches fetch logic (tmdb_gawaint_ratings.csv -> tmdb_df)
+            df_key = f'{platform}_df'
+            df = APP_DATA.get(df_key)
+            
+            # Debug log to verify data sources
+            logger.info(f"[Unified Library] Processing {platform}: {len(df) if df is not None and not df.empty else 0} records")
+            
             if df is not None and not df.empty:
                 platforms_with_data.append(platform)
                 records = df.to_dict('records')
@@ -1787,13 +2146,44 @@ def handle_get_unified_library(data):
         
         # Convert to list and sort
         movies_list = list(all_movies.values())
-        movies_list.sort(key=lambda x: str(x.get('latest_date') or ''), reverse=True)
+        
+        # Fix: Ensure date comparison handles mixed types (str/float/None)
+        def safe_date_key(movie):
+            date_val = movie.get('latest_date') or ''
+            # Convert to string, handling NaN floats
+            if isinstance(date_val, float):
+                if math.isnan(date_val):
+                    return ''
+                return str(date_val)
+            return str(date_val)
+        
+        movies_list.sort(key=safe_date_key, reverse=True)
+        
+        # Debug: Log source distribution
+        from collections import Counter
+        source_counts = Counter(len(m['sources']) for m in movies_list)
+        logger.info(f"[Unified Library] Source distribution: {dict(source_counts)}")
+        logger.info(f"[Unified Library] Sample movie sources: {[m['sources'] for m in movies_list[:5]]}")
         
         # Apply platform filter
+        required_platforms = {'douban', 'imdb', 'trakt', 'letterboxd', 'tmdb'}
+        
         if platform_filter == 'all':
-            movies_list = [m for m in movies_list if len(m['sources']) >= 2]
+            # Strict 5-platform intersection: Source set must contain ALL 5 platforms
+            # Using set comparison to be absolutely sure
+            movies_list = [
+                m for m in movies_list 
+                if set(m['sources']) >= required_platforms
+            ]
         else:
-            movies_list = [m for m in movies_list if platform_filter in m['sources'] and len(m['sources']) == 1]
+            # Specific platform: 
+            # 1. Must contain the requested platform
+            # 2. Must NOT be a perfect 5-platform match (those go to Shared)
+            movies_list = [
+                m for m in movies_list 
+                if platform_filter in m['sources'] 
+                and not (set(m['sources']) >= required_platforms)
+            ]
         
         total_count = len(movies_list)
         
@@ -1803,8 +2193,14 @@ def handle_get_unified_library(data):
         for platform in all_platforms:
             df = APP_DATA.get(f'{platform}_df')
             if df is not None:
-                platform_counts[platform] = len([m for m in all_temp if platform in m['sources'] and len(m['sources']) == 1])
-        platform_counts['shared'] = len([m for m in all_temp if len(m['sources']) >= 2])
+                # Count ALL movies that have this platform (not just exclusive)
+                platform_counts[platform] = len([m for m in all_temp if platform in m['sources']])
+        # Shared = movies with ALL 5 platforms
+        shared_movies = [m for m in all_temp if set(m['sources']) >= required_platforms]
+        logger.info(f"[SocketIO DEBUG] required_platforms={required_platforms}")
+        logger.info(f"[SocketIO DEBUG] Sample sources: {[m['sources'] for m in all_temp[:5]]}")
+        logger.info(f"[SocketIO DEBUG] Shared count={len(shared_movies)}, Sample: {[m.get('title') for m in shared_movies[:3]]}")
+        platform_counts['shared'] = len(shared_movies)
         
         # Paginate
         start_idx = (page - 1) * page_size
@@ -1885,6 +2281,10 @@ def handle_letterboxd_upload(data):
     """Handle Letterboxd diary.csv file upload and parsing"""
     import io
     import base64
+    import threading
+    import time
+    import pandas as pd # Ensure pandas is imported
+    import os # Ensure os is imported
     
     try:
         csv_content = data.get('content', '')
@@ -1893,6 +2293,10 @@ def handle_letterboxd_upload(data):
         if not csv_content:
             emit('log', {'message': '❌ 未接收到文件内容', 'type': 'error'})
             return
+        
+        # Ensure APP_DATA is hydrated for local matching
+        if not APP_DATA or not any(k.endswith('_df') for k in APP_DATA.keys()):
+            load_platform_data()
         
         emit('log', {'message': f'📥 正在解析 {filename}...', 'type': 'info'})
         
@@ -1931,9 +2335,212 @@ def handle_letterboxd_upload(data):
         total_count = len(df)
         rated_count = df['Your Rating'].notna().sum() if 'Your Rating' in df.columns else 0
         
+        # 后台获取IMDb ID
+        def fetch_imdb_ids_background():
+            try:
+                from adapters.utils.letterboxd_mapper import get_mapper
+                import concurrent.futures
+                
+                # Make sure cached platform data is loaded for local matching
+                if not APP_DATA or not any(k.endswith('_df') for k in APP_DATA.keys()):
+                    load_platform_data()
+                
+                # 检查是否需要获取IMDb ID
+                uri_column = 'URL' if 'URL' in df.columns else 'Letterboxd URI'
+                needs_fetch = uri_column in df.columns and ('IMDb ID' not in df.columns or df['IMDb ID'].isna().any())
+                
+                if needs_fetch:
+                    socketio.emit('log', {'message': f'🔍 正在通过 Letterboxd URI 直接抓取 IMDb/TMDB... (共{total_count}条)', 'type': 'info'})
+                    
+                    mapper = get_mapper()
+                    
+                    # 添加IMDb ID列
+                    if 'IMDb ID' not in df.columns:
+                        df['IMDb ID'] = None
+                    if 'TMDB ID' not in df.columns:
+                        df['TMDB ID'] = None
+                    
+                    # 先用缓存命中，减少重复抓取
+                    cache_hits = 0
+                    for idx, row in df[df['IMDb ID'].isna() & df[uri_column].notna()].iterrows():
+                        try:
+                            raw_uri = str(row[uri_column]).strip()
+                            cached = mapper.mapping.get(raw_uri)
+                            if not cached:
+                                norm_uri = mapper._normalize_uri(raw_uri, resolve_shortlink=False)
+                                cached = mapper.mapping.get(norm_uri)
+                            if cached and cached.get('imdb_id'):
+                                df.at[idx, 'IMDb ID'] = cached.get('imdb_id')
+                                if cached.get('tmdb_id'):
+                                    df.at[idx, 'TMDB ID'] = cached.get('tmdb_id')
+                                cache_hits += 1
+                        except Exception:
+                            continue
+                    if cache_hits:
+                        socketio.emit('log', {'message': f'⚡️ 缓存命中: {cache_hits} 条，无需抓取', 'type': 'success'})
+                    
+                    # 仅对剩余缺失项做 URI 抓取
+                    success_count = 0
+                    processed = 0
+                    missing_indices = df[df['IMDb ID'].isna() & df[uri_column].notna()].index.tolist()
+                    total_missing = len(missing_indices)
+                    save_path = os.path.join(DATA_DIR, 'letterboxd_diary.csv')
+                    
+                    # 阶段2: 利用 TMDB/Douban 数据通过 Title+Year 匹配
+                    if total_missing > 0:
+                        title_year_index = {}
+                        # 从 TMDB 构建索引
+                        tmdb_df = APP_DATA.get('tmdb_df')
+                        if tmdb_df is not None and 'imdb_id' in tmdb_df.columns:
+                            for _, row in tmdb_df.iterrows():
+                                title = str(row.get('Title', '')).strip()
+                                year = str(row.get('Year', ''))[:4]
+                                imdb_id = row.get('imdb_id')
+                                if title and imdb_id and str(imdb_id).startswith('tt'):
+                                    key = f"{title}|{year}".lower()
+                                    title_year_index[key] = str(imdb_id)
+                        # 从 Douban 构建索引
+                        douban_df = APP_DATA.get('douban_df')
+                        if douban_df is not None:
+                            const_col = 'Const' if 'Const' in douban_df.columns else 'imdb_id'
+                            if const_col in douban_df.columns:
+                                for _, row in douban_df.iterrows():
+                                    title = str(row.get('Title', '')).strip()
+                                    year = str(row.get('Year', ''))[:4]
+                                    imdb_id = row.get(const_col)
+                                    if title and imdb_id and str(imdb_id).startswith('tt'):
+                                        key = f"{title}|{year}".lower()
+                                        if key not in title_year_index:
+                                            title_year_index[key] = str(imdb_id)
+                        
+                        socketio.emit('log', {'message': f'📚 已构建 Title+Year 索引: {len(title_year_index)} 条', 'type': 'info'})
+                        
+                        # 匹配 Letterboxd 条目
+                        title_col = 'Name' if 'Name' in df.columns else 'Title'
+                        title_matches = 0
+                        matched_indices = []
+                        for idx in missing_indices:
+                            title = str(df.at[idx, title_col] if title_col in df.columns else '').strip()
+                            year = str(df.at[idx, 'Year'])[:4] if pd.notna(df.at[idx, 'Year']) else ''
+                            key = f"{title}|{year}".lower()
+                            if key in title_year_index:
+                                df.at[idx, 'IMDb ID'] = title_year_index[key]
+                                matched_indices.append(idx)
+                                title_matches += 1
+                        
+                        # 更新 missing_indices
+                        for idx in matched_indices:
+                            missing_indices.remove(idx)
+                        
+                        if title_matches:
+                            socketio.emit('log', {'message': f'🎯 Title+Year 匹配成功: {title_matches} 条', 'type': 'success'})
+                        
+                        total_missing = len(missing_indices)
+                    
+                    socketio.emit('log', {'message': f'🛰️ 开始纯 URI 抓取: {total_missing} 条 (已命中 {cache_hits})', 'type': 'info'})
+                    if total_missing == 0:
+                        df.to_csv(save_path, index=False)
+                        mapper.save()
+                        socketio.emit('log', {'message': '✅ 无需抓取，所有条目均已匹配', 'type': 'success'})
+                        socketio.emit('letterboxd_imdb_complete', {
+                            'success_count': df['IMDb ID'].notna().sum(),
+                            'total_count': total_count
+                        })
+                        return
+                    
+                    # 使用并发加速纯 URI 抓取
+                    import concurrent.futures
+                    def fetch_one(idx):
+                        uri = df.at[idx, uri_column]
+                        if pd.isna(uri) or not uri:
+                            return idx, {}
+                        ids = mapper.get_platform_ids(str(uri))
+                        return idx, ids
+
+                    success_count = 0
+                    processed = 0
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                        futures = {executor.submit(fetch_one, idx): idx for idx in missing_indices}
+                        next_log = 50
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                idx, ids = future.result()
+                            except Exception as e:
+                                socketio.emit('log', {'message': f'❌ 抓取异常: {e}', 'type': 'error'})
+                                continue
+                            if ids.get('imdb_id'):
+                                df.at[idx, 'IMDb ID'] = ids['imdb_id']
+                                success_count += 1
+                            if ids.get('tmdb_id'):
+                                df.at[idx, 'TMDB ID'] = ids['tmdb_id']
+                            processed += 1
+                            while processed >= next_log:
+                                socketio.emit('log', {
+                                    'message': f'⏳ URI 抓取进度: {processed}/{total_missing} (成功 {success_count})',
+                                    'type': 'info'
+                                })
+                                next_log += 50
+                            if processed % 200 == 0:
+                                df.to_csv(save_path, index=False)
+                                mapper.save()
+                        # 处理总数不是50的倍数时的尾部进度
+                        if processed and processed != total_missing:
+                            socketio.emit('log', {
+                                'message': f'⏳ URI 抓取进度: {processed}/{total_missing} (成功 {success_count})',
+                                'type': 'info'
+                            })
+                    
+                    socketio.emit('log', {'message': f'✅ URI 抓取完成: 成功 {success_count}/{total_missing}', 'type': 'success'})
+                    mapper.save()
+                    
+                    # 报告未匹配的样本，便于诊断
+                    remaining = [idx for idx in missing_indices if pd.isna(df.at[idx, 'IMDb ID'])]
+                    if remaining:
+                        sample = []
+                        for idx in remaining[:5]:
+                            title = df.at[idx, 'Title'] if 'Title' in df.columns else df.at[idx, 'Name']
+                            year = df.at[idx, 'Year'] if 'Year' in df.columns else ''
+                            uri = df.at[idx, uri_column]
+                            sample.append(f"{title} ({year}) -> {uri}")
+                        socketio.emit('log', {
+                            'message': f'⚠️ 仍有 {len(remaining)} 条未找到 IMDb ID，例如: ' + '; '.join(sample),
+                            'type': 'warning'
+                        })
+
+                    # 最终保存
+                    save_path = os.path.join(DATA_DIR, 'letterboxd_diary.csv')
+                    df.to_csv(save_path, index=False)
+                    
+                    # 更新APP_DATA
+                    APP_DATA['letterboxd_df'] = df
+                    APP_DATA['letterboxd_csv_path'] = save_path
+                    
+                    total_success = df['IMDb ID'].notna().sum()
+                    
+                    socketio.emit('log', {
+                        'message': f'✅ 处理完成！总成功: {total_success}/{total_count}',
+                        'type': 'success'
+                    })
+                    
+                    # 通知前端刷新
+                    socketio.emit('letterboxd_imdb_complete', {
+                        'success_count': int(total_success),
+                        'total_count': int(total_count)
+                    })
+                
+            except Exception as e:
+                logger.exception("Error fetching IMDb IDs")
+                socketio.emit('log', {'message': f'❌ 处理过程出错: {e}', 'type': 'error'})
+        
+        # 先立即保存到磁盘（避免刷新丢失）
+        
+        # 先立即保存到磁盘（避免刷新丢失）
+        save_path = os.path.join(DATA_DIR, 'letterboxd_diary.csv')
+        df.to_csv(save_path, index=False)
+        
         # Store in APP_DATA
         APP_DATA['letterboxd_df'] = df
-        APP_DATA['letterboxd_csv_path'] = f'letterboxd_import_{total_count}.csv'
+        APP_DATA['letterboxd_csv_path'] = save_path
         
         # Prepare display columns
         display_columns = ['Title', 'Year', 'Your Rating', 'Date Rated', 'URL']
@@ -1952,6 +2559,10 @@ def handle_letterboxd_upload(data):
         })
         
         emit('log', {'message': f'✅ Letterboxd 数据导入成功！共 {total_count} 部电影，{rated_count} 部已评分', 'type': 'success'})
+        
+        # 启动后台线程获取IMDb ID
+        thread = threading.Thread(target=fetch_imdb_ids_background, daemon=True)
+        thread.start()
         
     except Exception as e:
         logger.exception("Letterboxd CSV parse error")
@@ -2568,6 +3179,55 @@ def handle_sync_trakt_to_douban(data):
                 with_ratings=with_ratings,
                 socketio=socketio
             )
+            
+            # Prepare detailed report
+            success_list = []
+            failed_list = []
+            skipped_list = []
+            
+            # Process details if available, otherwise just use counts (fallback)
+            details = result.get('details', [])
+            if not details and result.get('synced', 0) > 0:
+                # If no details returned but count > 0, we can't show detailed list
+                pass 
+                
+            for item in details:
+                status = item.get('status')
+                # Map item fields for frontend report
+                report_item = {
+                    'title': item.get('title', 'Unknown'),
+                    'year': item.get('year', ''),
+                    'source_url': f"https://www.imdb.com/title/{item.get('imdb_id')}/" if item.get('imdb_id') else '',
+                    'target_url': f"https://movie.douban.com/subject/{item.get('douban_id')}/" if item.get('douban_id') else '',
+                    'source_rating': item.get('rating', '-'),
+                }
+                
+                if status == 'synced':
+                    success_list.append(report_item)
+                elif status == 'failed':
+                    report_item['error_msg'] = item.get('reason', 'Unknown error')
+                    failed_list.append(report_item)
+                elif status in ('already_watched', 'filtered'):
+                    report_item['reason'] = item.get('reason', 'Skipped')
+                    skipped_list.append(report_item)
+            
+            # Emit detailed report event (matching frontend 'sync_results_data')
+            report_data = {
+                'source': 'trakt',
+                'target': 'douban',
+                'summary': {
+                    'success': len(success_list),
+                    'failed': len(failed_list),
+                    'skipped': len(skipped_list)
+                },
+                'results': {
+                    'success': success_list,
+                    'failed': failed_list,
+                    'skipped': skipped_list
+                }
+            }
+            logger.info(f"[SYNC_REPORT] Emitting sync_results_data: {report_data['summary']}")
+            socketio.emit('sync_results_data', report_data)
             
             # Update local CSV with synced movies
             synced_items = [item for item in result.get('details', []) if item.get('status') == 'synced']
@@ -3670,9 +4330,23 @@ if __name__ == '__main__':
     multiprocessing.freeze_support()  # Required for PyInstaller
     
     logger.info("🚀 CineRecord Hub is starting...")
-    Timer(1.5, open_browser).start()
+    
+    # CRITICAL: Load platform data into APP_DATA before starting server
+    logger.info("📂 Loading platform data from CSV files...")
+    load_platform_data()
+    logger.info(f"✅ Platform data loaded. APP_DATA keys: {list(APP_DATA.keys())}")
+    
+    # Initialize and start the task scheduler
+    logger.info("⏰ Starting task scheduler...")
+    scheduler = get_scheduler(socketio)
+    scheduler.start()
+    logger.info("✅ Task scheduler started")
+    
+    # Timer(1.5, open_browser).start()  # Disable auto-open for dev
     try:
-        socketio.run(app, host='127.0.0.1', port=8000, allow_unsafe_werkzeug=True)
+        # Enable debug=True for debugging info, but disable reloader to avoid crash
+        # "FATAL: changelist must be an iterable of select.kevent objects"
+        socketio.run(app, host='127.0.0.1', port=8000, allow_unsafe_werkzeug=True, debug=True, use_reloader=False)
     except Exception as e:
         logger.critical(f"FATAL: {e}")
         sys.exit(1)

@@ -57,6 +57,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize Managers
     new ThemeManager();
 
+    // Global constants for other scripts - use official logos
+    window.platformIcons = {
+        'douban': '<img src="/static/images/platforms/douban.png" alt="豆瓣" style="width:20px;height:20px;vertical-align:middle;border-radius:3px;">',
+        'imdb': '<img src="/static/images/platforms/imdb.svg" alt="IMDB" style="width:20px;height:20px;vertical-align:middle;border-radius:3px;">',
+        'trakt': '<img src="/static/images/platforms/trakt.png" alt="Trakt" style="width:20px;height:20px;vertical-align:middle;border-radius:3px;">',
+        'tmdb': '<img src="/static/images/platforms/tmdb.png" alt="TMDB" style="width:20px;height:20px;vertical-align:middle;border-radius:3px;">',
+        'letterboxd': '<img src="/static/images/platforms/letterboxd.png" alt="Letterboxd" style="width:20px;height:20px;vertical-align:middle;border-radius:3px;">'
+    };
+    // Keep emoji fallback for compatibility
+    window.platformEmoji = {
+        'douban': '🎬',
+        'imdb': '⭐',
+        'trakt': '🎯',
+        'tmdb': '🎬',
+        'letterboxd': '🎞️'
+    };
+
     // Application state
     const appState = {
         douban_ready: false,
@@ -270,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('fetch_complete', (data) => {
         handleFetchComplete(data);
         // Refresh unified library after any fetch
-        socket.emit('get_unified_library', { page: 1, page_size: 20, platform: 'all' });
+        refreshLibrary(1);
     });
     socket.on('page_data', (data) => handlePageData(data));  // Pagination handler
     socket.on('merged_data_preview', (data) => renderMergedDataPreview(data));
@@ -279,18 +296,13 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('sync_unrated', (data) => renderUnratedMovies(data));
     socket.on('finished', () => handleTaskFinished('sync'));
 
-    // Unified Library handler
-    socket.on('unified_library', (data) => {
-        console.log('[Library] socket.on unified_library received:', data.filter, 'movies:', data.movies?.length);
-        renderUnifiedLibrary(data);
-    });
-
     // Letterboxd upload complete handler
     socket.on('letterboxd_upload_complete', (data) => {
         // Update appState
         appState.letterboxd_ready = true;
         appState.letterboxd_count = data.total_count || 0;
         appState.letterboxd_rated = data.rated_count || 0;
+        appState.letterboxd_data = data.sample || [];
 
         // Update sidebar summary card
         const letterboxdStatusDot = document.getElementById('letterboxd-status-dot');
@@ -339,7 +351,9 @@ document.addEventListener('DOMContentLoaded', () => {
             verifyUrlEl.href = data.verification_url;
             verifyUrlEl.textContent = data.verification_url;
         }
-        if (statusText) statusText.textContent = '等待授权中...';
+        if (statusText) {
+            statusText.textContent = window.i18n ? window.i18n.t('trakt.waiting_auth') : '等待授权中...';
+        }
 
         // Start polling for authorization
         appState.traktPollingInterval = setInterval(() => {
@@ -377,7 +391,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } else if (data.status === 'pending') {
             // Still waiting
-            if (statusText) statusText.textContent = '等待授权中...';
+            if (statusText) {
+                statusText.textContent = window.i18n ? window.i18n.t('trakt.waiting_auth') : '等待授权中...';
+            }
         } else if (data.status === 'slow_down') {
             // Need to slow down polling
             if (statusText) statusText.textContent = '请稍候...';
@@ -527,6 +543,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (platform === 'douban') countEl = ui.doubanCount;
                     else if (platform === 'imdb') countEl = ui.imdbCount;
                     else if (platform === 'trakt') countEl = document.getElementById('trakt-summary-stats');
+                    else if (platform === 'letterboxd') countEl = document.getElementById('letterboxd-summary-stats');
+                    else if (platform === 'tmdb') countEl = document.getElementById('tmdb-summary-stats');
 
                     if (countEl) {
                         countEl.textContent = `${cached.count} 部`;
@@ -662,6 +680,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const connected = document.getElementById('trakt-connected');
         const statusBadge = document.getElementById('trakt-status-badge');
         const sidebarDot = document.getElementById('trakt-status-dot');
+        const sidebarId = document.getElementById('trakt-sidebar-id');
+        const sidebarStats = document.getElementById('trakt-summary-stats');
 
         if (notConnected) notConnected.style.display = 'block';
         if (connected) connected.style.display = 'none';
@@ -670,6 +690,8 @@ document.addEventListener('DOMContentLoaded', () => {
             statusBadge.className = 'status-badge disconnected';
         }
         if (sidebarDot) sidebarDot.className = 'status-dot disconnected';
+        if (sidebarId) sidebarId.textContent = '';
+        if (sidebarStats) sidebarStats.textContent = '--';
     }
 
     // Helper: Update TMDB connected state
@@ -678,10 +700,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const displayName = document.getElementById('tmdb-display-name');
         const sidebarId = document.getElementById('tmdb-sidebar-id');
         const statusDot = document.getElementById('tmdb-status-dot');
+        const sidebarStats = document.getElementById('tmdb-summary-stats');
         const notConnected = document.getElementById('tmdb-not-connected');
         const connected = document.getElementById('tmdb-connected');
         const ratedCount = document.getElementById('tmdb-rated-count');
         const watchlistCount = document.getElementById('tmdb-watchlist-count');
+        const avatarEl = document.getElementById('tmdb-avatar');
 
         if (statusBadge) {
             statusBadge.textContent = '● 已授权';
@@ -692,8 +716,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (displayName && account?.username) displayName.textContent = account.username;
         if (sidebarId && account?.username) sidebarId.textContent = account.username;
         if (statusDot) statusDot.className = 'status-dot connected';
+        if (sidebarStats) sidebarStats.textContent = account?.rated_count ? `${account.rated_count} 部` : '--';
         if (ratedCount) ratedCount.textContent = account?.rated_count || '0';
         if (watchlistCount) watchlistCount.textContent = account?.watchlist_count || '0';
+        if (avatarEl) {
+            if (account?.avatar) {
+                avatarEl.src = proxyAvatarUrl(account.avatar);
+                avatarEl.style.display = 'block';
+            } else {
+                avatarEl.removeAttribute('src');
+                avatarEl.style.display = 'none';
+            }
+        }
 
         // Show action buttons
         const updateBtn = document.getElementById('update-tmdb-btn');
@@ -708,6 +742,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusDot = document.getElementById('tmdb-status-dot');
         const notConnected = document.getElementById('tmdb-not-connected');
         const connected = document.getElementById('tmdb-connected');
+        const sidebarId = document.getElementById('tmdb-sidebar-id');
+        const sidebarStats = document.getElementById('tmdb-summary-stats');
 
         if (statusBadge) {
             statusBadge.textContent = '● 未授权';
@@ -716,6 +752,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statusDot) statusDot.className = 'status-dot disconnected';
         if (notConnected) notConnected.style.display = 'block';
         if (connected) connected.style.display = 'none';
+        if (sidebarId) sidebarId.textContent = '';
+        if (sidebarStats) sidebarStats.textContent = '--';
     }
 
     socket.on('disconnect', () => {
@@ -883,10 +921,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update avatar with proxy for external domains
         const avatarEl = document.getElementById(`${platform}-avatar`);
-        if (avatarEl && profile.avatar) {
-            // Use proxy for external avatar URLs to bypass anti-hotlinking
-            const avatarUrl = proxyAvatarUrl(profile.avatar);
-            avatarEl.src = avatarUrl;
+        if (avatarEl) {
+            if (profile.avatar) {
+                // Use proxy for external avatar URLs to bypass anti-hotlinking
+                const avatarUrl = proxyAvatarUrl(profile.avatar);
+                avatarEl.src = avatarUrl;
+                avatarEl.style.display = 'block';
+            } else {
+                avatarEl.removeAttribute('src');
+                avatarEl.style.display = 'none';
+            }
         }
 
         // Update display name
@@ -1133,7 +1177,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (authBtn) {
                 authBtn.disabled = false;
-                authBtn.textContent = '🔐 授权 Trakt';
+                const label = window.i18n ? window.i18n.t('trakt.authorize_btn') : '授权 Trakt';
+                authBtn.innerHTML = `🔐 ${label}`;
             }
             if (codeArea) codeArea.style.display = 'none';
 
@@ -1236,7 +1281,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             tmdbConnectBtn.disabled = true;
-            tmdbConnectBtn.textContent = '连接中...';
+            tmdbConnectBtn.textContent = window.i18n ? window.i18n.t('status.connecting') : '连接中...';
             socket.emit('tmdb_connect', { api_key: apiKey });
         });
     }
@@ -1244,7 +1289,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tmdbAuthSessionBtn) {
         tmdbAuthSessionBtn.addEventListener('click', () => {
             tmdbAuthSessionBtn.disabled = true;
-            tmdbAuthSessionBtn.textContent = '授权中...';
+            tmdbAuthSessionBtn.textContent = window.i18n ? window.i18n.t('status.authorizing') : '授权中...';
             socket.emit('tmdb_start_auth', {});
         });
     }
@@ -1285,7 +1330,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const connectBtn = document.getElementById('tmdb-connect-btn');
         if (connectBtn) {
             connectBtn.disabled = false;
-            connectBtn.textContent = '🔗 连接 TMDB';
+            const label = window.i18n ? window.i18n.t('tmdb.connect_btn') : '连接 TMDB';
+            connectBtn.textContent = `🔗 ${label}`;
         }
 
         if (data.success) {
@@ -1328,7 +1374,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const authBtn = document.getElementById('tmdb-auth-session-btn');
         if (authBtn) {
             authBtn.disabled = false;
-            authBtn.textContent = '🔐 授权同步评分';
+            const label = window.i18n ? window.i18n.t('tmdb.auth_session') : '授权同步评分';
+            authBtn.textContent = `🔐 ${label}`;
         }
 
         if (data.success) {
@@ -1341,6 +1388,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const userId = document.getElementById('tmdb-user-id-display');
             const sidebarId = document.getElementById('tmdb-sidebar-id');
             const statusDot = document.getElementById('tmdb-status-dot');
+            const sidebarStats = document.getElementById('tmdb-summary-stats');
 
             // Stats elements
             const ratedCount = document.getElementById('tmdb-rated-count');
@@ -1360,6 +1408,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (userId && data.account_id) userId.textContent = data.account_id;
             if (sidebarId && data.username) sidebarId.textContent = data.username;
             if (statusDot) statusDot.className = 'status-dot connected';
+            if (sidebarStats) sidebarStats.textContent = data.rated_count ? `${data.rated_count} 部` : '--';
+
+            // Handle avatar display
+            const avatarEl = document.getElementById('tmdb-avatar');
+            if (avatarEl) {
+                if (data.avatar) {
+                    avatarEl.src = proxyAvatarUrl(data.avatar);
+                    avatarEl.style.display = 'block';
+                } else {
+                    avatarEl.removeAttribute('src');
+                    avatarEl.style.display = 'none';
+                }
+            }
 
             // Update stats and links
             if (ratedCount) ratedCount.textContent = data.rated_count || '0';
@@ -1381,12 +1442,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const ratedLink = document.getElementById('link-tmdb-rated');
         const watchlistLink = document.getElementById('link-tmdb-watchlist');
         const profileLink = document.getElementById('tmdb-profile-link');
+        const sidebarStats = document.getElementById('tmdb-summary-stats');
 
         if (ratedCount) ratedCount.textContent = data.rated_count || '0';
         if (watchlistCount) watchlistCount.textContent = data.watchlist_count || '0';
         if (ratedLink && data.rated_link) ratedLink.href = data.rated_link;
         if (watchlistLink && data.watchlist_link) watchlistLink.href = data.watchlist_link;
         if (profileLink && data.profile_link) profileLink.href = data.profile_link;
+        if (sidebarStats) sidebarStats.textContent = data.rated_count ? `${data.rated_count} 部` : '--';
 
         log(`📊 TMDB 统计已更新: ${data.rated_count} 已评分, ${data.watchlist_count} 想看`, 'info');
     });
@@ -1486,6 +1549,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Data tab TMDB button - trigger data fetch
+    const fetchTmdbBtn = document.getElementById('fetch-tmdb-btn');
+    if (fetchTmdbBtn) {
+        fetchTmdbBtn.addEventListener('click', () => {
+            socket.emit('fetch_tmdb_data', {});
+        });
+    }
+
     // Cookie config buttons - jump to settings page
     const configDoubanBtn = document.getElementById('config-douban-btn');
     const configImdbBtn = document.getElementById('config-imdb-btn');
@@ -1579,6 +1650,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const placeholder = logOutput.querySelector('.placeholder');
         if (placeholder) placeholder.remove();
     }
+    // Expose globally for other scripts
+    window.log = log;
 
     function updateProgress(data) {
         if (ui.progressCard) {
@@ -1831,6 +1904,20 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Get Sync Options
+        const syncMode = document.querySelector('input[name="sync-mode"]:checked')?.value || 'new';
+        const overwrite = syncMode === 'overwrite';
+        const onlyNew = !overwrite;
+        const defaultRatingEnabled = document.getElementById('opt-default-rating-enable')?.checked || false;
+        const defaultRatingValue = document.getElementById('opt-default-rating-value')?.value || 0;
+        const defaultRating = defaultRatingEnabled ? parseFloat(defaultRatingValue) : 0;
+
+        const syncOptions = {
+            only_new: onlyNew,
+            overwrite: overwrite,
+            default_rating: defaultRating
+        };
+
         const sourcePlatform = sourceEl.value;
         const targetPlatform = targetEl.value;
 
@@ -1841,13 +1928,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const direction = `${sourcePlatform}-to-${targetPlatform}`;
-
-        // Simplified generic validation - rely on backend for checks
-        // Just check if we need source data first
-        if (['douban', 'imdb', 'letterboxd', 'trakt', 'tmdb'].includes(sourcePlatform)) {
-            // For any source, we ideally want some data loaded
-            // But we shouldn't block blindly. Let the backend handle specific requirements.
-        }
 
         // Validate based on sync direction
         if (direction === 'douban-to-imdb' || direction === 'imdb-to-douban' || direction === 'letterboxd-to-imdb') {
@@ -1867,7 +1947,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } else if (direction === 'trakt-to-douban') {
             // Need Trakt cached data and Douban cookie
-            // Note: trakt_count is set when cached data is loaded, even if token is expired
             if (!appState.trakt_count) {
                 log('❌ 请先获取 Trakt 数据', 'error');
                 switchTab('data');
@@ -1883,7 +1962,8 @@ document.addEventListener('DOMContentLoaded', () => {
             log(`🚀 开始${isDryRun ? '预览' : '执行'} Trakt → 豆瓣 同步...`, 'info');
             socket.emit('sync_trakt_to_douban', {
                 with_ratings: true,
-                is_dry_run: isDryRun
+                is_dry_run: isDryRun,
+                ...syncOptions
             });
             return;
         } else if (direction === 'imdb-to-trakt') {
@@ -1902,7 +1982,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setButtonsState(true);
             log(`🚀 开始${isDryRun ? '预览' : '执行'} IMDB → Trakt 同步...`, 'info');
             socket.emit('sync_imdb_to_trakt', {
-                is_dry_run: isDryRun
+                is_dry_run: isDryRun,
+                ...syncOptions
             });
             return;
         } else if (direction === 'imdb-to-tmdb') {
@@ -1920,12 +2001,12 @@ document.addEventListener('DOMContentLoaded', () => {
             setButtonsState(true);
             log(`🚀 开始${isDryRun ? '预览' : '执行'} IMDB → TMDB 同步...`, 'info');
             socket.emit('sync_imdb_to_tmdb', {
-                is_dry_run: isDryRun
+                is_dry_run: isDryRun,
+                ...syncOptions
             });
             return;
         } else if (direction === 'trakt-to-tmdb') {
             // Need Trakt cached data and TMDB auth
-            // Note: trakt_count is set when cached data is loaded, even if token is expired
             if (!appState.trakt_count) {
                 log('❌ 请先获取 Trakt 数据', 'error');
                 switchTab('data');
@@ -1939,7 +2020,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setButtonsState(true);
             log(`🚀 开始${isDryRun ? '预览' : '执行'} Trakt → TMDB 同步...`, 'info');
             socket.emit('sync_trakt_to_tmdb', {
-                is_dry_run: isDryRun
+                is_dry_run: isDryRun,
+                ...syncOptions
             });
             return;
         }
@@ -1957,7 +2039,8 @@ document.addEventListener('DOMContentLoaded', () => {
             direction: direction,
             is_dry_run: isDryRun,
             douban_cookie: appState.douban_cookie || '',
-            imdb_cookie: appState.imdb_cookie || ''
+            imdb_cookie: appState.imdb_cookie || '',
+            ...syncOptions
         });
     }
 
@@ -2308,31 +2391,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const pageMovies = syncPreviewData.slice(start, end);
         const totalPages = Math.ceil(syncPreviewData.length / syncPreviewPageSize);
 
-        // Build movie list HTML (similar to data tab format)
-        let html = '<div class="movie-list-preview">';
+        // Build movie grid HTML (horizontal compact layout)
+        let html = '<div class="preview-compact-grid">';
         pageMovies.forEach(movie => {
             const coverUrl = movie['Cover URL'] || '';
-            const rating = movie['Your Rating'] || movie['YourRating_douban'] || movie['YourRating_imdb'] || '';
+            const rating = movie['Your Rating'] || movie['YourRating_douban'] || movie['YourRating_imdb'] || movie['source_rating'] || '';
             const movieUrl = movie['URL_douban'] || movie['URL_imdb'] || movie['URL'] || '#';
             const title = movie['Title'] || movie.title || '未知';
             const year = movie['Year'] || movie.year || '';
-            const directors = movie['Directors'] || '';
-            const genres = movie['Genres'] || '';
-            const doubanRating = movie['Douban Rating'] || '';
-            const imdbRating = movie['IMDb Rating'] || '';
 
-            let publicRatingHtml = '';
-            if (doubanRating) publicRatingHtml += `<span class="platform-rating douban">豆瓣 ${doubanRating}</span>`;
-            if (imdbRating) publicRatingHtml += `<span class="platform-rating imdb">IMDb ${imdbRating}</span>`;
+            // Check if this is a "skip" item (无评分-跳过)
+            const isSkipped = title.includes('⚠️');
+            const cleanTitle = title.replace(' ⚠️(无评分-跳过)', '');
 
             html += `
-                <div class="preview-compact-item">
+                <div class="preview-compact-item ${isSkipped ? 'sync-result-skipped' : ''}">
                     <div class="compact-title">
-                        <a href="${movieUrl}" target="_blank" title="${title}">${title}</a>
+                        <a href="${movieUrl}" target="_blank" title="${cleanTitle}">${cleanTitle}</a>
                     </div>
                     <div class="compact-meta">
                         <span class="compact-year">${year}</span>
-                        ${rating ? `<span class="compact-rating">★ ${rating}</span>` : ''}
+                        ${rating && !isSkipped ? `<span class="compact-rating">★ ${rating}</span>` : ''}
+                        ${isSkipped ? '<span class="compact-reason">无评分</span>' : ''}
                     </div>
                 </div>
             `;
@@ -2802,14 +2882,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     const statsEl = document.getElementById(`${platform}-summary-stats`);
                     const sidebarId = document.getElementById(`${platform}-sidebar-id`);
 
-                    if (statusDot && data.connected) {
-                        statusDot.className = 'status-dot connected';
+                    if (statusDot) {
+                        statusDot.className = data.connected ? 'status-dot connected' : 'status-dot disconnected';
                     }
-                    if (statsEl && data.stats && data.stats !== '--') {
-                        statsEl.textContent = data.stats;
-                    }
-                    if (sidebarId && data.sidebarId) {
-                        sidebarId.textContent = data.sidebarId;
+                    if (data.connected) {
+                        if (statsEl && data.stats && data.stats !== '--') {
+                            statsEl.textContent = data.stats;
+                        }
+                        if (sidebarId && data.sidebarId) {
+                            sidebarId.textContent = data.sidebarId;
+                        }
+                    } else {
+                        if (statsEl) statsEl.textContent = '--';
+                        if (sidebarId) sidebarId.textContent = '';
                     }
 
                     // Restore account card state
@@ -2991,9 +3076,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Request config on load to display timestamps
     socket.emit('get_config', {});
-
-    // Request unified library on load
-    socket.emit('get_unified_library', { page: 1, page_size: 20, platform: 'all' });
 });
 
 // =============================================================================
@@ -3015,6 +3097,45 @@ let libraryState = {
     filter: 'all',
     totalPages: 0
 };
+
+function getSelectedPlatforms() {
+    const checked = document.querySelectorAll('.filter-checkbox input[type="checkbox"]:checked');
+    const selected = Array.from(checked)
+        .map(cb => cb.value)
+        .filter(Boolean);
+    // If checkboxes not rendered yet, request all platforms to avoid empty results
+    if (!checked.length) {
+        return 'douban,imdb,trakt,letterboxd,tmdb';
+    }
+    return selected.join(',');
+}
+
+function refreshLibrary(page = 1) {
+    const selectedPlatforms = getSelectedPlatforms();
+    const pageSize = libraryState.pageSize || 20;
+    const filter = libraryState.filter || 'all';
+
+    return fetch(`/api/library?page=${page}&page_size=${pageSize}&platform=${filter}&platforms=${selectedPlatforms}`)
+        .then(res => res.json())
+        .then(data => {
+            // Initialize checkboxes based on available data on first load
+            if (data.platforms_with_data && !window.platformsInitialized) {
+                window.platformsInitialized = true;
+                const platformsWithData = new Set(data.platforms_with_data);
+
+                document.querySelectorAll('.filter-checkbox input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.checked = platformsWithData.has(checkbox.value);
+                });
+
+                // Re-run with the newly checked platforms to ensure counts match
+                setTimeout(() => refreshLibrary(page), 100);
+                return;
+            }
+
+            renderUnifiedLibrary(data);
+        })
+        .catch(err => console.error('[Library] Refresh error:', err));
+}
 
 function renderUnifiedLibrary(data) {
     console.log('[Library] renderUnifiedLibrary called, filter:', data.filter, 'movies:', data.movies?.length);
@@ -3117,8 +3238,8 @@ function renderUnifiedLibrary(data) {
 
         // User's rating and date
         const userRating = movie.rating ? `<div class="rating-main"><span class="rating-label">评分</span><span class="rating-value">${movie.rating}</span></div>` : '';
-        const dateText = movie.date_rated || movie.latest_date || '';
-        const dateDisplay = dateText ? `<div class="rating-date"><span class="date-label">最后操作于</span><span class="date-value">${dateText.substring(0, 10)}</span></div>` : '';
+        const earliestDate = movie.latest_date || movie.date_rated || movie.earliest_date || '';
+        const dateDisplay = earliestDate ? `<div class="rating-date"><span class="date-label">最后操作于</span><span class="date-value">${earliestDate.substring(0, 10)}</span></div>` : '';
 
         html += `
             <div class="movie-item">
@@ -3176,6 +3297,25 @@ function renderUnifiedLibrary(data) {
 document.addEventListener('DOMContentLoaded', function () {
     // Wait for socket to be ready
     const initFilterHandlers = () => {
+        // Platform checkbox change handlers
+        document.querySelectorAll('.filter-checkbox input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                // Reset to page 1 when changing platform selection
+                libraryState.currentPage = 1;
+                refreshLibrary();
+            });
+        });
+
+        // Refresh button handler
+        const refreshBtn = document.getElementById('refresh-library-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                console.log('[Library] Refresh button clicked');
+                refreshLibrary(1);
+            });
+        }
+
+        // Filter tab handlers
         document.querySelectorAll('.filter-tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -3189,17 +3329,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     t.classList.toggle('active', t.dataset.filter === filter);
                 });
 
-                // Use fetch API instead of socket to bypass reconnection issues
-                console.log('[Library] Fetching via API:', filter);
-                fetch(`/api/library?page=1&page_size=${libraryState.pageSize}&platform=${filter}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        console.log('[Library] API response received:', data.filter, 'movies:', data.movies?.length);
-                        renderUnifiedLibrary(data);
-                    })
-                    .catch(err => {
-                        console.error('[Library] API fetch error:', err);
-                    });
+                // Refresh with selected platforms
+                refreshLibrary(1);
             });
         });
 
@@ -3209,37 +3340,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (prevBtn) {
             prevBtn.addEventListener('click', () => {
-                if (libraryState.currentPage > 1 && window.socket) {
-                    window.socket.emit('get_unified_library', {
-                        page: libraryState.currentPage - 1,
-                        page_size: libraryState.pageSize,
-                        platform: libraryState.filter
-                    });
+                if (libraryState.currentPage > 1) {
+                    refreshLibrary(libraryState.currentPage - 1);
                 }
             });
         }
 
         if (nextBtn) {
             nextBtn.addEventListener('click', () => {
-                if (libraryState.currentPage < libraryState.totalPages && window.socket) {
-                    window.socket.emit('get_unified_library', {
-                        page: libraryState.currentPage + 1,
-                        page_size: libraryState.pageSize,
-                        platform: libraryState.filter
-                    });
+                if (libraryState.currentPage < libraryState.totalPages) {
+                    refreshLibrary(libraryState.currentPage + 1);
                 }
             });
         }
 
         console.log('[Library] Filter handlers initialized');
 
-        // Register unified_library listener on window.socket to ensure same socket receives responses
-        if (window.socket) {
-            window.socket.on('unified_library', (data) => {
-                console.log('[Library] window.socket received unified_library:', data.filter);
-                renderUnifiedLibrary(data);
-            });
-        }
+        // Initial load with auto-detected platforms
+        refreshLibrary();
     };
 
     // Initialize after a small delay to ensure socket is ready

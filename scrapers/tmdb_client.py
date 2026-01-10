@@ -242,6 +242,18 @@ class TMDBClient:
                            {'session_id': self.session_id})
         
         return result is not None and result.get('success', False)
+
+    def rate_tv(self, tv_id: int, rating: float) -> bool:
+        """Rate a TV show (rating should be 0.5-10 in 0.5 increments)"""
+        if not self.session_id:
+            logger.error("Session ID required for rating")
+            return False
+
+        rating = max(0.5, min(10.0, round(rating * 2) / 2))
+        result = self._post(f"/tv/{tv_id}/rating",
+                            {'value': rating},
+                            {'session_id': self.session_id})
+        return result is not None and result.get('success', False)
     
     def delete_movie_rating(self, movie_id: int) -> bool:
         """Remove rating from a movie"""
