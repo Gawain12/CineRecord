@@ -17,9 +17,12 @@ datas_dns, binaries_dns, hiddenimports_dns = collect_all('dns')
 added_files = [
     ('web/templates', 'web/templates'),
     ('web/static', 'web/static'),
+    ('web/tasks', 'web/tasks'),
     ('web/webview_login.py', 'web'),
     ('scrapers', 'scrapers'),
+    ('adapters', 'adapters'),
     ('config', 'config'),
+    ('data', 'data'),
 ] + datas_dns
 
 a = Analysis(
