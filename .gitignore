@@ -19,6 +19,7 @@ ENV/
 # Ignore user-specific configuration, but not the template
 config/config.py
 !config/config.py.template
+!config/config.json.template
 
 # Ignore temporary output files from scrapers
 scrapers/*.csv

@@ -19,7 +19,11 @@ rm -rf build dist
 
 # Build the application
 echo "🏗️ Building CineRecord..."
-/Users/gawaintan/miniforge3/envs/film/bin/python -m PyInstaller CineRecord.spec --clean --noconfirm
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    PYTHON_BIN=python
+fi
+"$PYTHON_BIN" -m PyInstaller CineRecord.spec --clean --noconfirm
 
 echo ""
 echo "✅ Build complete!"

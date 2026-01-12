@@ -5,6 +5,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import config  # Trigger __init__.py to set up fallback config.config module
 from config.config import IMDB_CONFIG, DOUBAN_CONFIG
 
 class SocketLogger:

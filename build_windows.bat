@@ -19,7 +19,7 @@ rmdir /s /q dist 2>nul
 
 REM Build the application
 echo Building CineRecord...
-pyinstaller CineRecord.spec --clean
+pyinstaller CineRecord_windows.spec --clean --noconfirm
 
 echo.
 echo Build complete!

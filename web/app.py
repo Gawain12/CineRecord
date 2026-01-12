@@ -4344,9 +4344,19 @@ if __name__ == '__main__':
     
     # Timer(1.5, open_browser).start()  # Disable auto-open for dev
     try:
-        # Enable debug=True for debugging info, but disable reloader to avoid crash
+        # Enable debug in dev, but allow override for production/Docker
+        debug_env = os.environ.get('CINERECORD_DEBUG')
+        if debug_env is None:
+            debug = os.environ.get('FLASK_ENV', '').lower() != 'production'
+        else:
+            debug = debug_env == '1'
+
+        host = os.environ.get('CINERECORD_HOST', '127.0.0.1')
+        port = int(os.environ.get('CINERECORD_PORT', '8000'))
+
+        # Disable reloader to avoid crash:
         # "FATAL: changelist must be an iterable of select.kevent objects"
-        socketio.run(app, host='127.0.0.1', port=8000, allow_unsafe_werkzeug=True, debug=True, use_reloader=False)
+        socketio.run(app, host=host, port=port, allow_unsafe_werkzeug=True, debug=debug, use_reloader=False)
     except Exception as e:
         logger.critical(f"FATAL: {e}")
         sys.exit(1)

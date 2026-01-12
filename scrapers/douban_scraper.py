@@ -228,6 +228,7 @@ def run_scraper(user_id, cookie, output_path, socketio):
     return asyncio.run(scrape_douban_async(user_id, cookie, output_path, logger))
 
 if __name__ == '__main__':
+    import config  # Trigger __init__.py to set up fallback config.config module
     from config.config import DOUBAN_CONFIG
     class CLILogger:
         def log(self, m, t='info'): print(f"[{t.upper()}] {m}")

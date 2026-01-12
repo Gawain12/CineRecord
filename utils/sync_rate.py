@@ -11,6 +11,7 @@ import argparse
 
 # Add parent directory to path to allow importing 'config'
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import config  # Trigger __init__.py to set up fallback config.config module
 from config.config import DOUBAN_CONFIG, IMDB_CONFIG
 
 # ==============================================================================
