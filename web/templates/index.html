@@ -331,8 +331,8 @@
                                 <div class="connect-prompt" style="text-align: center; max-width: 100%;">
                                     <p class="prompt-text" style="margin-bottom: 16px;"
                                         data-i18n="prompt.connect_trakt">连接 Trakt 同步您的观影记录</p>
-                                    <p class="help-text" style="margin-bottom: 20px;"
-                                        data-i18n="prompt.auth_help">点击下方按钮进行设备授权，然后在 Trakt 网站输入验证码</p>
+                                    <p class="help-text" style="margin-bottom: 20px;" data-i18n="prompt.auth_help">
+                                        点击下方按钮进行设备授权，然后在 Trakt 网站输入验证码</p>
 
                                     <!-- Main Auth Button -->
                                     <button class="btn btn-primary btn-lg" id="trakt-auth-btn">🔐 <span
@@ -432,8 +432,8 @@
                             <!-- Not Connected State -->
                             <div class="profile-state not-connected" id="tmdb-not-connected">
                                 <div class="connect-prompt" style="text-align: center; max-width: 100%;">
-                                    <p class="prompt-text" style="margin-bottom: 16px;"
-                                        data-i18n="prompt.connect_tmdb">连接 TMDB 获取电影信息</p>
+                                    <p class="prompt-text" style="margin-bottom: 16px;" data-i18n="prompt.connect_tmdb">
+                                        连接 TMDB 获取电影信息</p>
                                     <p class="help-text" style="margin-bottom: 20px;">
                                         <span data-i18n="prompt.tmdb_help">需要 TMDB API Key，可在</span>
                                         <a href="https://www.themoviedb.org/settings/api" target="_blank"
@@ -448,7 +448,8 @@
                                                 data-i18n="tmdb.enter_key">
                                         </div>
                                         <p class="help-text" style="margin-top: 8px; font-size: 0.8rem;">
-                                            <span data-i18n="tmdb.api_help">有了 API Key 后即可搜索电影信息。如需同步评分，需进一步授权获取 Session。</span>
+                                            <span data-i18n="tmdb.api_help">有了 API Key 后即可搜索电影信息。如需同步评分，需进一步授权获取
+                                                Session。</span>
                                         </p>
                                     </div>
 
@@ -488,8 +489,8 @@
                                 <!-- Session Auth Button -->
                                 <div id="tmdb-session-section"
                                     style="margin-top: 12px; text-align: center; display: none;">
-                                    <p class="help-text" style="margin-bottom: 8px;"
-                                        data-i18n="tmdb.need_session">需要完成用户授权才能同步评分</p>
+                                    <p class="help-text" style="margin-bottom: 8px;" data-i18n="tmdb.need_session">
+                                        需要完成用户授权才能同步评分</p>
                                     <button class="btn btn-secondary" id="tmdb-auth-session-btn">🔐 <span
                                             data-i18n="tmdb.auth_session">授权同步评分</span></button>
                                 </div>
@@ -554,10 +555,17 @@
                         </div>
                     </div>
 
-                    <div id="progress-card" style="display: none;">
-                        <p class="progress-text">0 / 0</p>
+                    <div id="progress-card" class="progress-card-enhanced" style="display: none;">
+                        <div class="progress-header">
+                            <span class="progress-step" id="progress-step-text">正在处理...</span>
+                            <span class="progress-percent" id="progress-percent">0%</span>
+                        </div>
                         <div class="progress-bar-container">
-                            <div class="progress-bar"></div>
+                            <div class="progress-bar" id="progress-bar-fill"></div>
+                        </div>
+                        <div class="progress-footer">
+                            <span class="progress-count"><span id="progress-current">0</span> / <span
+                                    id="progress-total">0</span> 项</span>
                         </div>
                     </div>
 
@@ -700,13 +708,15 @@
                                                 style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02);">
                                                 <input type="radio" id="opt-sync-mode-new" name="sync-mode" value="new"
                                                     checked style="accent-color: var(--accent);">
-                                                <span style="font-size: 0.85rem;" data-i18n="sync.mode.only_new">🆕 仅新增</span>
+                                                <span style="font-size: 0.85rem;" data-i18n="sync.mode.only_new">🆕
+                                                    仅新增</span>
                                             </label>
                                             <label class="checkbox-card"
                                                 style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02);">
                                                 <input type="radio" id="opt-sync-mode-overwrite" name="sync-mode"
                                                     value="overwrite" style="accent-color: var(--accent);">
-                                                <span style="font-size: 0.85rem;" data-i18n="sync.mode.overwrite">✏️ 覆盖已有</span>
+                                                <span style="font-size: 0.85rem;" data-i18n="sync.mode.overwrite">✏️
+                                                    覆盖已有</span>
                                             </label>
                                         </div>
                                         <div style="font-size: 0.7rem; color: #555; padding: 0 4px;"

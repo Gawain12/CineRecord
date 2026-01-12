@@ -814,6 +814,92 @@ body {
 /* --------------------------------------------------------------------------
    Progress Bar
    -------------------------------------------------------------------------- */
+/* Enhanced Progress Card */
+.progress-card-enhanced {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.progress-card-enhanced .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.progress-card-enhanced .progress-step {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.progress-card-enhanced .progress-percent {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 48px;
+    text-align: right;
+}
+
+.progress-card-enhanced .progress-bar-container {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-card-enhanced .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent) 0%, #8b5cf6 50%, #ec4899 100%);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Animated shimmer effect */
+.progress-card-enhanced .progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.3) 50%,
+            transparent 100%);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.progress-card-enhanced .progress-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.progress-card-enhanced .progress-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Legacy progress card styles (keep for compatibility) */
 .progress-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);

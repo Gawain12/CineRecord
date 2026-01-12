@@ -144,10 +144,13 @@ document.addEventListener('DOMContentLoaded', () => {
         mergedSummary: document.getElementById('merged-summary'),
         mergedPreview: document.getElementById('merged-preview'),
 
-        // Progress
+        // Progress (enhanced)
         progressCard: document.getElementById('progress-card'),
-        progressBar: document.querySelector('.progress-bar'),
-        progressText: document.querySelector('.progress-text'),
+        progressStepText: document.getElementById('progress-step-text'),
+        progressPercent: document.getElementById('progress-percent'),
+        progressBar: document.getElementById('progress-bar-fill'),
+        progressCurrent: document.getElementById('progress-current'),
+        progressTotal: document.getElementById('progress-total'),
 
         // Log
         logOutput: document.getElementById('log-container'),
@@ -1656,9 +1659,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateProgress(data) {
         if (ui.progressCard) {
             ui.progressCard.style.display = 'block';
-            const percent = data.total > 0 ? (data.current / data.total) * 100 : 0;
-            ui.progressBar.style.width = `${percent}%`;
-            ui.progressText.textContent = `${data.step} ${data.current} / ${data.total}`;
+            const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+
+            // Clean up step text - remove trailing numbers like "10/12" or "5/20"
+            let stepText = data.step || '正在处理...';
+            stepText = stepText.replace(/\s*\d+\/\d+\s*$/, '').trim();
+
+            // Update individual elements
+            if (ui.progressStepText) ui.progressStepText.textContent = stepText;
+            if (ui.progressPercent) ui.progressPercent.textContent = `${percent}%`;
+            if (ui.progressBar) ui.progressBar.style.width = `${percent}%`;
+            if (ui.progressCurrent) ui.progressCurrent.textContent = data.current;
+            if (ui.progressTotal) ui.progressTotal.textContent = data.total;
         }
     }
 
