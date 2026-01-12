@@ -64,7 +64,7 @@ Sync, Back up, and Manage your movie ratings across Douban, IMDb, Trakt, TMDB, a
 
 1.  **Clone the repository**
     ```bash
-    git clone https://github.com/YOUR_USERNAME/CineRecord.git
+    git clone https://github.com/Gawain12/CineRecord.git
     cd CineRecord
     ```
 
@@ -78,6 +78,42 @@ Sync, Back up, and Manage your movie ratings across Douban, IMDb, Trakt, TMDB, a
     python web/app.py
     ```
     The app will open automatically at `http://127.0.0.1:8000`.
+
+### Docker Deployment
+
+Recommended for server deployment:
+
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/Gawain12/CineRecord.git
+    cd CineRecord
+    ```
+
+2.  **Configure environment**
+    ```bash
+    # Copy config template
+    cp config/config.json.template config/config.json
+    ```
+
+3.  **Start container**
+    ```bash
+    docker compose up -d
+    ```
+    The app will be available at `http://YOUR_SERVER_IP:8000`.
+
+4.  **View logs**
+    ```bash
+    docker logs -f cinerecord
+    ```
+
+5.  **Stop/Restart**
+    ```bash
+    docker compose down      # Stop
+    docker compose restart   # Restart
+    docker compose up -d --build  # Rebuild and start
+    ```
+
+> **Note**: Config and data are persisted in `config/` and `data/` directories.
 
 ---
 

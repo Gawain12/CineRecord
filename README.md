@@ -70,7 +70,7 @@
 
 1.  **克隆仓库**
     ```bash
-    git clone https://github.com/YOUR_USERNAME/CineRecord.git
+    git clone https://github.com/Gawain12/CineRecord.git
     cd CineRecord
     ```
 
@@ -84,6 +84,42 @@
     python web/app.py
     ```
     浏览器将自动打开 `http://127.0.0.1:8000`。
+
+### Docker 部署
+
+推荐在服务器上使用 Docker 部署：
+
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/Gawain12/CineRecord.git
+    cd CineRecord
+    ```
+
+2.  **配置环境**
+    ```bash
+    # 复制配置模板
+    cp config/config.json.template config/config.json
+    ```
+
+3.  **启动容器**
+    ```bash
+    docker compose up -d
+    ```
+    应用将运行在 `http://YOUR_SERVER_IP:8000`。
+
+4.  **查看日志**
+    ```bash
+    docker logs -f cinerecord
+    ```
+
+5.  **停止/重启**
+    ```bash
+    docker compose down      # 停止
+    docker compose restart   # 重启
+    docker compose up -d --build  # 重新构建并启动
+    ```
+
+> **提示**: 配置和数据持久化存储在 `config/` 和 `data/` 目录。
 
 ---
 

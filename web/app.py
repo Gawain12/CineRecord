@@ -4351,7 +4351,7 @@ if __name__ == '__main__':
         else:
             debug = debug_env == '1'
 
-        host = os.environ.get('CINERECORD_HOST', '127.0.0.1')
+        host = os.environ.get('CINERECORD_HOST', '0.0.0.0')
         port = int(os.environ.get('CINERECORD_PORT', '8000'))
 
         # Disable reloader to avoid crash:
