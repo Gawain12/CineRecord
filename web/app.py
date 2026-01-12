@@ -4354,6 +4354,10 @@ if __name__ == '__main__':
         host = os.environ.get('CINERECORD_HOST', '0.0.0.0')
         port = int(os.environ.get('CINERECORD_PORT', '8000'))
 
+        print(f"🔄 Attempting to bind to {host}:{port} (Debug={debug})...")
+        if host == '0.0.0.0':
+             print(f"🌍 Server should be accessible from external IPs at http://YOUR_SERVER_IP:{port}")
+        
         # Disable reloader to avoid crash:
         # "FATAL: changelist must be an iterable of select.kevent objects"
         socketio.run(app, host=host, port=port, allow_unsafe_werkzeug=True, debug=debug, use_reloader=False)
