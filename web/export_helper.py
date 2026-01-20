@@ -43,6 +43,16 @@ def export_to_letterboxd(df, output_path):
     
     letterboxd_df['Rating'] = letterboxd_df['Rating10'].apply(convert_rating)
     
+    # Add Type column (movie or tv)
+    def get_type(row):
+        t = row.get('type') or row.get('Type') or row.get('Title Type') or 'movie'
+        t = str(t).lower().strip() if t else 'movie'
+        if 'tv' in t or 'series' in t or 'episode' in t or 'show' in t:
+            return 'tv'
+        return 'movie'
+    
+    letterboxd_df['Type'] = df.apply(get_type, axis=1)
+    
     # Save
     letterboxd_df.to_csv(output_path, index=False)
     return output_path
@@ -61,7 +71,14 @@ def export_to_imdb(df, output_path):
     imdb_df['Date Rated'] = df.get('Date Rated', df.get('date_rated', ''))
     imdb_df['Title'] = df.get('Title', '')
     imdb_df['URL'] = df.get('URL', df.get('URL_imdb', ''))
-    imdb_df['Title Type'] = 'movie'
+    # Map 'type' to 'Title Type' if available, otherwise default to 'movie'
+    def get_title_type(row):
+        t = row.get('type') or row.get('Title Type') or row.get('Type')
+        if t and 'tv' in str(t).lower():
+            return 'TV Series'
+        return 'movie'
+    
+    imdb_df['Title Type'] = df.apply(get_title_type, axis=1)
     imdb_df['IMDb Rating'] = df.get('IMDb Rating', df.get('imdb_rating', ''))
     imdb_df['Year'] = df.get('Year', '')
     imdb_df['Genres'] = df.get('Genres', '')
@@ -100,7 +117,7 @@ def export_to_cinerecord_csv(df, output_path):
     standard_columns = [
         'Title', 'Year', 'IMDb ID', 'Douban ID',
         'YourRating_douban', 'YourRating_imdb',
-        'Date Rated', 'Genres', 'Directors',
+        'Date Rated', 'Genres', 'Directors', 'type',
         'URL_douban', 'URL_imdb', 'Cover URL'
     ]
     
@@ -154,6 +171,7 @@ def export_to_cinepersona(df, output_path, user_stats=None):
             'rating_date': str(safe_get(row, 'DateRated_douban', 'DateRated_imdb', 'Date Rated')) if safe_get(row, 'DateRated_douban', 'DateRated_imdb', 'Date Rated') else None,
             'genres': safe_get(row, 'Genres', 'genres').split(', ') if safe_get(row, 'Genres', 'genres') else [],
             'directors': safe_get(row, 'Directors', 'directors').split(', ') if safe_get(row, 'Directors', 'directors') else [],
+            'type': safe_get(row, 'type', 'Title Type', 'Type') or 'movie',
             'source_platform': 'douban' if safe_get(row, 'douban_id') else 'imdb'
         }
         movies.append(movie)

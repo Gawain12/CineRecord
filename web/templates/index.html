@@ -22,6 +22,8 @@
             <nav class="nav-tabs">
                 <button class="nav-tab active" data-tab="accounts" data-i18n="nav.accounts">🔐 账户</button>
                 <button class="nav-tab" data-tab="data" data-i18n="nav.data">📊 数据</button>
+                <button class="nav-tab" data-tab="wishlist" data-i18n="nav.wishlist">✨ 想看</button>
+                <button class="nav-tab" data-tab="backups" data-i18n="nav.backups">📁 备份</button>
                 <button class="nav-tab" data-tab="sync" data-i18n="nav.sync">🔄 同步</button>
                 <button class="nav-tab" data-tab="settings" data-i18n="nav.settings">⚙️ 设置</button>
             </nav>
@@ -181,6 +183,8 @@
                                     测试</button>
                                 <button class="btn btn-primary" id="update-douban-btn" style="display:none"
                                     data-i18n="account.update">🔄 更新数据</button>
+                                <button class="btn btn-outline" id="fetch-douban-wish-btn" style="display:none"
+                                    data-i18n="account.fetch_wish">📥 获取想看</button>
                                 <button class="btn btn-secondary" id="logout-douban-btn" style="display:none"
                                     data-i18n="account.logout">退出</button>
                             </div>
@@ -635,6 +639,175 @@
 
                 </div>
 
+                <!-- Tab: Wishlist -->
+                <div class="tab-content" id="tab-wishlist">
+                    <div class="content-header">
+                        <h2 data-i18n="wishlist.title">想看清单</h2>
+                        <p data-i18n="wishlist.subtitle">汇集各平台的想看数据</p>
+                    </div>
+                    <div class="wishlist-controls-row">
+                        <button class="btn btn-primary btn-sm" id="refresh-wishlist-btn"
+                            onclick="triggerFetchWish('douban', this)">
+                            <img src="/static/images/platforms/douban.png"
+                                style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
+                            刷新豆瓣想看
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="downloadWishlist()">
+                            导出想看
+                        </button>
+                        <div class="wishlist-view-toggle" role="group" aria-label="Wishlist view mode">
+                            <button class="btn btn-secondary btn-sm" id="wishlist-view-grid" data-view="grid">🔳
+                                网格</button>
+                            <button class="btn btn-secondary btn-sm" id="wishlist-view-list" data-view="list">📋
+                                列表</button>
+                        </div>
+                    </div>
+                    <div class="unified-library" id="wishlist-library">
+                        <div class="library-empty" id="wishlist-empty">
+                            <p>✨ 暂无想看数据</p>
+                            <p class="help-text">点击上方按钮刷新想看列表</p>
+                        </div>
+                        <div class="library-list" id="wishlist-list"></div>
+                        <div class="library-pagination" id="wishlist-pagination"
+                            style="display: none; justify-content: center; align-items: center; gap: 15px; padding: 15px; border-top: 1px solid var(--border-color);">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Backups (Data Management) -->
+                <div class="tab-content" id="tab-backups">
+                    <div class="content-header">
+                        <h2>数据管理</h2>
+                        <p>管理我的平台数据与好友备份</p>
+                    </div>
+
+                    <!-- Sub-tabs for backup page -->
+                    <div class="backup-sub-tabs"
+                        style="display: flex; gap: 8px; margin-bottom: 20px; padding: 4px; background: var(--bg-tertiary); border-radius: 10px; width: fit-content;">
+                        <button class="backup-sub-tab active" data-backup-tab="my-data"
+                            style="padding: 8px 16px; border: none; background: var(--bg-card); color: var(--text-primary); border-radius: 8px; cursor: pointer; font-weight: 500;">📊
+                            我的平台</button>
+                        <button class="backup-sub-tab" data-backup-tab="friend-data"
+                            style="padding: 8px 16px; border: none; background: transparent; color: var(--text-secondary); border-radius: 8px; cursor: pointer; font-weight: 500;">👥
+                            好友备份</button>
+                    </div>
+
+                    <!-- My Platform Data Panel -->
+                    <div class="backup-sub-panel active" id="my-data-panel">
+                        <div class="backups-container">
+                            <div class="backups-list-panel"
+                                style="background: var(--bg-card); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color);">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h3 style="font-size: 1.1em; color: var(--text-primary);">📁 我的数据文件</h3>
+                                    <button class="btn btn-secondary btn-sm" onclick="loadMyFilesList()">🔄 刷新</button>
+                                </div>
+                                <p class="section-desc"
+                                    style="margin-bottom: 15px; color: var(--text-secondary); font-size: 0.9em;">
+                                    删除文件后，下次获取该平台数据时将自动全量更新
+                                </p>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="my-files-table"
+                                        style="width: 100%; text-align: left; border-collapse: collapse;">
+                                        <thead>
+                                            <tr
+                                                style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary);">
+                                                <th style="padding: 10px;">文件名</th>
+                                                <th style="padding: 10px;">平台</th>
+                                                <th style="padding: 10px;">类型</th>
+                                                <th style="padding: 10px;">大小</th>
+                                                <th style="padding: 10px;">修改时间</th>
+                                                <th style="padding: 10px;">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="my-files-table-body">
+                                            <!-- Rows injected by JS -->
+                                        </tbody>
+                                    </table>
+                                    <div id="my-files-empty-msg"
+                                        style="text-align: center; padding: 20px; color: var(--text-secondary); display: none;">
+                                        暂无数据文件
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Friend Backup Panel -->
+                    <div class="backup-sub-panel" id="friend-data-panel" style="display: none;">
+                        <div class="data-controls-row" style="flex-wrap: wrap;">
+                            <div class="data-controls"
+                                style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                                <!-- Helper text -->
+                                <span style="color: var(--text-secondary); font-size: 0.9em;">💾 备份豆瓣好友数据:</span>
+
+                                <!-- Douban Backup -->
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <input type="text" id="backups-douban-id" placeholder="好友豆瓣ID"
+                                        style="width: 100px; padding: 6px 10px; border: 1px solid #4b5563; border-radius: 4px; background: #374151; color: white; font-size: 0.85rem;">
+
+                                    <button class="btn btn-primary btn-sm" onclick="triggerBackupDouban('done')">
+                                        <img src="/static/images/platforms/douban.png"
+                                            style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 看过
+                                    </button>
+
+                                    <button class="btn btn-secondary btn-sm" onclick="triggerBackupDouban('wish')">
+                                        <img src="/static/images/platforms/douban.png"
+                                            style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 想看
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="export-controls">
+                                <button class="btn btn-secondary btn-sm" onclick="loadBackupsList()">🔄 刷新列表</button>
+                            </div>
+                        </div>
+
+                        <div class="backups-container" style="margin-top: 20px;">
+                            <div class="backups-list-panel"
+                                style="background: var(--bg-card); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color);">
+                                <h3 style="font-size: 1.1em; margin-bottom: 15px; color: var(--text-primary);">📁 好友备份文件
+                                </h3>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="backups-table"
+                                        style="width: 100%; text-align: left; border-collapse: collapse;">
+                                        <thead>
+                                            <tr
+                                                style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary);">
+                                                <th style="padding: 10px;">文件名</th>
+                                                <th style="padding: 10px;">平台</th>
+                                                <th style="padding: 10px;">用户ID</th>
+                                                <th style="padding: 10px;">类型</th>
+                                                <th style="padding: 10px;">大小</th>
+                                                <th style="padding: 10px;">时间</th>
+                                                <th style="padding: 10px;">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="backups-table-body">
+                                            <!-- Rows injected by JS -->
+                                        </tbody>
+                                    </table>
+                                    <div id="backups-empty-msg"
+                                        style="text-align: center; padding: 20px; color: var(--text-secondary); display: none;">
+                                        暂无备份文件
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="backup-preview-panel" id="backup-preview-panel"
+                                style="margin-top: 20px; background: var(--bg-card); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color); display: none;">
+                                <div class="panel-header"
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                    <h3 style="font-size: 1.1em; color: var(--text-primary);">📄 内容预览: <span
+                                            id="preview-filename"></span></h3>
+                                    <button class="btn btn-outline btn-sm"
+                                        onclick="document.getElementById('backup-preview-panel').style.display='none'">关闭</button>
+                                </div>
+                                <div class="library-list" id="backup-preview-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Tab: Sync -->
                 <div class="tab-content" id="tab-sync">
                     <div class="content-header">
@@ -1080,54 +1253,27 @@
                         </div>
                     </div>
 
-                    <!-- Platform Data Timestamps -->
+                    <!-- Download Sites -->
                     <div class="settings-section">
-                        <h3 data-i18n="settings.clear_timestamps_header">🗑️ 清除时间戳</h3>
-                        <p class="section-desc" data-i18n="settings.clear_timestamps_desc">清除后将重新从头获取数据</p>
-
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <span><img src="/static/images/platforms/douban.png"
-                                        style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
-                                    豆瓣</span>
-                                <small id="douban-latest-ts-display" data-i18n="status.not_fetched">未获取</small>
-                            </div>
-                            <button class="btn btn-secondary btn-sm" data-clear-ts="douban_latest_record_ts"
-                                data-i18n="btn.clear">🗑️ 清除</button>
+                        <h3>🔗 下载站点</h3>
+                        <p class="section-desc">勾选后在想看列表显示跳转链接，模板支持 {imdbid} / {imdbno} / {search_name}。</p>
+                        <div class="download-sites-search" style="margin-bottom: 12px;">
+                            <input type="text" id="download-site-search" placeholder="搜索站点..." class="form-input"
+                                style="width: 100%; max-width: 300px;">
                         </div>
-
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <span><img src="/static/images/platforms/imdb.svg"
-                                        style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
-                                    IMDB</span>
-                                <small id="imdb-latest-ts-display">未获取</small>
+                        <div class="download-sites-grid" id="download-sites-default"></div>
+                        <div class="download-sites-custom">
+                            <div class="download-sites-custom-header">
+                                <span>自定义站点</span>
+                                <button class="btn btn-secondary btn-sm" id="add-custom-site-btn">＋ 添加站点</button>
                             </div>
-                            <button class="btn btn-secondary btn-sm" data-clear-ts="imdb_latest_record_ts"
-                                data-i18n="btn.clear">🗑️ 清除</button>
+                            <div class="download-sites-custom-list" id="download-sites-custom-list"></div>
                         </div>
+                    </div>
 
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <span><img src="/static/images/platforms/trakt.png"
-                                        style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
-                                    Trakt</span>
-                                <small id="trakt-latest-ts-display">未获取</small>
-                            </div>
-                            <button class="btn btn-secondary btn-sm" data-clear-ts="trakt_latest_record_ts"
-                                data-i18n="btn.clear">🗑️ 清除</button>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <span><img src="/static/images/platforms/tmdb.png"
-                                        style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
-                                    TMDB</span>
-                                <small id="tmdb-latest-ts-display">未获取</small>
-                            </div>
-                            <button class="btn btn-secondary btn-sm" data-clear-ts="tmdb_latest_record_ts"
-                                data-i18n="btn.clear">🗑️ 清除</button>
-                        </div>
+                    <div class="settings-actions"
+                        style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border-color); text-align: right;">
+                        <button class="btn btn-primary" id="save-settings-btn" data-i18n="btn.save_all">保存所有设置</button>
                     </div>
 
                     <!-- About -->

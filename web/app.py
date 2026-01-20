@@ -17,7 +17,8 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 import logging
-from flask import Flask, render_template
+import requests
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from threading import Timer
 import webbrowser
@@ -89,7 +90,7 @@ from adapters.logger import SocketLogger
 from adapters import douban, imdb, trakt, letterboxd  # Register all adapters
 
 # Backward compatibility imports (deprecated)
-from adapters.douban import run_scraper as run_douban
+from adapters.douban import run_scraper as run_douban, run_wish_scraper
 from adapters.imdb import run_scraper as run_imdb
 from scrapers.trakt_client import TraktClient  # Keep original for backward compat
 from scrapers.tmdb_client import TMDBClient  # TMDB integration
@@ -101,11 +102,84 @@ from web.scheduler import get_scheduler
 
 # Global state
 CORE_COLUMNS = ['Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id']
-ESSENTIAL_COLUMNS = ['Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id', 'Year', 'URL', 'Cover URL', 'Douban Rating', 'IMDb Rating', 'Num Votes', 'Genres', 'Directors']
+ESSENTIAL_COLUMNS = [
+    'Const', 'Title', 'Your Rating', 'Date Rated', 'douban_id', 'Year', 'URL', 'Cover URL',
+    'Douban Rating', 'IMDb Rating', 'Num Votes', 'Genres', 'Directors', 'Type'
+]
 APP_DATA = {}
 APP_DATA_LOADED = False
 
 from web.data_utils import safe_df_to_records
+
+def filter_wish_df(df, allowed_statuses=None):
+    if df is None or df.empty:
+        return df
+    allowed = allowed_statuses or {'wish', 'want_to_watch', 'mark'}
+    filtered = df
+    if 'status' in df.columns:
+        status_series = df['status'].fillna('').astype(str).str.lower().str.strip()
+        filtered = df[status_series.isin(allowed)]
+    else:
+        # Without status, treat as invalid wishlist to avoid mixing watched items.
+        return df.head(0).copy()
+    if filtered is None or filtered.empty:
+        return filtered
+    if 'status' not in filtered.columns:
+        filtered = filtered.copy()
+        filtered['status'] = 'wish'
+    return filtered
+
+def normalize_type_value(value):
+    if value is None:
+        return ''
+    s = str(value).lower().strip()
+    if not s:
+        return ''
+    if any(k in s for k in ['tv', 'series', 'episode', 'show', 'miniseries']):
+        return 'tv'
+    return 'movie'
+
+def ensure_type_column(df):
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    source_col = None
+    for col in ['Type', 'type', 'Title Type', 'TmdbIdType', 'tmdb_type']:
+        if col in df.columns:
+            source_col = col
+            break
+    if source_col:
+        df['Type'] = df[source_col].apply(normalize_type_value)
+    else:
+        df['Type'] = ''
+    return df
+
+def ensure_export_type_column(df):
+    if df is None or df.empty:
+        return df
+    df = ensure_type_column(df)
+    if 'type' in df.columns:
+        df['type'] = df['type'].apply(normalize_type_value)
+    else:
+        df['type'] = df['Type']
+    if 'Type' in df.columns:
+        df.drop(columns=['Type'], inplace=True)
+    return df
+
+def needs_type_refresh(csv_path):
+    if not os.path.exists(csv_path):
+        return False
+    try:
+        df = pd.read_csv(csv_path, nrows=200)
+        type_cols = ['Type', 'type', 'Title Type', 'TmdbIdType', 'tmdb_type']
+        available = [c for c in type_cols if c in df.columns]
+        if not available:
+            return True
+        col = available[0]
+        series = df[col].fillna('').astype(str).str.strip()
+        return series.eq('').all()
+    except Exception:
+        return False
 
 def load_platform_data():
     """Load all platform CSV data into APP_DATA on server startup."""
@@ -122,15 +196,36 @@ def load_platform_data():
     for platform in ['douban', 'imdb']:
         user_id = config.get(f'{platform}_user_id')
         if user_id:
+            # Load Ratings
             csv_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_ratings.csv')
             if os.path.exists(csv_path):
                 try:
                     df = pd.read_csv(csv_path)
+                    source_cols = {'Type', 'type', 'Title Type', 'TmdbIdType', 'tmdb_type'}
+                    had_type = 'Type' in df.columns
+                    has_source = bool(set(df.columns) & source_cols)
+                    df = ensure_type_column(df)
                     APP_DATA[f'{platform}_df'] = df
                     APP_DATA[f'{platform}_csv_path'] = csv_path
                     logger.info(f"[Startup] Loaded {platform}: {len(df)} records from {csv_path}")
+                    if not had_type and has_source and len(df) > 0:
+                        df.to_csv(csv_path, index=False, encoding='utf-8-sig')
                 except Exception as e:
                     logger.error(f"[Startup] Error loading {platform}: {e}")
+            
+            # Load Wishlist (Want to Watch)
+            if platform == 'douban':
+                wish_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_wish.csv')
+                if os.path.exists(wish_path):
+                    try:
+                        df_wish = pd.read_csv(wish_path)
+                        df_wish = filter_wish_df(df_wish)
+                        df_wish = ensure_type_column(df_wish)
+                        APP_DATA[f'{platform}_wish_df'] = df_wish
+                        APP_DATA[f'{platform}_wish_path'] = wish_path
+                        logger.info(f"[Startup] Loaded {platform} wishlist: {len(df_wish)} records")
+                    except Exception as e:
+                        logger.error(f"[Startup] Error loading {platform} wishlist: {e}")
     
     # Load Trakt
     trakt_user_id = config.get('trakt_user_id')
@@ -224,6 +319,7 @@ def index():
 
 # Store pending auth sessions
 AUTH_SESSIONS = {}
+AUTH_SESSION_TTL = 10 * 60
 
 @app.route('/auth/bridge')
 def auth_bridge():
@@ -240,8 +336,18 @@ def auth_callback():
     cookie = data.get('cookie', '')
     auth_token = data.get('token', '')
     
-    if not platform or not cookie:
+    if not platform or not cookie or not auth_token:
         return jsonify({'success': False, 'error': '缺少必要参数'})
+
+    session = AUTH_SESSIONS.get(auth_token)
+    if not session:
+        return jsonify({'success': False, 'error': '无效或过期的token'})
+    if session.get('platform') != platform:
+        return jsonify({'success': False, 'error': 'token平台不匹配'})
+    created_at = session.get('created', 0)
+    if time.time() - created_at > AUTH_SESSION_TTL:
+        AUTH_SESSIONS.pop(auth_token, None)
+        return jsonify({'success': False, 'error': 'token已过期'})
     
     # Validate the cookie by making a test request
     valid = False
@@ -291,6 +397,7 @@ def auth_callback():
             'success': True
         })
         
+        AUTH_SESSIONS.pop(auth_token, None)
         logger.info(f"Browser auth successful for {platform}: {user_id}")
         return jsonify({'success': True, 'user_id': user_id})
     else:
@@ -467,6 +574,18 @@ def handle_clear_task_logs():
         logger.error(f"Failed to clear task logs: {e}")
         emit('task_logs_cleared', {'success': False, 'error': str(e)})
 
+def _is_allowed_proxy_domain(url, allowed_domains):
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    host = (parsed.hostname or '').lower()
+    if not host:
+        return False
+    for domain in allowed_domains:
+        domain = domain.lower()
+        if host == domain or host.endswith('.' + domain):
+            return True
+    return False
+
 # ==========================================
 # Main Entry Point
 # ==========================================
@@ -474,7 +593,6 @@ def handle_clear_task_logs():
 @app.route('/proxy/avatar')
 def proxy_avatar():
     """Proxy avatar images to bypass anti-hotlinking protection"""
-    import requests
     from flask import request, Response
     
     url = request.args.get('url', '')
@@ -483,9 +601,7 @@ def proxy_avatar():
     
     # Only allow proxying from known domains
     allowed_domains = ['doubanio.com', 'douban.com', 'trakt.tv', 'imdb.com', 'media-amazon.com']
-    from urllib.parse import urlparse
-    parsed = urlparse(url)
-    if not any(domain in parsed.netloc for domain in allowed_domains):
+    if not _is_allowed_proxy_domain(url, allowed_domains):
         return Response('Domain not allowed', status=403)
     
     try:
@@ -495,6 +611,35 @@ def proxy_avatar():
         }
         resp = requests.get(url, headers=headers, timeout=10)
         
+        if resp.status_code == 200:
+            content_type = resp.headers.get('Content-Type', 'image/jpeg')
+            return Response(resp.content, mimetype=content_type)
+        else:
+            return Response('Failed to fetch image', status=resp.status_code)
+    except Exception as e:
+        return Response(f'Proxy error: {e}', status=500)
+
+
+@app.route('/proxy/image')
+def proxy_image():
+    """Proxy images to bypass anti-hotlinking protection"""
+    from flask import request, Response
+
+    url = request.args.get('url', '')
+    if not url:
+        return Response('No URL provided', status=400)
+
+    allowed_domains = ['doubanio.com', 'douban.com', 'trakt.tv', 'imdb.com', 'media-amazon.com']
+    if not _is_allowed_proxy_domain(url, allowed_domains):
+        return Response('Domain not allowed', status=403)
+
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': 'https://www.douban.com/'
+        }
+        resp = requests.get(url, headers=headers, timeout=10)
+
         if resp.status_code == 200:
             content_type = resp.headers.get('Content-Type', 'image/jpeg')
             return Response(resp.content, mimetype=content_type)
@@ -539,6 +684,16 @@ def download_data(platform):
                         movie = row.to_dict()
                         key = get_merge_key(movie)
                         if key not in all_movies:
+                            # 获取媒体类型：优先从 Trakt 的 'Type' 或 IMDb 的 'Title Type' 列获取
+                            media_type = movie.get('Type') or movie.get('Title Type') or movie.get('type') or 'movie'
+                            # 标准化为小写
+                            media_type = str(media_type).lower().strip() if media_type else 'movie'
+                            # 检测是否为 TV 类型 (包括 TV Series, TV Mini Series, TV Episode 等)
+                            if 'tv' in media_type or 'series' in media_type or 'episode' in media_type or 'show' in media_type:
+                                media_type = 'tv'
+                            else:
+                                media_type = 'movie'
+                            
                             all_movies[key] = {
                                 'imdb_id': movie.get('Const') or movie.get('imdb_id') or movie.get('IMDb ID') or '',
                                 'tmdb_id': movie.get('tmdb_id') or movie.get('TMDB ID') or '',
@@ -551,6 +706,7 @@ def download_data(platform):
                                 'date_rated': movie.get('Date Rated') or movie.get('date_rated') or movie.get('Watched Date') or '',
                                 'directors': movie.get('Directors') or '',
                                 'genres': movie.get('Genres') or '',
+                                'type': media_type,  # 🆕 添加媒体类型字段
                                 'douban_url': movie.get('douban_url') or movie.get('URL') if plat == 'douban' else '',
                                 'imdb_url': movie.get('imdb_url') or movie.get('URL') if plat == 'imdb' else '',
                                 'letterboxd_url': movie.get('Letterboxd URI') or movie.get('letterboxd_url') or movie.get('URL') if plat == 'letterboxd' else '',
@@ -579,6 +735,15 @@ def download_data(platform):
                                 existing['trakt_url'] = movie.get('trakt_url') or movie.get('URL') or ''
                             if plat == 'tmdb' and not existing['tmdb_url']:
                                 existing['tmdb_url'] = movie.get('tmdb_url') or movie.get('URL') or ''
+                            
+                            # Merge type: prioritize TV over movie
+                            new_type = movie.get('Type') or movie.get('Title Type') or movie.get('type') or ''
+                            if new_type:
+                                new_type = str(new_type).lower().strip()
+                                if 'tv' in new_type or 'series' in new_type or 'episode' in new_type or 'show' in new_type:
+                                    existing['type'] = 'tv'
+                                elif not existing.get('type'):
+                                    existing['type'] = 'movie'
             
             if not all_movies:
                 return Response("No data available from any platform", status=404)
@@ -594,6 +759,7 @@ def download_data(platform):
                 df = pd.read_csv(csv_path)
             else:
                 return Response("No data available", status=404)
+    df = ensure_export_type_column(df)
     
     if format_type == 'json':
         # Full JSON export
@@ -676,6 +842,16 @@ def download_data(platform):
             lb_df['TMDB ID'] = get_col(df, ['tmdb_id', 'TMDB ID'])
             lb_df['Trakt ID'] = get_col(df, ['trakt_id', 'Trakt ID'])
             lb_df['Letterboxd URI'] = get_col(df, ['Letterboxd URI', 'letterboxd_url', 'URL'])
+            
+            # Add Type column (movie or tv)
+            def get_type(row):
+                t = row.get('type') or row.get('Type') or row.get('Title Type') or 'movie'
+                t = str(t).lower().strip() if t else 'movie'
+                if 'tv' in t or 'series' in t or 'episode' in t or 'show' in t:
+                    return 'tv'
+                return 'movie'
+            
+            lb_df['Type'] = df.apply(get_type, axis=1)
 
             # Clean NaNs to empty string
             lb_df = lb_df.fillna('')
@@ -714,6 +890,59 @@ def download_data(platform):
                 'Content-Type': 'text/csv; charset=utf-8-sig'
             }
         )
+
+@app.route('/download/wishlist')
+def download_wishlist():
+    """Export wishlist data as downloadable file"""
+    from flask import Response, request
+
+    format_type = request.args.get('format', 'cinerecord-csv')
+
+    df = APP_DATA.get('douban_wish_df')
+    if df is None or df.empty:
+        config = read_config()
+        user_id = config.get('douban_user_id', '')
+        wish_path = os.path.join(DATA_DIR, f'douban_{user_id}_wish.csv')
+        if os.path.exists(wish_path):
+            df = pd.read_csv(wish_path)
+
+    if df is None or df.empty:
+        return Response("No wishlist data available", status=404)
+
+    df = filter_wish_df(df)
+    export_df = ensure_export_type_column(df)
+    if 'source' not in export_df.columns:
+        export_df['source'] = 'douban'
+
+    for col in ['Your Rating', 'YourRating_douban', 'YourRating_imdb', 'Douban Rating', 'IMDb Rating', 'Rating']:
+        if col in export_df.columns:
+            export_df.drop(columns=[col], inplace=True)
+
+    preferred_order = [
+        'Title', 'Year', 'type', 'Genres', 'Directors', 'Actors', 'Country',
+        'URL', 'Cover URL', 'douban_id', 'Const', 'Date Rated', 'status', 'source'
+    ]
+    cols = [c for c in preferred_order if c in export_df.columns]
+    remaining = [c for c in export_df.columns if c not in cols]
+    export_df = export_df[cols + remaining]
+
+    if format_type == 'json':
+        output = export_df.to_json(orient='records', force_ascii=False, indent=2)
+        return Response(
+            output,
+            mimetype='application/json; charset=utf-8',
+            headers={'Content-Disposition': 'attachment; filename=wishlist.json'}
+        )
+
+    csv_bytes = export_df.to_csv(index=False).encode('utf-8-sig')
+    return Response(
+        csv_bytes,
+        mimetype='text/csv',
+        headers={
+            'Content-Disposition': 'attachment; filename=wishlist.csv',
+            'Content-Type': 'text/csv; charset=utf-8-sig'
+        }
+    )
 
 # ==========================================
 # Scheduled Sync API
@@ -976,6 +1205,14 @@ def api_get_library():
                 genres = clean_value(movie.get('Genres') or '')
                 runtime = clean_value(movie.get('Runtime') or movie.get('Runtime (mins)') or '')
 
+                # Extract type
+                media_type = clean_value(movie.get('Type') or movie.get('Title Type') or movie.get('type') or 'movie')
+                media_type = str(media_type).lower().strip() if media_type else 'movie'
+                if 'tv' in media_type or 'series' in media_type or 'episode' in media_type or 'show' in media_type:
+                    media_type = 'tv'
+                else:
+                    media_type = 'movie'
+
                 all_movies[key] = {
                     'title': clean_value(title),
                     'original_title': clean_value(original_title),
@@ -1009,6 +1246,7 @@ def api_get_library():
                     'actors': actors,
                     'genres': genres,
                     'runtime': runtime,
+                    'type': media_type,
                 }
             else:
                 # Update existing entry - track all sources
@@ -1038,6 +1276,15 @@ def api_get_library():
                     all_movies[key]['actors'] = actors
                 if genres and not all_movies[key].get('genres'):
                     all_movies[key]['genres'] = genres
+
+                # Merge type if missing or upgrade to TV
+                new_type = clean_value(movie.get('Type') or movie.get('Title Type') or movie.get('type') or '')
+                if new_type:
+                     new_type = str(new_type).lower().strip()
+                     if 'tv' in new_type or 'series' in new_type or 'episode' in new_type or 'show' in new_type:
+                         all_movies[key]['type'] = 'tv'
+                     elif not all_movies[key].get('type'):
+                         all_movies[key]['type'] = 'movie'
                 if runtime and not all_movies[key].get('runtime'):
                     all_movies[key]['runtime'] = runtime
                 
@@ -1698,7 +1945,8 @@ def handle_get_platforms(data=None):
 def handle_fetch(data):
     platform = data.get('platform')
     config = read_config()
-    user_id = config.get(f'{platform}_user_id')
+    # Prioritize user_id from payload (e.g. for backup) over config
+    user_id = data.get('user_id') or config.get(f'{platform}_user_id')
     cookie = config.get(f'{platform}_cookie')
     
     if not (user_id and cookie):
@@ -1706,15 +1954,36 @@ def handle_fetch(data):
         return
 
     expected_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_ratings.csv')
+    force_full_refresh = bool(data.get('force_full') or data.get('force_full_refresh'))
+    refresh_reasons = []
+    if force_full_refresh:
+        refresh_reasons.append('manual request')
+    if platform in ['douban', 'imdb']:
+        ts_key = f'{platform}_latest_record_ts'
+        if not config.get(ts_key):
+            refresh_reasons.append('timestamp not set')
+        if needs_type_refresh(expected_path):
+            refresh_reasons.append('missing Type values')
+    if refresh_reasons:
+        force_full_refresh = True
+        socketio.emit('log', {
+            'message': f'🧩 {platform.upper()} full rebuild enabled ({", ".join(refresh_reasons)}).',
+            'type': 'info'
+        })
     
     def on_complete(result):
         if result:
             df = pd.DataFrame(result)
+            df = ensure_type_column(df)
             cols_to_display = [col for col in CORE_COLUMNS if col in df.columns]
             cols_to_keep = set(cols_to_display + [col for col in ESSENTIAL_COLUMNS if col in df.columns])
             display_df = df[list(cols_to_keep)].copy()
-            APP_DATA[f'{platform}_csv_path'] = expected_path
-            APP_DATA[f'{platform}_df'] = display_df  # Store for pagination
+            config_user_id = config.get(f'{platform}_user_id')
+            is_main_user = str(user_id) == str(config_user_id) if config_user_id else True
+
+            if is_main_user:
+                APP_DATA[f'{platform}_csv_path'] = expected_path
+                APP_DATA[f'{platform}_df'] = display_df  # Store for pagination
             
             # Extract and store latest record timestamp for incremental sync
             latest_ts = None
@@ -1728,11 +1997,14 @@ def handle_fetch(data):
                 except Exception as e:
                     logger.warning(f"Failed to parse dates for {platform}: {e}")
             
-            if latest_ts:
+            # Only update config timestamp if this is the MAIN user
+            if latest_ts and is_main_user:
                 cfg = read_config()
                 cfg[f'{platform}_latest_record_ts'] = latest_ts
                 write_config(cfg)
                 socketio.emit('log', {'message': f'📅 {platform.upper()} 最新记录时间: {latest_ts[:10]}', 'type': 'info'})
+            elif not is_main_user:
+                 socketio.emit('log', {'message': f'👥 已备份好友 ({user_id}) 数据', 'type': 'success'})
             
             page_size = 10
             socketio.emit('fetch_complete', {
@@ -1751,10 +2023,278 @@ def handle_fetch(data):
 
     if platform == 'douban':
         import threading
-        threading.Thread(target=lambda: on_complete(run_douban(user_id, cookie, expected_path, socketio))).start()
+        threading.Thread(target=lambda: on_complete(run_douban(
+            user_id, cookie, expected_path, socketio, force_full_refresh=force_full_refresh
+        ))).start()
     else:
         import threading
-        threading.Thread(target=lambda: on_complete(run_imdb(user_id, cookie, expected_path, socketio))).start()
+        threading.Thread(target=lambda: on_complete(run_imdb(
+            user_id, cookie, expected_path, socketio, force_full_refresh=force_full_refresh
+        ))).start()
+
+@socketio.on('fetch_wish')
+def handle_fetch_wish(data):
+    platform = data.get('platform')
+    config = read_config()
+    # Prioritize user_id from payload over config
+    user_id = data.get('user_id') or config.get(f'{platform}_user_id')
+    cookie = config.get(f'{platform}_cookie')
+    force_full = bool(data.get('force_full'))
+    
+    if not (user_id and cookie):
+        message = f'❌ 请先在设置中填写 {platform.upper()} 用户ID和Cookie。' if platform else '❌ 未指定平台'
+        emit('log', {'message': message, 'type': 'error'})
+        return
+
+    expected_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_wish.csv')
+    if force_full and platform == 'douban':
+        try:
+            if os.path.exists(expected_path):
+                os.remove(expected_path)
+            APP_DATA.pop(f'{platform}_wish_df', None)
+            APP_DATA.pop(f'{platform}_wish_path', None)
+            socketio.emit('log', {'message': '🧹 已清理本地想看缓存，开始全量重建...', 'type': 'info'})
+        except Exception as e:
+            logger.error(f"Failed to clear wish cache: {e}")
+    
+    def on_complete(result):
+        if result is not None:
+            df = filter_wish_df(pd.DataFrame(result))
+            df = ensure_type_column(df)
+            if df is None:
+                df = pd.DataFrame()
+            count = len(df)
+            
+            # Save to APP_DATA only if main user
+            config_user_id = config.get(f'{platform}_user_id')
+            is_main_user = str(user_id) == str(config_user_id) if config_user_id else True
+
+            try:
+                if is_main_user:
+                    APP_DATA[f'{platform}_wish_df'] = df
+                    APP_DATA[f'{platform}_wish_path'] = expected_path
+            except Exception as e:
+                logger.error(f"Failed to cache wish data: {e}")
+                
+            socketio.emit('log', {'message': f'✅ {platform.upper()} 想看列表获取完成: {count} 部', 'type': 'success'})
+            socketio.emit('fetch_wish_complete', {
+                'platform': platform,
+                'count': count,
+                'path': expected_path,
+                'sample': safe_df_to_records(df.head(5)) if not df.empty else []
+            })
+        else:
+            socketio.emit('log', {'message': f'❌ 获取 {platform.upper()} 想看列表失败。', 'type': 'error'})
+
+    if platform == 'douban':
+        import threading
+        # Call run_wish_scraper
+        threading.Thread(target=lambda: on_complete(run_wish_scraper(
+            user_id, cookie, expected_path, socketio, force_full_refresh=force_full
+        ))).start()
+
+@socketio.on('get_wishlist_library')
+def handle_get_wishlist_library(data=None):
+    """Return aggregated wishlist data for the main user"""
+    wishlist_data = []
+    
+    # Load Douban Wishlist
+    douban_wish = APP_DATA.get('douban_wish_df')
+    if douban_wish is not None and not douban_wish.empty:
+        douban_wish = filter_wish_df(douban_wish)
+        douban_wish = ensure_type_column(douban_wish)
+        records = douban_wish.where(pd.notnull(douban_wish), None).to_dict('records')
+        for r in records: r['source'] = 'douban'
+        wishlist_data.extend(records)
+        
+    emit('wishlist_library_data', {'items': wishlist_data, 'count': len(wishlist_data)})
+
+@socketio.on('get_backups_list')
+def handle_get_backups_list(data=None):
+    """Scan data directory for backup files (files not belonging to main user)"""
+    config = read_config()
+    main_users = {
+        'douban': str(config.get('douban_user_id', '')),
+        'imdb': str(config.get('imdb_user_id', '')),
+        # Add other platforms if needed
+    }
+    
+    backups = []
+    try:
+        if not os.path.exists(DATA_DIR):
+             emit('backups_list_data', {'backups': []}); return
+
+        files = os.listdir(DATA_DIR)
+        for f in files:
+            if not f.endswith('.csv'): continue
+            
+            # Parse filename: platform_userid_type.csv (type is ratings or wish)
+            # Example: douban_123456_ratings.csv
+            parts = f.replace('.csv', '').split('_')
+            # Handle cases where userid might have underscores? Douban/IMDb IDs usually don't.
+            # Usually strict format: [platform]_[userid]_[type].csv
+            if len(parts) < 3: continue
+            
+            platform = parts[0]
+            # Assming type is last part ('ratings' or 'wish')
+            data_type = parts[-1]
+            # UserID is everything in between
+            user_id = "_".join(parts[1:-1])
+            
+            if platform not in ['douban', 'imdb', 'trakt', 'letterboxd', 'tmdb']: continue
+
+            # Check if it is a main user file
+            if platform in main_users and str(user_id) == str(main_users[platform]):
+                continue
+            
+            # It is a backup file
+            file_path = os.path.join(DATA_DIR, f)
+            stat = os.stat(file_path)
+            
+            backups.append({
+                'filename': f,
+                'platform': platform,
+                'user_id': user_id,
+                'type': data_type, # 'ratings' or 'wish'
+                'size': stat.st_size,
+                'mtime': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            })
+            
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        emit('log', {'message': f'❌ 读取备份列表失败: {e}', 'type': 'error'})
+        return
+
+    emit('backups_list_data', {'backups': backups})
+
+
+@socketio.on('get_my_files_list')
+def handle_get_my_files_list(data=None):
+    """List current user's platform CSV files"""
+    config = read_config()
+    my_files = []
+    
+    # Check each platform's main user files
+    platforms_config = {
+        'douban': {'user_key': 'douban_user_id', 'types': ['ratings', 'wish']},
+        'imdb': {'user_key': 'imdb_user_id', 'types': ['ratings']},
+        'trakt': {'user_key': 'trakt_user_id', 'types': ['ratings']},
+        'tmdb': {'user_key': 'tmdb_user_id', 'types': ['ratings']},
+    }
+    
+    try:
+        for platform, pconfig in platforms_config.items():
+            user_id = config.get(pconfig['user_key'], '')
+            if not user_id:
+                continue
+            for ftype in pconfig['types']:
+                filename = f'{platform}_{user_id}_{ftype}.csv'
+                filepath = os.path.join(DATA_DIR, filename)
+                if os.path.exists(filepath):
+                    stat = os.stat(filepath)
+                    my_files.append({
+                        'filename': filename,
+                        'platform': platform.upper(),
+                        'type': '看过' if ftype == 'ratings' else '想看',
+                        'size': stat.st_size,
+                        'mtime': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+        
+        # Check Letterboxd diary
+        letterboxd_files = ['letterboxd_diary.csv']
+        for filename in letterboxd_files:
+            filepath = os.path.join(DATA_DIR, filename)
+            if os.path.exists(filepath):
+                stat = os.stat(filepath)
+                my_files.append({
+                    'filename': filename,
+                    'platform': 'LETTERBOXD',
+                    'type': '日记',
+                    'size': stat.st_size,
+                    'mtime': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                })
+                
+    except Exception as e:
+        logger.error(f"Error listing my files: {e}")
+        emit('log', {'message': f'❌ 读取平台文件列表失败: {e}', 'type': 'error'})
+        return
+
+    emit('my_files_list_data', {'files': my_files})
+
+
+@socketio.on('delete_my_file')
+def handle_delete_my_file(data):
+    """Delete user's own platform CSV file - next fetch will do full refresh"""
+    filename = data.get('filename')
+    if not filename:
+        emit('log', {'message': '❌ 未指定文件名', 'type': 'error'})
+        return
+    
+    # Security check: ensure file is in DATA_DIR
+    filepath = os.path.join(DATA_DIR, os.path.basename(filename))
+    if not filepath.startswith(DATA_DIR):
+        emit('log', {'message': '❌ 无效的文件路径', 'type': 'error'})
+        return
+    
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            # Clear from APP_DATA
+            for key in list(APP_DATA.keys()):
+                path_key = f'{key}_path' if not key.endswith('_path') else key
+                if path_key in APP_DATA and filename in str(APP_DATA.get(path_key, '')):
+                    base_key = key.replace('_path', '').replace('_df', '')
+                    APP_DATA.pop(f'{base_key}_df', None)
+                    APP_DATA.pop(f'{base_key}_path', None)
+            emit('log', {'message': f'✅ 已删除 {filename}，下次获取将全量更新', 'type': 'success'})
+            emit('my_file_deleted', {'filename': filename})
+        except Exception as e:
+            logger.error(f"Error deleting file {filename}: {e}")
+            emit('log', {'message': f'❌ 删除失败: {e}', 'type': 'error'})
+    else:
+        emit('log', {'message': f'⚠️ 文件不存在: {filename}', 'type': 'warning'})
+
+@socketio.on('get_backup_content')
+def handle_get_backup_content(data):
+    filename = data.get('filename')
+    if not filename: return
+    
+    file_path = os.path.join(DATA_DIR, filename)
+    if not os.path.exists(file_path):
+        emit('log', {'message': f'❌ 文件不存在: {filename}', 'type': 'error'})
+        return
+        
+    try:
+        df = pd.read_csv(file_path)
+        # Standardize for display
+        records = safe_df_to_records(df.head(200)) # Limit to 200 for preview
+        
+        emit('backup_content_data', {
+            'filename': filename,
+            'records': records,
+            'total_count': len(df),
+            'columns': list(df.columns)
+        })
+    except Exception as e:
+        emit('log', {'message': f'❌ 读取文件失败: {e}', 'type': 'error'})
+
+@socketio.on('delete_backup')
+def handle_delete_backup(data):
+    filename = data.get('filename')
+    if not filename: return
+    
+    # Security check: only allow deleting files in DATA_DIR
+    file_path = os.path.join(DATA_DIR, os.path.basename(filename))
+    
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            emit('log', {'message': f'🗑️ 已删除备份: {filename}', 'type': 'success'})
+            handle_get_backups_list() # Refresh list
+        else:
+            emit('log', {'message': f'❌ 文件不存在', 'type': 'error'})
+    except Exception as e:
+        emit('log', {'message': f'❌ 删除失败: {e}', 'type': 'error'})
 
 @socketio.on('start_sync')
 def handle_sync(data):
@@ -2385,10 +2925,12 @@ def handle_letterboxd_upload(data):
                     missing_indices = df[df['IMDb ID'].isna() & df[uri_column].notna()].index.tolist()
                     total_missing = len(missing_indices)
                     save_path = os.path.join(DATA_DIR, 'letterboxd_diary.csv')
+                    title_matches = 0
                     
                     # 阶段2: 利用 TMDB/Douban 数据通过 Title+Year 匹配
                     if total_missing > 0:
                         title_year_index = {}
+                        external_index_count = 0
                         # 从 TMDB 构建索引
                         tmdb_df = APP_DATA.get('tmdb_df')
                         if tmdb_df is not None and 'imdb_id' in tmdb_df.columns:
@@ -2396,9 +2938,13 @@ def handle_letterboxd_upload(data):
                                 title = str(row.get('Title', '')).strip()
                                 year = str(row.get('Year', ''))[:4]
                                 imdb_id = row.get('imdb_id')
+                                tmdb_id = row.get('tmdb_id') or row.get('TMDB ID')
                                 if title and imdb_id and str(imdb_id).startswith('tt'):
                                     key = f"{title}|{year}".lower()
-                                    title_year_index[key] = str(imdb_id)
+                                    title_year_index[key] = {
+                                        'imdb_id': str(imdb_id),
+                                        'tmdb_id': str(tmdb_id) if tmdb_id else ''
+                                    }
                         # 从 Douban 构建索引
                         douban_df = APP_DATA.get('douban_df')
                         if douban_df is not None:
@@ -2407,24 +2953,56 @@ def handle_letterboxd_upload(data):
                                 for _, row in douban_df.iterrows():
                                     title = str(row.get('Title', '')).strip()
                                     year = str(row.get('Year', ''))[:4]
-                                    imdb_id = row.get(const_col)
-                                    if title and imdb_id and str(imdb_id).startswith('tt'):
-                                        key = f"{title}|{year}".lower()
-                                        if key not in title_year_index:
-                                            title_year_index[key] = str(imdb_id)
+                                imdb_id = row.get(const_col)
+                                if title and imdb_id and str(imdb_id).startswith('tt'):
+                                    key = f"{title}|{year}".lower()
+                                    if key not in title_year_index:
+                                        title_year_index[key] = {
+                                            'imdb_id': str(imdb_id),
+                                            'tmdb_id': ''
+                                        }
+
+                        # 从 Letterboxd 外部缓存构建索引 (Title|:|Year|:|...)
+                        for cache_key, cache_value in mapper.mapping.items():
+                            if '|:|' not in cache_key:
+                                continue
+                            parts = [p.strip() for p in cache_key.split('|:|')]
+                            if len(parts) < 2:
+                                continue
+                            title, year = parts[0], parts[1]
+                            if not title or not year:
+                                continue
+                            if not isinstance(cache_value, dict):
+                                continue
+                            imdb_id = cache_value.get('imdb_id')
+                            tmdb_id = cache_value.get('tmdb_id')
+                            if not imdb_id or not str(imdb_id).startswith('tt'):
+                                continue
+                            key = f"{title}|{year}".lower()
+                            if key not in title_year_index:
+                                title_year_index[key] = {
+                                    'imdb_id': str(imdb_id),
+                                    'tmdb_id': str(tmdb_id) if tmdb_id else ''
+                                }
+                                external_index_count += 1
                         
-                        socketio.emit('log', {'message': f'📚 已构建 Title+Year 索引: {len(title_year_index)} 条', 'type': 'info'})
+                        socketio.emit('log', {
+                            'message': f'📚 已构建 Title+Year 索引: {len(title_year_index)} 条 (外部缓存 +{external_index_count})',
+                            'type': 'info'
+                        })
                         
                         # 匹配 Letterboxd 条目
                         title_col = 'Name' if 'Name' in df.columns else 'Title'
-                        title_matches = 0
                         matched_indices = []
                         for idx in missing_indices:
                             title = str(df.at[idx, title_col] if title_col in df.columns else '').strip()
                             year = str(df.at[idx, 'Year'])[:4] if pd.notna(df.at[idx, 'Year']) else ''
                             key = f"{title}|{year}".lower()
-                            if key in title_year_index:
-                                df.at[idx, 'IMDb ID'] = title_year_index[key]
+                            hit = title_year_index.get(key)
+                            if hit:
+                                df.at[idx, 'IMDb ID'] = hit.get('imdb_id') if isinstance(hit, dict) else hit
+                                if isinstance(hit, dict) and hit.get('tmdb_id'):
+                                    df.at[idx, 'TMDB ID'] = hit.get('tmdb_id')
                                 matched_indices.append(idx)
                                 title_matches += 1
                         
@@ -2437,7 +3015,11 @@ def handle_letterboxd_upload(data):
                         
                         total_missing = len(missing_indices)
                     
-                    socketio.emit('log', {'message': f'🛰️ 开始纯 URI 抓取: {total_missing} 条 (已命中 {cache_hits})', 'type': 'info'})
+                    socketio.emit('log', {
+                        'message': f'🧭 匹配汇总: 缓存命中 {cache_hits} 条，Title+Year 匹配 {title_matches} 条，需 API 抓取 {total_missing} 条',
+                        'type': 'info'
+                    })
+                    socketio.emit('log', {'message': f'🛰️ 开始纯 URI 抓取: {total_missing} 条', 'type': 'info'})
                     if total_missing == 0:
                         df.to_csv(save_path, index=False)
                         mapper.save()
@@ -2459,9 +3041,11 @@ def handle_letterboxd_upload(data):
 
                     success_count = 0
                     processed = 0
+                    log_step = 25
+                    start_time = time.time()
                     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                         futures = {executor.submit(fetch_one, idx): idx for idx in missing_indices}
-                        next_log = 50
+                        next_log = log_step
                         for future in concurrent.futures.as_completed(futures):
                             try:
                                 idx, ids = future.result()
@@ -2475,18 +3059,28 @@ def handle_letterboxd_upload(data):
                                 df.at[idx, 'TMDB ID'] = ids['tmdb_id']
                             processed += 1
                             while processed >= next_log:
+                                elapsed = max(time.time() - start_time, 0.001)
+                                rate = processed / elapsed
+                                remaining = max(total_missing - processed, 0)
+                                eta_sec = int(remaining / rate) if rate > 0 else 0
+                                eta_str = f"~{eta_sec}s" if eta_sec < 60 else f"~{eta_sec // 60}m {eta_sec % 60}s"
                                 socketio.emit('log', {
-                                    'message': f'⏳ URI 抓取进度: {processed}/{total_missing} (成功 {success_count})',
+                                    'message': f'⏳ URI 抓取进度: {processed}/{total_missing} (成功 {success_count}, ETA {eta_str})',
                                     'type': 'info'
                                 })
-                                next_log += 50
+                                next_log += log_step
                             if processed % 200 == 0:
                                 df.to_csv(save_path, index=False)
                                 mapper.save()
-                        # 处理总数不是50的倍数时的尾部进度
+                        # 处理总数不是25的倍数时的尾部进度
                         if processed and processed != total_missing:
+                            elapsed = max(time.time() - start_time, 0.001)
+                            rate = processed / elapsed
+                            remaining = max(total_missing - processed, 0)
+                            eta_sec = int(remaining / rate) if rate > 0 else 0
+                            eta_str = f"~{eta_sec}s" if eta_sec < 60 else f"~{eta_sec // 60}m {eta_sec % 60}s"
                             socketio.emit('log', {
-                                'message': f'⏳ URI 抓取进度: {processed}/{total_missing} (成功 {success_count})',
+                                'message': f'⏳ URI 抓取进度: {processed}/{total_missing} (成功 {success_count}, ETA {eta_str})',
                                 'type': 'info'
                             })
                     
@@ -4291,6 +4885,8 @@ def handle_export_to_desktop(data):
         if df is None or (hasattr(df, 'empty') and df.empty):
             emit('log', {'message': f'❌ 没有找到 {source} 数据', 'type': 'error'})
             return
+
+        df = ensure_export_type_column(df)
         
         # Save to Desktop
         desktop_path = os.path.expanduser('~/Desktop')

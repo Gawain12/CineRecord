@@ -47,6 +47,37 @@ class DoubanAdapter(PlatformAdapter):
         super().__init__(logger, config)
         self.cache_file = config.get('cache_file', 'data/db_imdb.csv')
         self._cache: Optional[IDMappingCache] = None
+
+    @staticmethod
+    def _normalize_status(status: str) -> str:
+        s = str(status).lower().strip() if status else ''
+        if s == 'mark':
+            return 'wish'
+        if s == 'collect':
+            return 'done'
+        return s
+
+    @staticmethod
+    def _api_status(status: str) -> str:
+        s = str(status).lower().strip() if status else ''
+        if s in {'wish', 'want_to_watch', 'mark'}:
+            return 'mark'
+        if s in {'doing', 'do'}:
+            return 'doing'
+        if s in {'done', 'collect', 'watched'}:
+            return 'done'
+        return s or 'done'
+
+    @staticmethod
+    def _allowed_statuses(status: str) -> set:
+        s = str(status).lower().strip() if status else ''
+        if s in {'wish', 'want_to_watch', 'mark'}:
+            return {'mark', 'wish', 'want_to_watch'}
+        if s in {'done', 'collect', 'watched'}:
+            return {'done'}
+        if s in {'doing', 'do'}:
+            return {'doing'}
+        return {s} if s else set()
     
     @property
     def cache(self) -> IDMappingCache:
@@ -86,22 +117,30 @@ class DoubanAdapter(PlatformAdapter):
         except Exception as e:
             return False, f"连接失败: {str(e)}", None
     
-    def fetch_data(self, output_path: str) -> Optional[List[Dict[str, Any]]]:
+    def fetch_data(self, output_path: str, interest_status: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """获取豆瓣电影数据"""
         user_id = self.config.get('douban_user_id')
         cookie = self.config.get('douban_cookie')
+        status = (interest_status or self.config.get('douban_interest_status') or
+                  self.config.get('interest_status') or 'done')
+        status = str(status).lower().strip() if status else 'done'
+        force_full_refresh = bool(self.config.get('force_full_refresh'))
         
         if not user_id or not cookie:
             self.logger.error("缺少用户ID或Cookie配置")
             return None
         
         # 运行异步抓取
-        return asyncio.run(self._scrape_async(user_id, cookie, output_path))
+        return asyncio.run(self._scrape_async(user_id, cookie, output_path, status, force_full_refresh))
     
-    async def _scrape_async(self, user_id: str, cookie: str, output_path: str) -> Optional[List[Dict[str, Any]]]:
+    async def _scrape_async(self, user_id: str, cookie: str, output_path: str,
+                            interest_status: str = 'done', force_full_refresh: bool = False) -> Optional[List[Dict[str, Any]]]:
         """异步抓取豆瓣数据"""
         headers = {**self.HEADERS_TEMPLATE, 'Cookie': cookie}
         api_url = f"{self.API_BASE}/user/{user_id}/interests"
+        interest_status = str(interest_status).lower().strip() if interest_status else 'done'
+        api_status = self._api_status(interest_status)
+        allowed_statuses = self._allowed_statuses(interest_status)
         
         async with aiohttp.ClientSession(headers=headers) as session:
             # 验证Cookie
@@ -115,12 +154,47 @@ class DoubanAdapter(PlatformAdapter):
             self.logger.info(f"已加载 {len(self.cache)} 条IMDb缓存。")
             
             # 加载已有数据
-            existing_ids = self._load_existing_ids(output_path)
+            force_refresh = bool(force_full_refresh)
+            if force_refresh:
+                self.logger.warning("已启用全量重建，将忽略本地缓存。")
+            if not force_refresh and interest_status in {'wish', 'want_to_watch', 'mark'} and os.path.exists(output_path):
+                try:
+                    df_existing_all = pd.read_csv(output_path, dtype=str)
+                    if 'status' not in df_existing_all.columns:
+                        force_refresh = True
+                    else:
+                        status_series = df_existing_all['status'].fillna('').astype(str).str.lower().str.strip()
+                        allowed_set = self._allowed_statuses(interest_status)
+                        allowed = status_series[status_series.isin(allowed_set)]
+                        non_wish = status_series[(status_series != '') & (~status_series.isin(allowed_set))]
+                        if not non_wish.empty or allowed.empty:
+                            force_refresh = True
+                    if force_refresh:
+                        self.logger.warning("想看缓存包含非 wish 数据，已切换为全量重建。")
+                except Exception as e:
+                    force_refresh = True
+                    self.logger.warning(f"想看缓存读取失败，已切换为全量重建: {e}")
+            elif not force_refresh and interest_status in {'done', 'collect', 'watched'} and os.path.exists(output_path):
+                try:
+                    df_existing_all = pd.read_csv(output_path, dtype=str)
+                    if 'Type' not in df_existing_all.columns and 'type' not in df_existing_all.columns:
+                        force_refresh = True
+                    elif 'Type' in df_existing_all.columns:
+                        type_series = df_existing_all['Type'].fillna('').astype(str).str.strip()
+                        if type_series.eq('').all():
+                            force_refresh = True
+                    if force_refresh:
+                        self.logger.warning("评分缓存缺少 Type 字段，已切换为全量重建以补齐类型。")
+                except Exception as e:
+                    force_refresh = True
+                    self.logger.warning(f"评分缓存读取失败，已切换为全量重建: {e}")
+
+            existing_ids = set() if force_refresh else self._load_existing_ids(output_path, interest_status)
             if existing_ids:
                 self.logger.info(f"发现 {len(existing_ids)} 条已有记录，将进行增量更新。")
             
             # 获取总数
-            first_page = await self._fetch_page(session, api_url, 0, 1)
+            first_page = await self._fetch_page(session, api_url, 0, 1, api_status)
             if not first_page or 'total' not in first_page:
                 self.logger.error("无法获取电影总数。")
                 return None
@@ -134,12 +208,15 @@ class DoubanAdapter(PlatformAdapter):
             new_interests = []
             for page_num in range(total_pages):
                 self.logger.progress(page_num, total_pages, f"获取列表 {page_num+1}/{total_pages}")
-                page_data = await self._fetch_page(session, api_url, page_num * page_size, page_size)
+                page_data = await self._fetch_page(session, api_url, page_num * page_size, page_size, api_status)
                 if not page_data or not page_data.get('interests'):
                     break
                 
                 should_stop = False
                 for interest in page_data['interests']:
+                    item_status = str(interest.get('status') or '').lower().strip()
+                    if allowed_statuses and item_status not in allowed_statuses:
+                        continue
                     if interest.get('subject', {}).get('id') in existing_ids:
                         should_stop = True
                         break
@@ -151,16 +228,18 @@ class DoubanAdapter(PlatformAdapter):
             
             if not new_interests:
                 self.logger.success("数据已是最新。")
-                return self._load_existing_data(output_path)
+                return self._load_existing_data(output_path, interest_status)
             
             self.logger.info(f"发现 {len(new_interests)} 条新记录，开始处理...")
             new_interests.reverse()
             
             # 处理数据并获取IMDB ID
-            tasks = [self._process_interest(session, i) for i in new_interests]
+            tasks = [self._process_interest(session, i, interest_status) for i in new_interests]
             new_movies = []
             for i, f in enumerate(asyncio.as_completed(tasks)):
-                new_movies.append(await f)
+                record = await f
+                if record:
+                    new_movies.append(record)
                 self.logger.progress(i + 1, len(tasks), f"处理详情 {i+1}/{len(tasks)}")
             
             # 保存
@@ -171,11 +250,15 @@ class DoubanAdapter(PlatformAdapter):
             df_existing = pd.DataFrame()
             if os.path.exists(output_path) and existing_ids:
                 df_existing = pd.read_csv(output_path, dtype=str, encoding='utf-8-sig')
+                if 'status' in df_existing.columns:
+                    status_series = df_existing['status'].fillna('').astype(str).str.lower().str.strip()
+                    if allowed_statuses:
+                        df_existing = df_existing[status_series.isin(allowed_statuses)]
             
             df_final = pd.concat([df_new, df_existing], ignore_index=True)
-            cols = ['Const', 'Your Rating', 'Date Rated', 'Title', 'Directors', 'Actors', 
-                    'Country', 'Year', 'Genres', 'Douban Rating', 'Num Votes', 'MyComment', 
-                    'URL', 'Cover URL', 'douban_id']
+            cols = ['Const', 'Your Rating', 'Date Rated', 'Title', 'Directors', 'Actors',
+                    'Country', 'Year', 'Genres', 'Douban Rating', 'Num Votes', 'MyComment',
+                    'URL', 'Cover URL', 'douban_id', 'Type', 'status']
             df_final = df_final.reindex(columns=cols)
             df_final.drop_duplicates(subset=['douban_id'], keep='first', inplace=True)
             df_final.sort_values(by='Date Rated', ascending=False, inplace=True)
@@ -196,10 +279,11 @@ class DoubanAdapter(PlatformAdapter):
         except:
             return False
     
-    async def _fetch_page(self, session: aiohttp.ClientSession, url: str, 
-                         start: int, size: int = 50, retries: int = 3) -> Optional[Dict]:
+    async def _fetch_page(self, session: aiohttp.ClientSession, url: str,
+                         start: int, size: int = 50, status: str = 'done',
+                         retries: int = 3) -> Optional[Dict]:
         """获取分页数据"""
-        params = {"type": "movie", "status": "done", "count": size, "start": start, "for_mobile": 1}
+        params = {"type": "movie", "status": status, "count": size, "start": start, "for_mobile": 1}
         
         for i in range(retries):
             await asyncio.sleep(random.uniform(1.0, 2.0))
@@ -213,7 +297,8 @@ class DoubanAdapter(PlatformAdapter):
                 self.logger.error(f"请求异常 (尝试 {i+1}/{retries}): {e}")
         return None
     
-    async def _process_interest(self, session: aiohttp.ClientSession, interest: Dict) -> Dict:
+    async def _process_interest(self, session: aiohttp.ClientSession, interest: Dict,
+                               interest_status: str = 'done') -> Optional[Dict]:
         """处理单条记录"""
         subject = interest.get('subject', {})
         rating = interest.get('rating', {})
@@ -222,6 +307,19 @@ class DoubanAdapter(PlatformAdapter):
         country = parts[1].strip() if len(parts) > 1 else ''
         actors = ", ".join([a['name'] for a in subject.get('actors', [])[:3]])
         
+        # Determine Type
+        subject_type_parts = []
+        for key in ('type', 'subtype'):
+            value = subject.get(key)
+            if value:
+                subject_type_parts.append(str(value))
+        subject_type = " ".join(subject_type_parts).lower().strip()
+        media_type = 'tv' if any(k in subject_type for k in ['tv', 'show', 'series', 'episode', 'miniseries']) else 'movie'
+        
+        status = str(interest.get('status') or '').lower().strip()
+        allowed_statuses = self._allowed_statuses(interest_status)
+        if allowed_statuses and status not in allowed_statuses:
+            return None
         data = {
             'Const': None,
             'Your Rating': rating.get('value', 0) if rating else 0,
@@ -237,7 +335,9 @@ class DoubanAdapter(PlatformAdapter):
             'MyComment': interest.get('comment', ''),
             'URL': subject.get('url'),
             'Cover URL': subject.get('cover_url'),
-            'douban_id': subject.get('id')
+            'douban_id': subject.get('id'),
+            'Type': media_type,
+            'status': self._normalize_status(status or interest_status)
         }
         
         # 获取IMDB ID
@@ -274,22 +374,38 @@ class DoubanAdapter(PlatformAdapter):
                 await asyncio.sleep(3)
         return None
     
-    def _load_existing_ids(self, output_path: str) -> set:
+    def _load_existing_ids(self, output_path: str, interest_status: Optional[str] = None) -> set:
         """加载已有记录的ID"""
         if not os.path.exists(output_path):
             return set()
         try:
-            df = pd.read_csv(output_path, dtype={'douban_id': str}, usecols=['douban_id'])
+            df = pd.read_csv(output_path, dtype={'douban_id': str})
+            if interest_status and 'status' in df.columns:
+                status_series = df['status'].fillna('').astype(str).str.lower().str.strip()
+                allowed_statuses = self._allowed_statuses(interest_status)
+                if allowed_statuses:
+                    df = df[status_series.isin(allowed_statuses)]
+            elif interest_status:
+                return set()
+            if 'douban_id' not in df.columns:
+                return set()
             return set(df['douban_id'].dropna())
         except:
             return set()
     
-    def _load_existing_data(self, output_path: str) -> List[Dict[str, Any]]:
+    def _load_existing_data(self, output_path: str, interest_status: Optional[str] = None) -> List[Dict[str, Any]]:
         """加载已有数据"""
         if not os.path.exists(output_path):
             return []
         try:
             df = pd.read_csv(output_path)
+            if interest_status and 'status' in df.columns:
+                status_series = df['status'].fillna('').astype(str).str.lower().str.strip()
+                allowed_statuses = self._allowed_statuses(interest_status)
+                if allowed_statuses:
+                    df = df[status_series.isin(allowed_statuses)]
+            elif interest_status:
+                return []
             return self.clean_df_for_json(df)
         except:
             return []
@@ -300,7 +416,7 @@ class DoubanAdapter(PlatformAdapter):
 
 
 # 向后兼容：提供 run_scraper 函数
-def run_scraper(user_id: str, cookie: str, output_path: str, socketio) -> Optional[List[Dict]]:
+def run_scraper(user_id: str, cookie: str, output_path: str, socketio, force_full_refresh: bool = False) -> Optional[List[Dict]]:
     """
     向后兼容的入口函数
     
@@ -312,8 +428,28 @@ def run_scraper(user_id: str, cookie: str, output_path: str, socketio) -> Option
     config = {
         'douban_user_id': user_id,
         'douban_cookie': cookie,
-        'cache_file': 'data/db_imdb.csv'
+        'cache_file': 'data/db_imdb.csv',
+        'force_full_refresh': force_full_refresh
     }
     
+    adapter = DoubanAdapter(logger, config)
+    return adapter.fetch_data(output_path)
+
+
+def run_wish_scraper(user_id: str, cookie: str, output_path: str, socketio, force_full_refresh: bool = False) -> Optional[List[Dict]]:
+    """
+    获取豆瓣想看数据（status=wish）
+    """
+    from adapters.logger import SocketLogger
+
+    logger = SocketLogger(socketio, 'douban')
+    config = {
+        'douban_user_id': user_id,
+        'douban_cookie': cookie,
+        'cache_file': 'data/db_imdb.csv',
+        'douban_interest_status': 'mark',
+        'force_full_refresh': force_full_refresh
+    }
+
     adapter = DoubanAdapter(logger, config)
     return adapter.fetch_data(output_path)

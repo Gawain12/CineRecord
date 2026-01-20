@@ -11,6 +11,8 @@ const i18n = {
             // Navigation
             'nav.accounts': '🔐 账户',
             'nav.data': '📊 数据',
+            'nav.wishlist': '✨ 想看',
+            'nav.backups': '📁 备份',
             'nav.sync': '🔄 同步',
             'nav.settings': '⚙️ 设置',
 
@@ -26,6 +28,7 @@ const i18n = {
             'account.status.external': '外部平台',
             'account.test': '测试',
             'account.update': '更新数据',
+            'account.fetch_wish': '获取想看',
             'account.logout': '退出',
             'account.save_all': '保存所有配置',
             'account.view_profile': '查看主页 →',
@@ -62,6 +65,14 @@ const i18n = {
             'sync.results.success': '成功',
             'sync.results.failed': '失败',
             'sync.results.skipped': '跳过',
+
+            // Wishlist Page
+            'wishlist.title': '想看清单',
+            'wishlist.subtitle': '汇集各平台的想看数据',
+
+            // Backups Page
+            'backups.title': '好友备份',
+            'backups.subtitle': '管理为您好友备份的数据文件',
 
             // Settings Page
             'settings.title': '设置',
@@ -220,6 +231,8 @@ const i18n = {
             // Navigation
             'nav.accounts': '🔐 Accounts',
             'nav.data': '📊 Data',
+            'nav.wishlist': '✨ Wishlist',
+            'nav.backups': '📁 Backups',
             'nav.sync': '🔄 Sync',
             'nav.settings': '⚙️ Settings',
 
@@ -235,6 +248,7 @@ const i18n = {
             'account.status.external': 'External Platform',
             'account.test': 'Test',
             'account.update': 'Update Data',
+            'account.fetch_wish': 'Fetch Wishlist',
             'account.logout': 'Logout',
             'account.save_all': 'Save All Settings',
             'account.view_profile': 'View Profile →',
@@ -269,6 +283,14 @@ const i18n = {
             'sync.results.success': 'Success',
             'sync.results.failed': 'Failed',
             'sync.results.skipped': 'Skipped',
+
+            // Wishlist Page
+            'wishlist.title': 'Wishlist',
+            'wishlist.subtitle': 'Aggregated wishlist from all platforms',
+
+            // Backups Page
+            'backups.title': 'Backups',
+            'backups.subtitle': 'Manage data files backed up for friends',
 
             // Settings Page
             'settings.title': 'Settings',

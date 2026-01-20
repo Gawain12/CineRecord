@@ -56,7 +56,9 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
 
     # Clean imdb_id: replace 'nan' strings with empty string
     final_df['imdb_id'] = merged_df['Const'].apply(lambda x: x if pd.notna(x) and str(x).lower() != 'nan' and str(x).startswith('tt') else '')
-    final_df['douban_id'] = merged_df['douban_id_douban'].fillna(merged_df.get('douban_id_imdb', '')).astype(str).replace(['nan', 'None'], '')
+    douban_id_douban = merged_df['douban_id_douban'] if 'douban_id_douban' in merged_df.columns else pd.Series([np.nan] * len(merged_df), index=merged_df.index)
+    douban_id_imdb = merged_df['douban_id_imdb'] if 'douban_id_imdb' in merged_df.columns else pd.Series([np.nan] * len(merged_df), index=merged_df.index)
+    final_df['douban_id'] = douban_id_douban.fillna(douban_id_imdb).astype(str).replace(['nan', 'None'], '')
     
     # Smartly choose the best title
     final_df['Title'] = np.where(merged_df['Title_douban'].notna(), merged_df['Title_douban'], merged_df['Title_imdb'])
@@ -91,13 +93,36 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
     # --- URLs ---
     final_df['URL_douban'] = merged_df['URL_douban']
     final_df['URL_imdb'] = merged_df['URL_imdb']
+    
+    # --- Type (movie or tv) ---
+    # Merge type from both sources, prioritizing TV over movie
+    def get_type(row):
+        type_douban = str(row.get('type_douban', '') or '').lower().strip()
+        type_imdb = str(row.get('type_imdb', '') or '').lower().strip()
+        
+        # Check if either source indicates TV
+        for t in [type_douban, type_imdb]:
+            if 'tv' in t or 'series' in t or 'episode' in t or 'show' in t:
+                return 'tv'
+        
+        # Default to movie
+        return 'movie'
+    
+    if 'type_douban' in merged_df.columns or 'type_imdb' in merged_df.columns:
+        final_df['type'] = merged_df.apply(get_type, axis=1)
+    elif 'type' in merged_df.columns:
+        final_df['type'] = merged_df['type'].apply(
+            lambda x: 'tv' if any(t in str(x).lower() for t in ['tv', 'series', 'episode', 'show']) else 'movie'
+        )
+    else:
+        final_df['type'] = 'movie'
 
     # --- Final Touches ---
     column_order = [
         'douban_id', 'imdb_id', 'Title', 'Year', 'Directors', 'Actors', 'Genres',
         'Country', 'Runtime', 'YourRating_douban', 'YourRating_imdb', 'DateRated_First', 'DateRated_douban', 'DateRated_imdb',
         'PublicRating_douban', 'Votes_douban', 'PublicRating_imdb', 'Votes_imdb',
-        'URL_douban', 'URL_imdb'
+        'URL_douban', 'URL_imdb', 'type'
     ]
     # Ensure all columns exist before ordering
     for col in column_order:
@@ -110,7 +135,7 @@ def rich_merge_movie_data(douban_csv_path, imdb_csv_path, output_path):
 
     # Ensure the output directory exists
     output_dir = os.path.dirname(output_path)
-    if not os.path.exists(output_dir):
+    if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
     final_df.to_csv(output_path, index=False, encoding='utf-8-sig')

@@ -14,6 +14,7 @@ ENV/
 .idea/
 .vscode/
 .DS_Store
+.gemini/
 
 # Project-Specific Ignores
 # Ignore user-specific configuration, but not the template
@@ -27,6 +28,12 @@ scrapers/*.csv
 # Ignore user-specific data files, but keep the shared db_imdb.csv
 data/**/*.csv
 !data/db_imdb.csv
+data/*.db
+data/*_cache.json
+data/*_logs.json
+data/sync_failure_cache.json
+data/task_logs.json
+data/letterboxd_platform_mapping.json
 
 # General Ignores
 *.log
@@ -47,6 +54,7 @@ _archive/
 
 # Other
 web/static/icon.icns
+diary.csv
 
 config/config.json
 AI_ROADMAP.md

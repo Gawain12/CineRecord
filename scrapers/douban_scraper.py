@@ -56,22 +56,65 @@ def save_imdb_cache(imdb_cache, logger):
     df.drop_duplicates(subset=['douban_id'], keep='last', inplace=True)
     df.to_csv(IMDB_CACHE_FILE, index=False, encoding='utf-8')
 
-def process_movie_data(interest):
+def _normalize_status(status):
+    s = str(status).lower().strip() if status else ''
+    if s == 'mark':
+        return 'wish'
+    if s == 'collect':
+        return 'done'
+    return s
+
+def _api_status(status):
+    s = str(status).lower().strip() if status else ''
+    if s in {'wish', 'want_to_watch', 'mark'}:
+        return 'mark'
+    if s in {'doing', 'do'}:
+        return 'doing'
+    if s in {'done', 'collect', 'watched'}:
+        return 'done'
+    return s or 'done'
+
+def _allowed_statuses(status):
+    s = str(status).lower().strip() if status else ''
+    if s in {'wish', 'want_to_watch', 'mark'}:
+        return {'mark', 'wish', 'want_to_watch'}
+    if s in {'done', 'collect', 'watched'}:
+        return {'done'}
+    if s in {'doing', 'do'}:
+        return {'doing'}
+    return {s} if s else set()
+
+def process_movie_data(interest, interest_status='done'):
     subject = interest.get('subject', {})
     rating = interest.get('rating', {})
     subtitle = subject.get('card_subtitle', '')
     country = parts[1].strip() if len(parts := subtitle.split('/')) > 1 else ''
     actors = ", ".join([a['name'] for a in subject.get('actors', [])[:3]])
+    status = str(interest.get('status') or '').lower().strip()
+    allowed_statuses = _allowed_statuses(interest_status)
+    if allowed_statuses and status not in allowed_statuses:
+        return None
+    
+    # Determine type from subject data
+    # Douban API may include 'type' or 'subtype' field, or we check if it's a TV series from URL or other indicators
+    subject_type = subject.get('type', '') or subject.get('subtype', '') or ''
+    subject_type = str(subject_type).lower().strip()
+    if 'tv' in subject_type or 'show' in subject_type or 'series' in subject_type or 'episode' in subject_type:
+        media_type = 'tv'
+    else:
+        # Default to movie if type field is missing
+        media_type = 'movie'
+    
     return {'Const': None, 'Your Rating': rating.get('value', 0) if rating else 0,
             'Date Rated': interest.get('create_time', '').split(' ')[0], 'Title': subject.get('title'),
             'Directors': ", ".join([d['name'] for d in subject.get('directors', [])]), 'Actors': actors,
             'Country': country, 'Year': subject.get('year'), 'Genres': ", ".join(subject.get('genres', [])),
             'Douban Rating': subject.get('rating', {}).get('value', 0), 'Num Votes': subject.get('rating', {}).get('count', 0),
             'MyComment': interest.get('comment', ''), 'URL': subject.get('url'), 'Cover URL': subject.get('cover_url'),
-            'douban_id': subject.get('id')}
+            'douban_id': subject.get('id'), 'type': media_type, 'status': _normalize_status(status or interest_status)}
 
-async def fetch_page(session, url, start, logger, size=50, retries=3):
-    params = {"type": "movie", "status": "done", "count": size, "start": start, "for_mobile": 1}
+async def fetch_page(session, url, start, logger, size=50, status='done', retries=3):
+    params = {"type": "movie", "status": status, "count": size, "start": start, "for_mobile": 1}
     for i in range(retries):
         await asyncio.sleep(random.uniform(1.0, 2.0))
         try:
@@ -85,8 +128,10 @@ async def fetch_page(session, url, start, logger, size=50, retries=3):
             logger.log(f"请求异常 (尝试 {i+1}/{retries}): {e}", 'error')
     return None
 
-async def process_interest_with_imdb(session, interest, cache):
-    data = process_movie_data(interest)
+async def process_interest_with_imdb(session, interest, cache, interest_status='done'):
+    data = process_movie_data(interest, interest_status)
+    if not data:
+        return None
     douban_id = data.get('douban_id')
     if douban_id in cache: data['Const'] = cache[douban_id]
     else:
@@ -95,7 +140,7 @@ async def process_interest_with_imdb(session, interest, cache):
             if douban_id: cache[douban_id] = imdb_id
     return data
 
-async def scrape_douban_async(user_id, cookie, output_path, logger):
+async def scrape_douban_async(user_id, cookie, output_path, logger, interest_status='done'):
     headers = {
         'Cookie': cookie, 
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -104,6 +149,9 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         'Referer': 'https://m.douban.com/'
     }
     api_url = f"https://m.douban.com/rexxar/api/v2/user/{user_id}/interests"
+    interest_status = str(interest_status).lower().strip() if interest_status else 'done'
+    api_status = _api_status(interest_status)
+    allowed_statuses = _allowed_statuses(interest_status)
     async with aiohttp.ClientSession(headers=headers) as session:
         logger.log("验证Cookie...", 'info')
         if not await fetch_imdb_id_from_web(session, "https://m.douban.com/movie/subject/1298697/"):
@@ -115,10 +163,25 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         
         existing_records = {}
         unrated_records = set()  # 本地评分为0的记录，需要重新获取
+        force_refresh = False
         
         if os.path.exists(output_path):
             try:
                 df = pd.read_csv(output_path, dtype={'douban_id': str})
+                if interest_status == 'wish':
+                    if 'status' not in df.columns:
+                        force_refresh = True
+                    else:
+                        status_series = df['status'].fillna('').astype(str).str.lower().str.strip()
+                        allowed_set = _allowed_statuses(interest_status)
+                        allowed = status_series[status_series.isin(allowed_set)]
+                        non_wish = status_series[(status_series != '') & (~status_series.isin(allowed_set))]
+                        if not non_wish.empty or allowed.empty:
+                            force_refresh = True
+                    if force_refresh:
+                        logger.log("想看缓存包含非 wish 数据，将全量重建。", 'warning')
+                        df = pd.DataFrame()
+
                 # 使用 (douban_id, date) 组合作为唯一标识
                 for _, row in df.iterrows():
                     movie_id = str(row['douban_id']) if pd.notna(row['douban_id']) else ''
@@ -136,12 +199,14 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
                         except (ValueError, TypeError):
                             pass
                 
-                logger.log(f"发现 {len(df)} 条已有记录，其中 {len(unrated_records)} 条无评分需刷新。", 'info')
+                if not force_refresh:
+                    logger.log(f"发现 {len(df)} 条已有记录，其中 {len(unrated_records)} 条无评分需刷新。", 'info')
             except Exception as e:
                 logger.log(f"无法读取'{output_path}': {e}，将重新创建。", 'info')
                 if os.path.exists(output_path): os.remove(output_path)
+                force_refresh = True
 
-        first_page = await fetch_page(session, api_url, 0, logger, 1)
+        first_page = await fetch_page(session, api_url, 0, logger, 1, api_status)
         if not first_page or 'total' not in first_page:
             logger.log("无法获取电影总数。", 'error'); return None
         
@@ -156,11 +221,15 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
         
         for page_num in range(total_pages):
             logger.progress(page_num, total_pages, f"获取列表 {page_num+1}/{total_pages}")
-            page_data = await fetch_page(session, api_url, page_num * page_size, logger, page_size)
-            if not page_data or not page_data.get('interests'): break
+            page_data = await fetch_page(session, api_url, page_num * page_size, logger, page_size, api_status)
+            if not page_data or not page_data.get('interests'):
+                break
             
             page_new_count = 0
             for interest in page_data['interests']:
+                item_status = str(interest.get('status') or '').lower().strip()
+                if allowed_statuses and item_status not in allowed_statuses:
+                    continue
                 movie_id = str(interest.get('subject', {}).get('id', ''))
                 date_str = interest.get('create_time', '').split(' ')[0]
                 record_key = f"{movie_id}_{date_str}"
@@ -173,7 +242,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
                     new_interests.append(interest)
                     page_new_count += 1
                     refreshed_count += 1
-                elif record_key not in existing_records:
+                elif force_refresh or record_key not in existing_records:
                     # 真正的新记录
                     new_interests.append(interest)
                     page_new_count += 1
@@ -199,10 +268,12 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
 
         logger.log(f"发现 {len(new_interests)} 条新记录，开始处理...", 'info')
         new_interests.reverse()
-        tasks = [process_interest_with_imdb(session, i, cache) for i in new_interests]
+        tasks = [process_interest_with_imdb(session, i, cache, interest_status) for i in new_interests]
         new_movies = []
         for i, f in enumerate(asyncio.as_completed(tasks)):
-            new_movies.append(await f)
+            record = await f
+            if record:
+                new_movies.append(record)
             logger.progress(i + 1, len(tasks), f"处理详情 {i+1}/{len(tasks)}")
 
         logger.log("保存文件中...", 'info')
@@ -214,7 +285,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger):
             df_existing = pd.read_csv(output_path, dtype=str, encoding='utf-8-sig')
         
         df_final = pd.concat([df_new, df_existing], ignore_index=True)
-        cols = ['Const', 'Your Rating', 'Date Rated', 'Title', 'Directors', 'Actors', 'Country', 'Year', 'Genres', 'Douban Rating', 'Num Votes', 'MyComment', 'URL', 'Cover URL', 'douban_id']
+        cols = ['Const', 'Your Rating', 'Date Rated', 'Title', 'Directors', 'Actors', 'Country', 'Year', 'Genres', 'Douban Rating', 'Num Votes', 'MyComment', 'URL', 'Cover URL', 'douban_id', 'type', 'status']
         df_final = df_final.reindex(columns=cols)
         df_final.drop_duplicates(subset=['douban_id'], keep='first', inplace=True)
         df_final.sort_values(by='Date Rated', ascending=False, inplace=True)

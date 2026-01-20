@@ -115,7 +115,8 @@ class IMDbAdapter(PlatformAdapter):
                 output_path=output_path,
                 logger=self.logger,
                 cache=self.cache,
-                douban_cookie=self.config.get('douban_cookie')
+                douban_cookie=self.config.get('douban_cookie'),
+                force_full_refresh=bool(self.config.get('force_full_refresh'))
             )
             new_movies = scraper.scrape()
             
@@ -127,6 +128,8 @@ class IMDbAdapter(PlatformAdapter):
             
             df_new = pd.DataFrame(new_movies).rename(columns={'imdb_id': 'Const'})
             df_existing = pd.read_csv(output_path) if os.path.exists(output_path) else pd.DataFrame()
+            if getattr(scraper, 'force_full_refresh', False):
+                df_existing = pd.DataFrame()
             df_final = pd.concat([df_new, df_existing], ignore_index=True)
             df_final.drop_duplicates(subset=['Const'], keep='first', inplace=True)
             df_final.sort_values(by='Date Rated', ascending=False, inplace=True)
@@ -190,12 +193,14 @@ class IMDbAdapter(PlatformAdapter):
 class IMDbScraper:
     """IMDB 数据抓取器"""
     
-    def __init__(self, user_id: str, cookie: str, output_path: str, 
-                 logger, cache: IDMappingCache, douban_cookie: str = None):
+    def __init__(self, user_id: str, cookie: str, output_path: str,
+                 logger, cache: IDMappingCache, douban_cookie: str = None,
+                 force_full_refresh: bool = False):
         self.user_id = user_id
         self.output_path = output_path
         self.logger = logger
         self.cache = cache
+        self.force_full_refresh = bool(force_full_refresh)
         
         self.imdb_headers = {'Cookie': cookie, 'User-Agent': 'Mozilla/5.0'}
         self.douban_headers = {
@@ -211,14 +216,26 @@ class IMDbScraper:
         self.existing_ids = self._load_existing()
         self.new_mappings = {}
         
+        if self.force_full_refresh:
+            self.logger.warning("评分缓存缺少 Type 字段，已切换为全量重建以补齐类型。")
         self.logger.log(f"发现 {len(self.existing_ids)} 条已有记录。", 'info')
     
     def _load_existing(self) -> set:
+        if self.force_full_refresh:
+            return set()
         if not os.path.exists(self.output_path):
             return set()
         try:
-            return set(pd.read_csv(self.output_path, usecols=['Const'], 
-                                   dtype={'Const': str})['Const'].dropna())
+            df = pd.read_csv(self.output_path, dtype={'Const': str})
+            if 'Type' not in df.columns and 'type' not in df.columns and 'Title Type' not in df.columns:
+                self.force_full_refresh = True
+                return set()
+            if 'Type' in df.columns:
+                type_series = df['Type'].fillna('').astype(str).str.strip()
+                if type_series.eq('').all():
+                    self.force_full_refresh = True
+                    return set()
+            return set(df['Const'].dropna()) if 'Const' in df.columns else set()
         except:
             return set()
     
@@ -288,6 +305,9 @@ class IMDbScraper:
             imdb_id = t.get('id')
             if not imdb_id:
                 return None
+            title_type = t.get('titleType', {}).get('text', '') or t.get('titleType', {}).get('id', '') or ''
+            title_type = str(title_type).lower().strip()
+            media_type = 'tv' if any(k in title_type for k in ['tv', 'series', 'episode', 'show', 'miniseries']) else 'movie'
             return {
                 'imdb_id': imdb_id,
                 'Title': t.get('titleText', {}).get('text'),
@@ -303,7 +323,8 @@ class IMDbScraper:
                     for group in t.get('principalCreditsV2', [])
                     if 'Director' in group.get('grouping', {}).get('text', '')
                     for c in group.get('credits', [])
-                ])
+                ]),
+                'Type': media_type
             }
         except:
             return None
@@ -416,7 +437,7 @@ class IMDbScraper:
 
 
 # 向后兼容：提供 run_scraper 函数
-def run_scraper(user_id: str, cookie: str, output_path: str, socketio) -> Optional[List[Dict]]:
+def run_scraper(user_id: str, cookie: str, output_path: str, socketio, force_full_refresh: bool = False) -> Optional[List[Dict]]:
     """
     向后兼容的入口函数
     """
@@ -429,7 +450,8 @@ def run_scraper(user_id: str, cookie: str, output_path: str, socketio) -> Option
         'imdb_user_id': user_id,
         'imdb_cookie': cookie,
         'douban_cookie': config.get('douban_cookie'),
-        'cache_file': 'data/db_imdb.csv'
+        'cache_file': 'data/db_imdb.csv',
+        'force_full_refresh': force_full_refresh
     }
     
     adapter = IMDbAdapter(logger, adapter_config)

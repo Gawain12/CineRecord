@@ -3,6 +3,242 @@
  * Dashboard interface with tabbed navigation
  */
 
+const DEFAULT_DOWNLOAD_SITES = [
+    { id: 'ptp', label: 'PTP', template: 'https://passthepopcorn.me/torrents.php?searchstr={imdbid}' },
+    { id: 'kg', label: 'KG', template: 'https://karagarga.in/browse.php?search={imdbid}&search_type=imdb' },
+    { id: 'hdroute', label: '路', template: 'http://hdroute.org/browse.php?dp=0&add=0&action=s&or=1&imdb={imdbno}' },
+    { id: 'tik', label: 'Tik', template: 'https://www.cinematik.net/torrents?imdbid={imdbno}&perPage=25&imdbId={imdbno}' },
+    { id: 'in', label: 'IN', template: 'https://nzbs.in/search?query=imdb:{imdbid}' },
+    { id: 'hdb', label: 'HDB', template: 'https://hdbits.org/browse.php?search={imdbid}' },
+    { id: 'i2', label: 'I2', template: 'https://nzbs.in/search?query={search_name}' },
+    { id: 'imdb', label: 'IMDB', template: 'https://www.imdb.com/title/{imdbid}/' },
+    { id: 'btn', label: '妞', template: 'https://broadcasthe.net/torrents.php?action=advanced&imdb={imdbid}' },
+    { id: 'omg', label: 'OMG', template: 'https://omgwtfnzbs.org/browse?search={imdbid}&cat=default&sort=3' },
+    { id: 'fl', label: 'FL', template: 'https://filelist.io/browse.php?search={imdbid}' },
+    { id: 'bhd', label: 'BHD', template: 'https://beyond-hd.me/torrents?imdb={imdbid}' },
+    { id: 'blu', label: 'BLU', template: 'https://blutopia.cc/torrents?imdbid={imdbno}&perPage=25&imdbId={imdbno}' },
+    { id: 'cg', label: 'CG', template: 'http://cinemageddon.net/browse.php?search={imdbid}&proj=0&descr=1' },
+    { id: 'mt', label: 'MT', template: 'https://kp.m-team.cc/browse?keyword={search_name}&search_area=4&search_mode=0' },
+    { id: 'sc', label: 'SC', template: 'https://secret-cinema.pw/torrents.php?action=advanced&searchsubmit=1&filter_cat=1&cataloguenumber={imdbid}' },
+    { id: 'ttg', label: '套', template: 'https://totheglory.im/browse.php?search_field=imdb{imdbno}&c=M' },
+    { id: 'nc', label: 'nC', template: 'https://ncore.pro/torrents.php?mire={imdbid}&miben=imdb&tipus=all_own' },
+    { id: 'hdt', label: 'HDT', template: 'https://hd-torrents.org/torrents.php?&search={imdbid}&active=0' },
+    { id: 'douban', label: '豆', template: 'https://search.douban.com/movie/subject_search?search_text={imdbid}' },
+    { id: 'zmk', label: 'ZMK', template: 'http://so.zimuku.org/search?q={imdbid}' },
+    { id: 'op', label: 'OP', template: 'https://www.opensubtitles.org/en/search2/sublanguageid-eng/moviename-{search_name}' },
+    { id: 'sh', label: 'SH', template: 'https://subhd.tv/search/{imdbid}' },
+    { id: 'ops', label: 'OPS', template: 'https://orpheus.network/torrents.php?searchstr={search_name}' },
+    { id: 'bm', label: 'BM', template: 'https://www.blu-ray.com/search/?quicksearch=1&quicksearch_country=all&quicksearch_keyword={search_name}&section=bluraymovies' },
+    { id: 'lb', label: 'LB', template: 'https://letterboxd.com/imdb/{imdbid}' },
+    { id: 'of', label: 'OF', template: 'https://www.ofdb.de/suchergebnis/?{search_name}' },
+    { id: 'az', label: 'AZ', template: 'https://avistaz.to/torrents?in=1&search={search_name}' },
+    { id: 'tb', label: 'TB', template: 'https://thetvdb.com/search?query={search_name}' },
+    { id: 'ade', label: 'ADE', template: 'https://audiences.me/torrents.php?incldead=0&spstate=0&inclbookmarked=0&search={imdbid}&search_area=4&search_mode=0' }
+];
+
+const downloadSiteState = {
+    enabledIds: new Set(),
+    customSites: []
+};
+
+let downloadSitesInitialized = false;
+let downloadSiteSaveTimer = null;
+
+function normalizeImdbId(rawValue) {
+    if (!rawValue) return '';
+    const value = String(rawValue).trim();
+    if (!value) return '';
+    if (value.startsWith('tt')) return value;
+    if (/^\d+$/.test(value)) return `tt${value}`;
+    return value;
+}
+
+function buildDownloadSiteUrl(template, tokens) {
+    if (!template) return '';
+    let url = template;
+    if (url.includes('{imdbid}')) {
+        if (!tokens.imdbid) return '';
+        url = url.split('{imdbid}').join(encodeURIComponent(tokens.imdbid));
+    }
+    if (url.includes('{imdbno}')) {
+        if (!tokens.imdbno) return '';
+        url = url.split('{imdbno}').join(encodeURIComponent(tokens.imdbno));
+    }
+    if (url.includes('{search_name}')) {
+        if (!tokens.search_name) return '';
+        url = url.split('{search_name}').join(encodeURIComponent(tokens.search_name));
+    }
+    return url;
+}
+
+function getDownloadTokens(movie) {
+    const rawImdb = movie.Const || movie.imdb_id || movie['IMDb ID'] || movie['IMDB ID'] || '';
+    const imdbid = normalizeImdbId(rawImdb);
+    const imdbno = imdbid.startsWith('tt') ? imdbid.slice(2) : (/^\d+$/.test(imdbid) ? imdbid : '');
+    const title = movie.Title || movie.title || '';
+    const year = movie.Year || movie.year || '';
+    const search_name = [title, year].filter(Boolean).join(' ').trim();
+
+    return { imdbid, imdbno, search_name };
+}
+
+function getActiveDownloadSites() {
+    const enabledDefaults = DEFAULT_DOWNLOAD_SITES.filter(site => downloadSiteState.enabledIds.has(site.id));
+    const enabledCustoms = Array.isArray(downloadSiteState.customSites)
+        ? downloadSiteState.customSites.filter(site => site.label && site.template && site.enabled !== false)
+        : [];
+    return [...enabledDefaults, ...enabledCustoms];
+}
+
+function buildDownloadSiteLinks(movie) {
+    const tokens = getDownloadTokens(movie);
+    const activeSites = getActiveDownloadSites();
+    return activeSites.map(site => {
+        const url = buildDownloadSiteUrl(site.template, tokens);
+        if (!url) return null;
+        return { label: site.label, url };
+    }).filter(Boolean);
+}
+
+function addCustomSiteRow(site = {}) {
+    const listEl = document.getElementById('download-sites-custom-list');
+    if (!listEl) return;
+
+    const isEnabled = site.enabled !== false;
+    const row = document.createElement('div');
+    row.className = 'custom-site-row';
+    row.innerHTML = `
+        <input type="checkbox" class="custom-site-enabled" ${isEnabled ? 'checked' : ''}>
+        <input type="text" class="custom-site-label" placeholder="站点名" value="${site.label || ''}">
+        <input type="text" class="custom-site-template" placeholder="链接模板，例如 https://example.com?q={imdbid}" value="${site.template || ''}">
+        <button class="btn btn-secondary btn-sm custom-site-remove">移除</button>
+    `;
+    row.querySelector('.custom-site-remove').addEventListener('click', () => {
+        row.remove();
+        syncDownloadSiteStateFromUI({ persist: true });
+    });
+    listEl.appendChild(row);
+}
+
+function renderDownloadSiteSettings() {
+    const defaultContainer = document.getElementById('download-sites-default');
+    if (defaultContainer) {
+        defaultContainer.innerHTML = DEFAULT_DOWNLOAD_SITES.map(site => `
+            <label class="download-site-item">
+                <input type="checkbox" data-site-id="${site.id}" ${downloadSiteState.enabledIds.has(site.id) ? 'checked' : ''}>
+                <div class="download-site-info">
+                    <span class="download-site-name">${site.label}</span>
+                    <span class="download-site-template" title="${site.template}">${site.template}</span>
+                </div>
+            </label>
+        `).join('');
+    }
+
+    const customList = document.getElementById('download-sites-custom-list');
+    if (customList) {
+        customList.innerHTML = '';
+        if (Array.isArray(downloadSiteState.customSites)) {
+            downloadSiteState.customSites.forEach(site => addCustomSiteRow(site));
+        }
+    }
+}
+
+function filterDownloadSites(query) {
+    const normalized = (query || '').toLowerCase().trim();
+    const items = document.querySelectorAll('#download-sites-default .download-site-item');
+
+    items.forEach(item => {
+        const name = item.querySelector('.download-site-name')?.textContent || '';
+        const template = item.querySelector('.download-site-template')?.textContent || '';
+        const matches = !normalized ||
+            name.toLowerCase().includes(normalized) ||
+            template.toLowerCase().includes(normalized);
+        item.style.display = matches ? '' : 'none';
+    });
+}
+
+function initDownloadSiteSettings(config) {
+    const defaultContainer = document.getElementById('download-sites-default');
+    if (!defaultContainer) return;
+
+    const enabled = Array.isArray(config.download_sites_enabled) ? config.download_sites_enabled : [];
+    downloadSiteState.enabledIds = new Set(enabled);
+    downloadSiteState.customSites = Array.isArray(config.download_sites_custom) ? config.download_sites_custom : [];
+
+    renderDownloadSiteSettings();
+
+    if (!downloadSitesInitialized) {
+        const addBtn = document.getElementById('add-custom-site-btn');
+        const customList = document.getElementById('download-sites-custom-list');
+        if (addBtn) {
+            addBtn.addEventListener('click', () => {
+                addCustomSiteRow({ enabled: true });
+                syncDownloadSiteStateFromUI({ persist: true });
+            });
+        }
+        defaultContainer.addEventListener('change', () => {
+            syncDownloadSiteStateFromUI({ persist: true });
+        });
+        if (customList) {
+            customList.addEventListener('input', () => {
+                syncDownloadSiteStateFromUI({ persist: true });
+            });
+            customList.addEventListener('change', () => {
+                syncDownloadSiteStateFromUI({ persist: true });
+            });
+        }
+
+        // Add site search filter
+        const siteSearchInput = document.getElementById('download-site-search');
+        if (siteSearchInput) {
+            siteSearchInput.addEventListener('input', (e) => {
+                filterDownloadSites(e.target.value);
+            });
+        }
+
+        downloadSitesInitialized = true;
+    }
+}
+
+function collectDownloadSiteConfig() {
+    const enabledIds = Array.from(
+        document.querySelectorAll('#download-sites-default input[type="checkbox"]:checked')
+    ).map(checkbox => checkbox.dataset.siteId);
+
+    const customSites = [];
+    document.querySelectorAll('#download-sites-custom-list .custom-site-row').forEach(row => {
+        const label = row.querySelector('.custom-site-label')?.value.trim();
+        const template = row.querySelector('.custom-site-template')?.value.trim();
+        const enabled = !!row.querySelector('.custom-site-enabled')?.checked;
+        if (label && template) customSites.push({ label, template, enabled });
+    });
+
+    return { enabledIds, customSites };
+}
+
+function syncDownloadSiteStateFromUI({ persist = false } = {}) {
+    const config = collectDownloadSiteConfig();
+    downloadSiteState.enabledIds = new Set(config.enabledIds);
+    downloadSiteState.customSites = config.customSites;
+
+    if (typeof wishlistState !== 'undefined' && wishlistState.items.length > 0) {
+        renderWishlistPage(wishlistState.currentPage);
+    }
+
+    if (persist) {
+        if (downloadSiteSaveTimer) clearTimeout(downloadSiteSaveTimer);
+        downloadSiteSaveTimer = setTimeout(() => {
+            function setupWishlistSocketListeners() {
+                if (!window.socket) { setTimeout(setupWishlistSocketListeners, 100); return; }
+                window.socket.emit('save_config', {
+                    download_sites_enabled: config.enabledIds,
+                    download_sites_custom: config.customSites
+                });
+            }
+        }, 400);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const socket = io();
     window.socket = socket; // Expose for debugging
@@ -119,6 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
         testDoubanBtn: document.getElementById('test-douban-btn'),
         testImdbBtn: document.getElementById('test-imdb-btn'),
         saveConfigBtn: document.getElementById('save-config-btn'),
+        saveSettingsBtn: document.getElementById('save-settings-btn'),
         fetchDoubanBtn: document.getElementById('fetch-douban-btn'),
         fetchImdbBtn: document.getElementById('fetch-imdb-btn'),
         previewBtn: document.getElementById('preview-btn'),
@@ -223,6 +460,16 @@ document.addEventListener('DOMContentLoaded', () => {
         ui.tabContents.forEach(content => content.classList.remove('active'));
         document.getElementById(`tab-${tabId}`)?.classList.add('active');
 
+        // Load data for dynamic tabs
+        if (tabId === 'wishlist') {
+            loadWishlistLibrary();
+            updateWishlistViewToggle();
+        } else if (tabId === 'backups') {
+            // Load my-files by default (first tab)
+            loadMyFilesList();
+            initBackupSubTabs();
+        }
+
         // Save session state when tab changes
         saveSessionState();
     }
@@ -265,6 +512,8 @@ document.addEventListener('DOMContentLoaded', () => {
         updateAuthStatus();
         // Update button states based on config
         updateButtonsBasedOnConnection();
+
+        initDownloadSiteSettings(config);
 
         // Populate Trakt credentials if saved
         const traktClientIdInput = document.getElementById('trakt-client-id');
@@ -1105,6 +1354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ui.testDoubanBtn) ui.testDoubanBtn.addEventListener('click', () => testConnection('douban'));
     if (ui.testImdbBtn) ui.testImdbBtn.addEventListener('click', () => testConnection('imdb'));
     if (ui.saveConfigBtn) ui.saveConfigBtn.addEventListener('click', saveConfig);
+    if (ui.saveSettingsBtn) ui.saveSettingsBtn.addEventListener('click', saveConfig);
 
     // Settings page test buttons
     const testDoubanSettingsBtn = document.getElementById('test-douban-settings-btn');
@@ -1434,6 +1684,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Call initially
+    setTimeout(() => updateSettingsAuthStatus(), 500);
+    function updateSettingsAuthStatus() {
+        // Douban
+        const doubanStatus = document.getElementById('settings-douban-status');
+        if (doubanStatus) {
+            if (appState.douban_cookie && appState.douban_user_id) {
+                doubanStatus.textContent = '✅ 已配置';
+                doubanStatus.className = 'auth-status success';
+            } else {
+                doubanStatus.textContent = '未配置';
+                doubanStatus.className = 'auth-status';
+            }
+        }
+
+        // IMDb
+        const imdbStatus = document.getElementById('settings-imdb-status');
+        if (imdbStatus) {
+            if (appState.imdb_cookie && appState.imdb_user_id) {
+                imdbStatus.textContent = '✅ 已配置';
+                imdbStatus.className = 'auth-status success';
+            } else {
+                imdbStatus.textContent = '未配置';
+                imdbStatus.className = 'auth-status';
+            }
+        }
+
+        // TMDB (Check API Key presence)
+        // Assuming we rely on config input values or appState for API key
+        // appState.tmdb_api_key might not be populated, let's check input primarily + stats
+        // Actually script.js doesn't seem to store tmdb_api_key in appState explicitly on load?
+        // Let's rely on basic Douban/IMDb for now as requested.
+    }
+
+    // Hook into existing events to trigger this update
+    const originalUpdatePlatformStatus = updatePlatformStatus;
+    updatePlatformStatus = function () {
+        originalUpdatePlatformStatus();
+        updateSettingsAuthStatus();
+    }
+
+    // Call initially
+    // setTimeout(() => updateSettingsAuthStatus(), 500);
+
     socket.on('tmdb_disconnected', (data) => {
         log('✅ TMDB 已断开', 'success');
     });
@@ -1759,7 +2053,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setButtonsState(busy) {
-        const buttons = [ui.fetchDoubanBtn, ui.fetchImdbBtn, ui.syncBtn];
+        const buttons = [
+            ui.fetchDoubanBtn,
+            ui.fetchImdbBtn,
+            ui.syncBtn,
+            document.getElementById('fetch-douban-wish-btn')
+        ];
         buttons.forEach(btn => { if (btn) btn.disabled = busy; });
 
         if (!busy) {
@@ -1785,6 +2084,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function hideHelpModal() {
         if (ui.modal) ui.modal.style.display = 'none';
     }
+
+
 
     // ========================================
     // Action Handlers
@@ -1831,25 +2132,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveConfig() {
+        const downloadConfig = collectDownloadSiteConfig();
         const configData = {
-            douban_user_id: appState.douban_user_id || document.getElementById('douban-user-id-config')?.value || '',
+            douban_user_id: document.getElementById('douban-user-id-config')?.value || appState.douban_user_id || '',
             douban_cookie: document.getElementById('douban-cookie-config')?.value || appState.douban_cookie || '',
-            imdb_user_id: appState.imdb_user_id || document.getElementById('imdb-user-id-config')?.value || '',
+            imdb_user_id: document.getElementById('imdb-user-id-config')?.value || appState.imdb_user_id || '',
             imdb_cookie: document.getElementById('imdb-cookie-config')?.value || appState.imdb_cookie || '',
+            download_sites_enabled: downloadConfig.enabledIds,
+            download_sites_custom: downloadConfig.customSites
         };
         // Update appState
         appState.douban_cookie = configData.douban_cookie;
         appState.imdb_cookie = configData.imdb_cookie;
+        downloadSiteState.enabledIds = new Set(downloadConfig.enabledIds);
+        downloadSiteState.customSites = downloadConfig.customSites;
 
         socket.emit('save_config', configData);
-        log('💾 配置已保存', 'success');
-        highlightElement(ui.saveConfigBtn, 'success');
+        if (window.log) window.log('💾 配置已保存', 'success');
+
+        // Show feedback on both buttons if they exist
+        if (ui.saveConfigBtn) highlightElement(ui.saveConfigBtn, 'success');
+        if (ui.saveSettingsBtn) highlightElement(ui.saveSettingsBtn, 'success');
+
+        updateSettingsAuthStatus();
+        if (wishlistState.items.length > 0) {
+            renderWishlistPage(wishlistState.currentPage);
+        }
     }
 
     function triggerFetch(platform) {
         // Get userId from appState (set during login) or settings page
-        const userId = appState[`${platform}_user_id`] ||
+        let userId = appState[`${platform}_user_id`] ||
             document.getElementById(`${platform}-user-id-config`)?.value || '';
+
+        // Handle Backup Mode for Douban
+        if (platform === 'douban') {
+            const backupIdEl = document.getElementById('douban-backup-user-id');
+            if (backupIdEl && backupIdEl.value.trim()) {
+                const targetId = backupIdEl.value.trim();
+                userId = targetId; // Override with friend's ID
+                log(`👥 正在为好友 (${targetId}) 备份数据...`, 'info');
+            }
+        }
+
         // Get cookie from settings tab (fallback to appState)
         const cookieEl = document.getElementById(`${platform}-cookie-config`);
         const cookie = cookieEl?.value || appState[`${platform}_cookie`] || '';
@@ -2145,7 +2470,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let html = '<div class="movie-list-preview">';
         data.sample.forEach(movie => {
             const movieUrl = movie['URL'] || movie['URL_douban'] || movie['URL_imdb'] || '#';
-            const coverUrl = movie['Cover URL'] || movie['CoverURL'] || '';
+            const coverUrl = getSafeImageUrl(movie['Cover URL'] || movie['CoverURL'] || '');
             const title = movie['Title'] || movie['title'] || '未知标题';
             const year = movie['Year'] || movie['year'] || '';
             const myRating = movie['Your Rating'] || movie['YourRating_douban'] || movie['YourRating_imdb'] || '';
@@ -2290,6 +2615,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const connectedEl = document.getElementById(`${platform}-connected`);
         const statusBadge = document.getElementById(`${platform}-status-badge`);
         const logoutBtn = document.getElementById(`logout-${platform}-btn`);
+        const fetchWishBtn = document.getElementById(`fetch-${platform}-wish-btn`);
 
         if (!notConnectedEl || !connectedEl) return;
 
@@ -2297,6 +2623,7 @@ document.addEventListener('DOMContentLoaded', () => {
             notConnectedEl.style.display = 'none';
             connectedEl.style.display = 'block';
             if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+            if (fetchWishBtn) fetchWishBtn.style.display = 'inline-flex';
 
             if (statusBadge) {
                 statusBadge.textContent = '● 已连接';
@@ -2323,6 +2650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             notConnectedEl.style.display = 'flex';
             connectedEl.style.display = 'none';
             if (logoutBtn) logoutBtn.style.display = 'none';
+            if (fetchWishBtn) fetchWishBtn.style.display = 'none';
 
             if (statusBadge) {
                 statusBadge.textContent = '● 未连接';
@@ -2406,7 +2734,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Build movie grid HTML (horizontal compact layout)
         let html = '<div class="preview-compact-grid">';
         pageMovies.forEach(movie => {
-            const coverUrl = movie['Cover URL'] || '';
+            const coverUrl = getSafeImageUrl(movie['Cover URL'] || '');
             const rating = movie['Your Rating'] || movie['YourRating_douban'] || movie['YourRating_imdb'] || movie['source_rating'] || '';
             const movieUrl = movie['URL_douban'] || movie['URL_imdb'] || movie['URL'] || '#';
             const title = movie['Title'] || movie.title || '未知';
@@ -2464,7 +2792,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ui.syncFailedCard.style.display = 'block';
         const item = document.createElement('div');
         item.className = 'preview-item failed-item';
-        const coverUrl = movie['Cover URL'] || '';
+        const coverUrl = getSafeImageUrl(movie['Cover URL'] || '');
         const rating = movie['Your Rating'] || movie['YourRating_douban'] || movie['YourRating_imdb'];
         const movieUrl = movie['URL_douban'] || movie['URL_imdb'] || movie['URL'] || '#';
         item.innerHTML = `
@@ -2607,7 +2935,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Render movie list
         let html = '<div class="movie-list-preview">';
         data.movies.slice(0, 20).forEach(movie => {
-            const coverUrl = movie['Cover URL'] || '';
+            const coverUrl = getSafeImageUrl(movie['Cover URL'] || '');
             const title = movie['Title'] || movie.title || '未知';
             const year = movie['Year'] || movie.year || '';
             const movieUrl = movie['URL_douban'] || movie['URL'] || '#';
@@ -3243,7 +3571,7 @@ function renderUnifiedLibrary(data) {
         }
 
         // Cover image
-        const posterUrl = movie.poster_url || '';
+        const posterUrl = getSafeImageUrl(movie.poster_url || '');
         const coverHtml = posterUrl
             ? `<div class="movie-cover-wrapper"><img class="movie-cover-large" src="${posterUrl}" alt="" loading="lazy" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');"></div>`
             : `<div class="movie-cover-wrapper"><div class="movie-cover-placeholder large">🎬</div></div>`;
@@ -3375,3 +3703,538 @@ document.addEventListener('DOMContentLoaded', function () {
     // Initialize after a small delay to ensure socket is ready
     setTimeout(initFilterHandlers, 100);
 });
+
+// ==========================================
+// Wishlist Feature Handlers
+// ==========================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Event Handler for Fetch Wish Button
+    const fetchDoubanWishBtn = document.getElementById('fetch-douban-wish-btn');
+    if (fetchDoubanWishBtn) {
+        fetchDoubanWishBtn.addEventListener('click', () => {
+            if (window.log) window.log('🚀 开始获取 豆瓣 想看列表...', 'info');
+
+            fetchDoubanWishBtn.disabled = true;
+            fetchDoubanWishBtn.innerHTML = '<span class="loading-spinner"></span> 处理中...';
+
+            if (window.socket) {
+                window.socket.emit('fetch_wish', { platform: 'douban' });
+            }
+        });
+    }
+
+    const wishlistViewButtons = document.querySelectorAll('.wishlist-view-toggle [data-view]');
+    if (wishlistViewButtons.length) {
+        wishlistViewButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                setWishlistViewMode(btn.dataset.view);
+            });
+        });
+        updateWishlistViewToggle();
+    }
+
+    // 2. Socket Listeners for Wishlist
+    if (window.socket) {
+        window.socket.on('fetch_wish_complete', (data) => {
+            // Log success
+            if (window.log) window.log(`✅ ${data.platform.toUpperCase()} 想看列表获取完成: ${data.count} 部`, 'success');
+
+            // Update Count in Account Tab
+            const wishCountEl = document.getElementById(`${data.platform}-wish-count`);
+            if (wishCountEl) {
+                wishCountEl.textContent = data.count;
+            }
+
+            // Reset button
+            if (data.platform === 'douban' && fetchDoubanWishBtn) {
+                fetchDoubanWishBtn.disabled = false;
+                fetchDoubanWishBtn.innerHTML = '📥 获取想看';
+            }
+            const wishlistRefreshBtn = document.getElementById('refresh-wishlist-btn');
+            if (wishlistRefreshBtn) {
+                wishlistRefreshBtn.disabled = false;
+                wishlistRefreshBtn.innerHTML = '刷新豆瓣想看';
+            }
+
+            // Refresh wishlist view if active
+            const activeTab = document.querySelector('.nav-tab.active');
+            if (activeTab && activeTab.dataset.tab === 'wishlist') {
+                loadWishlistLibrary();
+            }
+        });
+
+        // Listeners for Wishlist View
+        window.socket.on('wishlist_library_data', (data) => {
+            renderWishlist(data.items);
+        });
+
+        // Listeners for Backups View
+        window.socket.on('backups_list_data', (data) => {
+            renderBackupsList(data.backups);
+        });
+
+        window.socket.on('backup_content_data', (data) => {
+            renderBackupPreview(data);
+        });
+
+        // Listeners for My Platform Files
+        window.socket.on('my_files_list_data', (data) => {
+            renderMyFilesList(data.files);
+        });
+
+        window.socket.on('my_file_deleted', () => {
+            loadMyFilesList();
+        });
+    }
+});
+
+// ==========================================
+// Wishlist & Backups Functions
+// ==========================================
+
+function loadWishlistLibrary() {
+    if (window.log) window.log('📡 加载想看列表...', 'info');
+    window.socket.emit('get_wishlist_library');
+}
+
+const WISHLIST_VIEW_STORAGE_KEY = 'wishlist_view_mode';
+const WISHLIST_PAGE_SIZES = { grid: 24, list: 12 };
+
+function getSavedWishlistViewMode() {
+    try {
+        const saved = localStorage.getItem(WISHLIST_VIEW_STORAGE_KEY);
+        if (saved === 'grid' || saved === 'list') return saved;
+    } catch (e) {
+        console.warn('Wishlist view mode storage unavailable:', e);
+    }
+    return 'list';
+}
+
+function updateWishlistViewToggle() {
+    const gridBtn = document.getElementById('wishlist-view-grid');
+    const listBtn = document.getElementById('wishlist-view-list');
+    if (!gridBtn || !listBtn) return;
+
+    gridBtn.classList.toggle('active', wishlistState.viewMode === 'grid');
+    listBtn.classList.toggle('active', wishlistState.viewMode === 'list');
+
+    // Attach click handlers if not already attached
+    if (!gridBtn.dataset.initialized) {
+        gridBtn.addEventListener('click', () => setWishlistViewMode('grid'));
+        gridBtn.dataset.initialized = 'true';
+    }
+    if (!listBtn.dataset.initialized) {
+        listBtn.addEventListener('click', () => setWishlistViewMode('list'));
+        listBtn.dataset.initialized = 'true';
+    }
+}
+
+function setWishlistViewMode(mode) {
+    const normalized = mode === 'list' ? 'list' : 'grid';
+    if (wishlistState.viewMode === normalized) return;
+
+    wishlistState.viewMode = normalized;
+    wishlistState.pageSize = WISHLIST_PAGE_SIZES[normalized] || WISHLIST_PAGE_SIZES.grid;
+    wishlistState.totalPages = Math.ceil(wishlistState.items.length / wishlistState.pageSize) || 1;
+    wishlistState.currentPage = Math.min(wishlistState.currentPage, wishlistState.totalPages) || 1;
+
+    try {
+        localStorage.setItem(WISHLIST_VIEW_STORAGE_KEY, normalized);
+    } catch (e) {
+        console.warn('Wishlist view mode storage unavailable:', e);
+    }
+
+    updateWishlistViewToggle();
+
+    if (wishlistState.items.length > 0) {
+        renderWishlistPage(wishlistState.currentPage);
+    }
+}
+
+function formatWishlistVotes(num) {
+    if (!num) return '';
+    const n = parseFloat(num);
+    if (Number.isNaN(n)) return '';
+    if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return String(n);
+}
+
+// Wishlist state
+const initialWishlistViewMode = getSavedWishlistViewMode();
+const wishlistState = {
+    items: [],
+    currentPage: 1,
+    pageSize: WISHLIST_PAGE_SIZES[initialWishlistViewMode] || WISHLIST_PAGE_SIZES.grid,
+    totalPages: 1,
+    viewMode: initialWishlistViewMode
+};
+
+function renderWishlist(items) {
+    const listEl = document.getElementById('wishlist-list');
+    const emptyEl = document.getElementById('wishlist-empty');
+    const paginationEl = document.getElementById('wishlist-pagination');
+
+    wishlistState.items = items || [];
+    wishlistState.currentPage = 1;
+    wishlistState.pageSize = WISHLIST_PAGE_SIZES[wishlistState.viewMode] || WISHLIST_PAGE_SIZES.grid;
+    wishlistState.totalPages = Math.ceil(wishlistState.items.length / wishlistState.pageSize);
+
+    if (!items || items.length === 0) {
+        if (listEl) listEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (paginationEl) paginationEl.style.display = 'none';
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (listEl) listEl.style.display = '';
+    updateWishlistViewToggle();
+    renderWishlistPage(1);
+}
+
+function getSafeImageUrl(url) {
+    if (!url) return '';
+    const lower = String(url).toLowerCase();
+    if (lower.includes('doubanio.com') || lower.includes('douban.com')) {
+        return `/proxy/image?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+}
+
+function renderWishlistPage(page) {
+    const listEl = document.getElementById('wishlist-list');
+    const paginationEl = document.getElementById('wishlist-pagination');
+
+    if (!listEl) return;
+
+    listEl.style.display = '';
+    wishlistState.currentPage = page;
+    const start = (page - 1) * wishlistState.pageSize;
+    const end = start + wishlistState.pageSize;
+    const pageItems = wishlistState.items.slice(start, end);
+
+    listEl.classList.toggle('wishlist-grid-view', wishlistState.viewMode === 'grid');
+    listEl.classList.toggle('wishlist-list-view', wishlistState.viewMode === 'list');
+
+    if (wishlistState.viewMode === 'list') {
+        listEl.innerHTML = pageItems.map(movie => {
+            const title = movie.Title || movie.title || 'Unknown Title';
+            const year = movie.Year || movie.year || '';
+            const poster = getSafeImageUrl(movie['Cover URL'] || movie.poster_url || '/static/images/default_poster.png');
+            const rating = movie['Douban Rating'] || movie['IMDb Rating'] || '';
+            const votes = movie['Num Votes'] || movie['IMDb Votes'] || '';
+            const dateAdded = movie['Date Rated'] || movie['Date Added'] || '';
+            const directors = movie['Directors'] || '';
+            const actors = movie['Actors'] || '';
+            const genres = movie['Genres'] || '';
+            const country = movie['Country'] || '';
+            const source = movie.source || movie.Source || '';
+            const links = buildDownloadSiteLinks(movie);
+
+            const metaParts = [];
+            if (genres) metaParts.push(genres);
+            if (directors) metaParts.push(`导演: ${directors}`);
+            if (actors) metaParts.push(`主演: ${actors}`);
+            if (country) metaParts.push(country);
+            if (source) metaParts.push(`来源: ${source}`);
+            const metaText = metaParts.filter(Boolean).join(' · ');
+
+            let ratingText = '';
+            if (movie['Douban Rating']) ratingText = `豆瓣 ${movie['Douban Rating']}`;
+            if (!ratingText && movie['IMDb Rating']) ratingText = `IMDb ${movie['IMDb Rating']}`;
+
+            const votesText = formatWishlistVotes(votes);
+            const mainLink = movie.URL || movie.douban_url || movie.imdb_url || '#';
+            const linksHtml = links.length
+                ? links.map(link => `<a class="wishlist-link" href="${link.url}" target="_blank">${link.label} ↗</a>`).join('')
+                : '';
+
+            return `
+            <div class="wishlist-row">
+                <div class="wishlist-cover">
+                    <img src="${poster}" alt="${title}" loading="lazy" referrerpolicy="no-referrer"
+                        onerror="this.src='/static/images/default_poster.png'">
+                </div>
+                <div class="wishlist-main">
+                    <div class="wishlist-title-row">
+                        <div class="wishlist-title-group">
+                            <a class="wishlist-title" href="${mainLink}" target="_blank" title="${title}">${title}</a>
+                            ${year ? `<span class="wishlist-year">${year}</span>` : ''}
+                        </div>
+                        ${linksHtml ? `<div class="wishlist-links">${linksHtml}</div>` : ''}
+                    </div>
+                    ${metaText ? `<div class="wishlist-meta" title="${metaText}">${metaText}</div>` : ''}
+                    <div class="wishlist-submeta">
+                        ${ratingText ? `<span class="wishlist-rating">${ratingText}</span>` : ''}
+                        ${votesText ? `<span class="wishlist-votes">${votesText}人评价</span>` : ''}
+                        ${dateAdded ? `<span class="wishlist-date">想看于 ${String(dateAdded).substring(0, 10)}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+            `;
+        }).join('');
+    } else {
+        listEl.innerHTML = pageItems.map(movie => {
+            const title = movie.Title || movie.title || 'Unknown Title';
+            const poster = getSafeImageUrl(movie['Cover URL'] || movie.poster_url || '/static/images/default_poster.png');
+            const rating = movie['Douban Rating'] || 0;
+            const link = movie.URL || movie.douban_url || '#';
+
+            return `
+            <div class="movie-card compact">
+                <a href="${link}" target="_blank" style="text-decoration:none;color:inherit;">
+                    <div class="movie-poster-wrapper">
+                        <img src="${poster}" alt="${title}" class="movie-poster" loading="lazy" referrerpolicy="no-referrer"
+                             onerror="this.src='/static/images/default_poster.png'">
+                        ${rating ? `<div class="movie-rating-badge douban">${rating}</div>` : ''}
+                    </div>
+                    <div class="movie-info">
+                        <div class="movie-title" title="${title}">${title}</div>
+                    </div>
+                </a>
+            </div>
+            `;
+        }).join('');
+    }
+
+    // Update pagination
+    if (paginationEl) {
+        if (wishlistState.totalPages > 1) {
+            paginationEl.style.display = 'flex';
+            paginationEl.innerHTML = `
+                <button class="btn btn-secondary btn-sm" onclick="renderWishlistPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← 上一页</button>
+                <span class="pagination-info">${page} / ${wishlistState.totalPages} (共 ${wishlistState.items.length} 部)</span>
+                <button class="btn btn-secondary btn-sm" onclick="renderWishlistPage(${page + 1})" ${page >= wishlistState.totalPages ? 'disabled' : ''}>下一页 →</button>
+            `;
+        } else {
+            paginationEl.style.display = 'none';
+        }
+    }
+}
+
+function downloadWishlist(format = 'cinerecord-csv') {
+    const downloadUrl = `/download/wishlist?format=${encodeURIComponent(format)}&t=${Date.now()}`;
+    let iframe = document.getElementById('download-iframe');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.id = 'download-iframe';
+        document.body.appendChild(iframe);
+    }
+    iframe.src = downloadUrl;
+}
+
+function triggerFetchWish(platform, btnEl) {
+    const btn = btnEl || document.getElementById('refresh-wishlist-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading-spinner"></span> 处理中...';
+    }
+    if (window.socket) {
+        window.socket.emit('fetch_wish', { platform: platform, force_full: true });
+        window.log(`🚀 开始获取 ${platform.toUpperCase()} 想看列表...`, 'info');
+    }
+}
+
+// Backups Functions
+
+// Backup sub-tab switching
+let backupSubTabsInitialized = false;
+function initBackupSubTabs() {
+    if (backupSubTabsInitialized) return;
+    backupSubTabsInitialized = true;
+
+    document.querySelectorAll('.backup-sub-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            // Update tab styles
+            document.querySelectorAll('.backup-sub-tab').forEach(t => {
+                t.classList.remove('active');
+                t.style.background = 'transparent';
+                t.style.color = 'var(--text-secondary)';
+            });
+            tab.classList.add('active');
+            tab.style.background = 'var(--bg-card)';
+            tab.style.color = 'var(--text-primary)';
+
+            // Update panels
+            document.querySelectorAll('.backup-sub-panel').forEach(p => {
+                p.classList.remove('active');
+                p.style.display = 'none';
+            });
+            const panelId = tab.dataset.backupTab + '-panel';
+            const panel = document.getElementById(panelId);
+            if (panel) {
+                panel.classList.add('active');
+                panel.style.display = 'block';
+            }
+
+            // Load appropriate data
+            if (tab.dataset.backupTab === 'my-data') {
+                loadMyFilesList();
+            } else {
+                loadBackupsList();
+            }
+        });
+    });
+}
+
+// My Platform Files
+function loadMyFilesList() {
+    if (window.socket) window.socket.emit('get_my_files_list');
+}
+
+function renderMyFilesList(files) {
+    const tbody = document.getElementById('my-files-table-body');
+    const emptyMsg = document.getElementById('my-files-empty-msg');
+
+    if (!tbody) return;
+
+    if (!files || files.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyMsg) emptyMsg.style.display = 'block';
+        return;
+    }
+
+    if (emptyMsg) emptyMsg.style.display = 'none';
+    tbody.innerHTML = files.map(file => `
+        <tr style="border-bottom: 1px solid var(--border-color);">
+            <td style="padding: 10px;">${file.filename}</td>
+            <td style="padding: 10px;">
+                <img src="/static/images/platforms/${file.platform.toLowerCase()}.png" 
+                     style="width:16px;vertical-align:middle" 
+                     onerror="this.style.display='none'"> 
+                ${file.platform}
+            </td>
+            <td style="padding: 10px;">
+                <span class="status-badge ${file.type === '想看' ? 'wishlist' : 'completed'}">
+                    ${file.type}
+                </span>
+            </td>
+            <td style="padding: 10px;">${(file.size / 1024).toFixed(1)} KB</td>
+            <td style="padding: 10px;">${file.mtime}</td>
+            <td style="padding: 10px;">
+                <button class="btn btn-sm btn-outline danger" onclick="deleteMyFile('${file.filename}')">🗑️ 删除</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function deleteMyFile(filename) {
+    if (confirm(`确定删除 ${filename}？\n删除后下次获取数据时将自动全量更新。`)) {
+        if (window.socket) window.socket.emit('delete_my_file', { filename });
+    }
+}
+
+function loadBackupsList() {
+    if (window.socket) window.socket.emit('get_backups_list');
+}
+
+function renderBackupsList(backups) {
+    const tbody = document.getElementById('backups-table-body');
+    const emptyMsg = document.getElementById('backups-empty-msg');
+
+    if (!backups || backups.length === 0) {
+        tbody.innerHTML = '';
+        emptyMsg.style.display = 'block';
+        return;
+    }
+
+    emptyMsg.style.display = 'none';
+    tbody.innerHTML = backups.map(file => `
+        <tr style="border-bottom: 1px solid var(--border-color);">
+            <td style="padding: 10px;">${file.filename}</td>
+            <td style="padding: 10px;">
+                <img src="/static/images/platforms/${file.platform}.png" style="width:16px;vertical-align:middle"> 
+                ${file.platform.toUpperCase()}
+            </td>
+            <td style="padding: 10px;">${file.user_id}</td>
+            <td style="padding: 10px;">
+                <span class="status-badge ${file.type === 'wish' ? 'wishlist' : 'completed'}">
+                    ${file.type === 'wish' ? '想看' : '看过'}
+                </span>
+            </td>
+            <td style="padding: 10px;">${(file.size / 1024).toFixed(1)} KB</td>
+            <td style="padding: 10px;">${file.mtime}</td>
+            <td style="padding: 10px;">
+                <button class="btn btn-sm btn-outline" onclick="previewBackup('${file.filename}')">👀 查看</button>
+                <button class="btn btn-sm btn-outline danger" onclick="deleteBackup('${file.filename}')">🗑️ 删除</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function triggerBackupDouban(type = 'done') {
+    const input = document.getElementById('backups-douban-id');
+    const userId = input ? input.value.trim() : '';
+    if (!userId) {
+        alert('请输入好友豆瓣ID');
+        return;
+    }
+
+    const typeText = type === 'wish' ? '想看' : '看过';
+    if (window.socket) {
+        window.log(`🚀 开始备份好友 ${userId} 的豆瓣${typeText}数据...`, 'info');
+        if (type === 'wish') {
+            window.socket.emit('fetch_wish', { platform: 'douban', user_id: userId });
+        } else {
+            window.socket.emit('fetch_data', { platform: 'douban', user_id: userId });
+        }
+        // Refresh list after a delay
+        setTimeout(() => loadBackupsList(), 5000);
+    }
+}
+
+function previewBackup(filename) {
+    if (window.socket) window.socket.emit('get_backup_content', { filename });
+    document.getElementById('backup-preview-panel').style.display = 'block';
+    document.getElementById('preview-filename').textContent = filename;
+    document.getElementById('backup-preview-list').innerHTML = '<div style=\"padding:20px;text-align:center\">加载中...</div>';
+}
+
+function renderBackupPreview(data) {
+    const listEl = document.getElementById('backup-preview-list');
+    if (!listEl || !data || !data.records) {
+        console.error('Backup preview: missing elements or data', data);
+        return;
+    }
+
+    if (data.records.length === 0) {
+        listEl.innerHTML = '<div style=\"padding:20px;text-align:center;color:var(--text-secondary)\">该文件暂无数据</div>';
+        return;
+    }
+
+    let html = data.records.map(movie => {
+        const title = movie.Title || movie.title || 'Unknown';
+        const rating = movie['Your Rating'] || movie.Rating || movie['Douban Rating'] || 0;
+        const poster = getSafeImageUrl(movie['Cover URL'] || movie.poster_url || '/static/images/default_poster.png');
+        return `
+         <div class=\"movie-card compact\">
+            <div class=\"movie-poster-wrapper\">
+                <img src=\"${poster}\" class=\"movie-poster\" loading=\"lazy\" referrerpolicy=\"no-referrer\" 
+                     onerror=\"this.src='/static/images/default_poster.png'\">
+                <div class=\"movie-rating-badge\">${rating}</div>
+            </div>
+            <div class=\"movie-info\">
+               <div class=\"movie-title\" title=\"${title}\">${title}</div>
+            </div>
+         </div>
+        `;
+    }).join('');
+
+    listEl.innerHTML = html;
+    listEl.style.display = 'grid';
+    listEl.style.gridTemplateColumns = 'repeat(auto-fill, minmax(100px, 1fr))';
+    listEl.style.gap = '10px';
+}
+
+function deleteBackup(filename) {
+    if (confirm(`确定要删除备份文件 ${filename} 吗?`)) {
+        if (window.socket) {
+            window.socket.emit('delete_backup', { filename });
+            // Refresh list after a short delay
+            setTimeout(() => loadBackupsList(), 500);
+        }
+    }
+}

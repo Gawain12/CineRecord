@@ -92,12 +92,22 @@ class IMDbRatingsScraper:
             t = node.get('title', {})
             imdb_id = t.get('id')
             if not imdb_id: return None
+            
+            # Extract title type from API response
+            title_type = t.get('titleType', {}).get('text', '') or t.get('titleType', {}).get('id', '') or ''
+            title_type = str(title_type).lower().strip()
+            if 'tv' in title_type or 'series' in title_type or 'episode' in title_type or 'show' in title_type or 'miniseries' in title_type:
+                media_type = 'tv'
+            else:
+                media_type = 'movie'
+            
             return {
                 'imdb_id': imdb_id,
                 'Title': t.get('titleText', {}).get('text'),
                 'Year': t.get('releaseYear', {}).get('year'),
                 'Cover URL': t.get('primaryImage', {}).get('url'),
-                'URL': f"https://www.imdb.com/title/{imdb_id}/"
+                'URL': f"https://www.imdb.com/title/{imdb_id}/",
+                'type': media_type
             }
         except (KeyError, TypeError): return None
 
