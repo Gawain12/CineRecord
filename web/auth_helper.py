@@ -4,6 +4,7 @@ import os
 import tempfile
 import logging
 import threading
+import sys
 
 # These imports are checked at runtime in the worker process
 HAS_WEBVIEW = False
@@ -16,10 +17,13 @@ def login_worker(platform, result_file, log_file):
     global HAS_WEBVIEW, HAS_OBJC, HAS_APPKIT, webview
     
     # Setup logging first
+    _stream = sys.stdout or getattr(sys, "__stdout__", None) or sys.stderr or getattr(sys, "__stderr__", None)
+    if _stream is None:
+        _stream = open(os.devnull, "w")
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(message)s',
-        handlers=[logging.FileHandler(log_file), logging.StreamHandler()]
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler(_stream)]
     )
     
     logging.info(f"Login worker started for {platform}")
