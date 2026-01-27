@@ -59,12 +59,15 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 
 # Logger setup - write to current user directory if APP_ROOT is restricted
 LOG_FILE = os.path.join(APP_ROOT, 'cinerecord.log')
+_stdout_stream = sys.stdout or getattr(sys, "__stdout__", None)
+if _stdout_stream is None:
+    _stdout_stream = open(os.devnull, "w")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
+        logging.StreamHandler(_stdout_stream)
     ]
 )
 logger = logging.getLogger(__name__)

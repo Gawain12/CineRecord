@@ -159,8 +159,10 @@ def main():
     webview.start(inject_ui, window)
     
     if result['cookie']:
-        sys.stdout.write(result['cookie'])
-        sys.stdout.flush()
+        out = sys.stdout or getattr(sys, "__stdout__", None)
+        if out is not None:
+            out.write(result['cookie'])
+            out.flush()
         sys.exit(0)
     else:
         sys.exit(1)
