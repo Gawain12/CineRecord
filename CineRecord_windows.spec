@@ -3,6 +3,7 @@
 
 import os
 import sys
+import glob
 
 block_cipher = None
 
@@ -10,10 +11,59 @@ block_cipher = None
 project_root = os.path.abspath('.')
 sys.path.insert(0, project_root)
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
 # Collect DNS modules for eventlet
 datas_dns, binaries_dns, hiddenimports_dns = collect_all('dns')
+
+# Collect SSL modules (fix for _ssl DLL load failed error)
+datas_ssl, binaries_ssl, hiddenimports_ssl = collect_all('ssl')
+
+# Find OpenSSL DLLs from Python installation
+def find_openssl_dlls():
+    """Find OpenSSL DLLs in Python installation directories."""
+    ssl_binaries = []
+    search_roots = set()
+    python_base = os.path.dirname(sys.executable)
+    search_roots.add(python_base)
+    search_roots.add(sys.prefix)
+    search_roots.add(sys.base_prefix)
+    
+    # Common locations for OpenSSL DLLs on Windows
+    search_dirs = []
+    for root in sorted(search_roots):
+        search_dirs.extend([
+            root,
+            os.path.join(root, 'DLLs'),
+            os.path.join(root, 'lib-dynload'),
+            os.path.join(root, 'Library', 'bin'),
+            os.path.join(root, 'Lib', 'site-packages'),
+        ])
+    
+    # OpenSSL DLL patterns (covers different versions)
+    dll_patterns = [
+        'libssl*.dll',
+        'libcrypto*.dll',
+        '_ssl*.pyd',
+        'LIBEAY*.dll',  # Older OpenSSL
+        'SSLEAY*.dll',  # Older OpenSSL
+    ]
+    
+    seen = set()
+    for search_dir in search_dirs:
+        if os.path.exists(search_dir):
+            for pattern in dll_patterns:
+                for dll_path in glob.glob(os.path.join(search_dir, pattern)):
+                    if os.path.isfile(dll_path):
+                        if dll_path not in seen:
+                            ssl_binaries.append((dll_path, '.'))
+                            seen.add(dll_path)
+                            print(f"Found SSL DLL: {dll_path}")
+    
+    return ssl_binaries
+
+# Collect OpenSSL DLLs
+openssl_binaries = find_openssl_dlls()
 
 # Data files to include
 added_files = [
@@ -24,14 +74,18 @@ added_files = [
     ('adapters', 'adapters'),
     ('config', 'config'),
     ('data', 'data'),
-] + datas_dns
+] + datas_dns + datas_ssl
 
 a = Analysis(
     ['web/app.py'],
     pathex=[project_root],
-    binaries=binaries_dns,
+    binaries=binaries_dns + binaries_ssl + openssl_binaries,
     datas=added_files,
     hiddenimports=[
+        # SSL modules (critical for Windows)
+        'ssl',
+        '_ssl',
+        # Eventlet modules
         'eventlet.hubs.epolls',
         'eventlet.hubs.kqueue',
         'eventlet.hubs.selects',
@@ -40,8 +94,8 @@ a = Analysis(
         'webview',
         'webview.platforms.winforms',  # Windows WebView backend
         'pkg_resources.py2_warn',
-    ] + hiddenimports_dns,
-    hookspath=[],
+    ] + hiddenimports_dns + hiddenimports_ssl,
+    hookspath=['hooks'],  # Load custom hooks (including SSL hook)
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
@@ -70,8 +124,13 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,  # Strip symbols for smaller size
-    upx=True,
-    upx_exclude=[],
+    # UPX can corrupt OpenSSL DLLs on Windows; leave it off for stability.
+    upx=False,
+    upx_exclude=[
+        'libssl*.dll',
+        'libcrypto*.dll',
+        '_ssl*.pyd',
+    ],
     runtime_tmpdir=None,
     console=False,  # Hide console in release
     disable_windowed_traceback=False,
