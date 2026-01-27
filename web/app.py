@@ -4918,8 +4918,30 @@ def handle_export_to_desktop(data):
 
 def open_browser():
     try:
-        webbrowser.open_new("http://127.0.0.1:8000")
+        port = int(os.environ.get('CINERECORD_PORT', '8000'))
+        webbrowser.open_new(f"http://127.0.0.1:{port}")
     except: pass
+
+def _select_available_port(host, preferred_port, max_tries=10):
+    import socket
+    port = preferred_port
+    last_error = None
+    for _ in range(max_tries):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind((host, port))
+            s.close()
+            return port
+        except OSError as e:
+            last_error = e
+            try:
+                s.close()
+            except Exception:
+                pass
+            port += 1
+    if last_error:
+        raise last_error
+    return preferred_port
 
 if __name__ == '__main__':
     import multiprocessing
@@ -4948,8 +4970,11 @@ if __name__ == '__main__':
             debug = debug_env == '1'
 
         host = os.environ.get('CINERECORD_HOST', '0.0.0.0')
-        port = int(os.environ.get('CINERECORD_PORT', '8000'))
+        preferred_port = int(os.environ.get('CINERECORD_PORT', '8000'))
+        port = _select_available_port(host, preferred_port, max_tries=20)
 
+        if port != preferred_port:
+            print(f"⚠️  Port {preferred_port} is in use, switching to {port}")
         print(f"🔄 Attempting to bind to {host}:{port} (Debug={debug})...")
         if host == '0.0.0.0':
              print(f"🌍 Server should be accessible from external IPs at http://YOUR_SERVER_IP:{port}")
