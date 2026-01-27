@@ -38,18 +38,18 @@ jobs:
       
       - name: Test EXE exists
         run: |
-          if (!(Test-Path "dist\CineRecord.exe")) {
+          if (!(Test-Path "dist\CineRecord\CineRecord.exe")) {
             Write-Error "EXE not found!"
             exit 1
           }
-          $size = (Get-Item "dist\CineRecord.exe").Length / 1MB
+          $size = (Get-Item "dist\CineRecord\CineRecord.exe").Length / 1MB
           Write-Host "✓ EXE built successfully. Size: $([math]::Round($size, 2)) MB"
       
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: CineRecord-Windows
-          path: dist/CineRecord.exe
+          path: dist/CineRecord/**
           retention-days: 30
 
   # ============================================
@@ -130,7 +130,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/windows/CineRecord.exe
+            release/windows/CineRecord/CineRecord.exe
             release/macos/CineRecord.dmg
           draft: false
           prerelease: false

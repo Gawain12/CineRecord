@@ -162,7 +162,7 @@ exe = EXE(
     name='CineRecord',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,  # Strip symbols for smaller size
+    strip=False,  # Avoid stripping Windows binaries (can break SSL DLLs)
     # UPX can corrupt OpenSSL DLLs on Windows; leave it off for stability.
     upx=False,
     upx_exclude=[
@@ -170,6 +170,7 @@ exe = EXE(
         'libcrypto*.dll',
         '_ssl*.pyd',
     ],
+    exclude_binaries=True,  # Build one-folder for more reliable DLL loading
     runtime_tmpdir=None,
     console=False,  # Hide console in release
     disable_windowed_traceback=False,
@@ -178,4 +179,14 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='CineRecord',
 )
