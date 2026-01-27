@@ -65,6 +65,45 @@ def find_openssl_dlls():
 # Collect OpenSSL DLLs
 openssl_binaries = find_openssl_dlls()
 
+# Collect Microsoft runtime DLLs from Python installation
+def find_windows_runtime_dlls():
+    """Find MSVC runtime DLLs often needed on target machines."""
+    runtime_binaries = []
+    search_roots = set()
+    python_base = os.path.dirname(sys.executable)
+    search_roots.add(python_base)
+    search_roots.add(sys.prefix)
+    search_roots.add(sys.base_prefix)
+
+    search_dirs = []
+    for root in sorted(search_roots):
+        search_dirs.extend([
+            root,
+            os.path.join(root, 'DLLs'),
+        ])
+
+    dll_patterns = [
+        'vcruntime*.dll',
+        'msvcp*.dll',
+        'concrt*.dll',
+        'ucrtbase*.dll',
+        'api-ms-win-crt*.dll',
+    ]
+
+    seen = set()
+    for search_dir in search_dirs:
+        if os.path.exists(search_dir):
+            for pattern in dll_patterns:
+                for dll_path in glob.glob(os.path.join(search_dir, pattern)):
+                    if os.path.isfile(dll_path) and dll_path not in seen:
+                        runtime_binaries.append((dll_path, '.'))
+                        seen.add(dll_path)
+                        print(f"Found runtime DLL: {dll_path}")
+
+    return runtime_binaries
+
+runtime_binaries = find_windows_runtime_dlls()
+
 # Data files to include
 added_files = [
     ('web/templates', 'web/templates'),
@@ -79,7 +118,7 @@ added_files = [
 a = Analysis(
     ['web/app.py'],
     pathex=[project_root],
-    binaries=binaries_dns + binaries_ssl + openssl_binaries,
+    binaries=binaries_dns + binaries_ssl + openssl_binaries + runtime_binaries,
     datas=added_files,
     hiddenimports=[
         # SSL modules (critical for Windows)
@@ -97,7 +136,7 @@ a = Analysis(
     ] + hiddenimports_dns + hiddenimports_ssl,
     hookspath=['hooks'],  # Load custom hooks (including SSL hook)
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['hooks/pyi_rth_ssl_path.py'],
     excludes=[
         # Heavy packages not used in production
         'scipy', 'sklearn', 'matplotlib', 'PIL', 'scrapy',
