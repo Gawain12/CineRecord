@@ -60,8 +60,10 @@ def _normalize_status(status):
     s = str(status).lower().strip() if status else ''
     if s == 'mark':
         return 'wish'
-    if s == 'collect':
+    if s in {'collect', 'watched'}:
         return 'done'
+    if s == 'do':
+        return 'doing'
     return s
 
 def _api_status(status):
@@ -79,10 +81,24 @@ def _allowed_statuses(status):
     if s in {'wish', 'want_to_watch', 'mark'}:
         return {'mark', 'wish', 'want_to_watch'}
     if s in {'done', 'collect', 'watched'}:
-        return {'done'}
+        return {'done', 'collect', 'watched'}
     if s in {'doing', 'do'}:
-        return {'doing'}
+        return {'doing', 'do'}
     return {s} if s else set()
+
+def _write_report(output_path, records, suffix, logger):
+    if not records:
+        return None
+    base, _ = os.path.splitext(output_path)
+    report_path = f"{base}_{suffix}.csv"
+    try:
+        df = pd.DataFrame(records)
+        df.to_csv(report_path, index=False, encoding='utf-8-sig')
+        logger.log(f"已输出 {suffix} 明细: {report_path}", 'warning')
+        return report_path
+    except Exception as e:
+        logger.log(f"无法写入 {suffix} 明细: {e}", 'error')
+        return None
 
 def process_movie_data(interest, interest_status='done'):
     subject = interest.get('subject', {})
@@ -218,6 +234,7 @@ async def scrape_douban_async(user_id, cookie, output_path, logger, interest_sta
         pages_all_existing = 0
         STOP_PAGES_THRESHOLD = 3
         refreshed_count = 0  # 刷新的无评分记录数
+        skipped_status = []
         
         for page_num in range(total_pages):
             logger.progress(page_num, total_pages, f"获取列表 {page_num+1}/{total_pages}")
@@ -229,6 +246,14 @@ async def scrape_douban_async(user_id, cookie, output_path, logger, interest_sta
             for interest in page_data['interests']:
                 item_status = str(interest.get('status') or '').lower().strip()
                 if allowed_statuses and item_status not in allowed_statuses:
+                    subject = interest.get('subject', {}) or {}
+                    skipped_status.append({
+                        'douban_id': subject.get('id', ''),
+                        'title': subject.get('title', ''),
+                        'status': item_status,
+                        'date': str(interest.get('create_time', '')).split(' ')[0],
+                        'url': subject.get('url', '')
+                    })
                     continue
                 movie_id = str(interest.get('subject', {}).get('id', ''))
                 date_str = interest.get('create_time', '').split(' ')[0]
@@ -258,6 +283,10 @@ async def scrape_douban_async(user_id, cookie, output_path, logger, interest_sta
                     break
         logger.progress(total_pages, total_pages, "列表获取完成")
 
+        if skipped_status:
+            logger.log(f"跳过 {len(skipped_status)} 条非目标状态记录。", 'warning')
+            _write_report(output_path, skipped_status, "skipped_status", logger)
+
         if not new_interests:
             logger.log("数据已是最新。", 'success')
             try:
@@ -268,12 +297,42 @@ async def scrape_douban_async(user_id, cookie, output_path, logger, interest_sta
 
         logger.log(f"发现 {len(new_interests)} 条新记录，开始处理...", 'info')
         new_interests.reverse()
-        tasks = [process_interest_with_imdb(session, i, cache, interest_status) for i in new_interests]
+        tasks = []
+        task_map = {}
+        for interest in new_interests:
+            task = asyncio.create_task(process_interest_with_imdb(session, interest, cache, interest_status))
+            tasks.append(task)
+            task_map[task] = interest
         new_movies = []
-        for i, f in enumerate(asyncio.as_completed(tasks)):
-            record = await f
+        failed_process = []
+        for i, task in enumerate(asyncio.as_completed(tasks)):
+            interest = task_map.get(task, {})
+            subject = interest.get('subject', {}) or {}
+            failure_recorded = False
+            try:
+                record = await task
+            except Exception as e:
+                failed_process.append({
+                    'douban_id': subject.get('id', ''),
+                    'title': subject.get('title', ''),
+                    'status': str(interest.get('status') or '').lower().strip(),
+                    'date': str(interest.get('create_time', '')).split(' ')[0],
+                    'url': subject.get('url', ''),
+                    'reason': str(e)
+                })
+                failure_recorded = True
+                record = None
             if record:
                 new_movies.append(record)
+            elif not failure_recorded:
+                failed_process.append({
+                    'douban_id': subject.get('id', ''),
+                    'title': subject.get('title', ''),
+                    'status': str(interest.get('status') or '').lower().strip(),
+                    'date': str(interest.get('create_time', '')).split(' ')[0],
+                    'url': subject.get('url', ''),
+                    'reason': 'empty_record'
+                })
             logger.progress(i + 1, len(tasks), f"处理详情 {i+1}/{len(tasks)}")
 
         logger.log("保存文件中...", 'info')
@@ -290,6 +349,10 @@ async def scrape_douban_async(user_id, cookie, output_path, logger, interest_sta
         df_final.drop_duplicates(subset=['douban_id'], keep='first', inplace=True)
         df_final.sort_values(by='Date Rated', ascending=False, inplace=True)
         df_final.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+        if failed_process:
+            logger.log(f"处理失败或为空的记录共 {len(failed_process)} 条。", 'warning')
+            _write_report(output_path, failed_process, "failed_process", logger)
         
         logger.log(f"成功！新增 {len(df_new)} 条（含刷新 {refreshed_count} 条无评分记录），总计 {len(df_final)} 条。", 'success')
         return clean_df_for_json(df_final)

@@ -9,6 +9,7 @@ const i18n = {
     translations: {
         'zh-CN': {
             // Navigation
+            'nav.dashboard': '🏠 总览',
             'nav.accounts': '🔐 账户',
             'nav.data': '📊 数据',
             'nav.wishlist': '✨ 想看',
@@ -229,6 +230,7 @@ const i18n = {
 
         'en': {
             // Navigation
+            'nav.dashboard': '🏠 Dashboard',
             'nav.accounts': '🔐 Accounts',
             'nav.data': '📊 Data',
             'nav.wishlist': '✨ Wishlist',

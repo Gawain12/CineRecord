@@ -418,6 +418,10 @@ body {
     display: block;
 }
 
+.tab-content.active + .tab-content.active {
+    margin-top: 24px;
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -1880,7 +1884,7 @@ a.profile-stat.clickable:hover .stat-label {
 .platform-cards-stack {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
+    gap: 16px;
 }
 
 @media (max-width: 1400px) {
@@ -1899,18 +1903,17 @@ a.profile-stat.clickable:hover .stat-label {
 .platform-full-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 20px;
+    border-radius: 14px;
     /* Apple-style larger radius */
     overflow: hidden;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    box-shadow: none;
     position: relative;
 }
 
 .platform-full-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    border-color: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.18);
 }
 
 /* Remove old heavy colored borders */
@@ -1928,8 +1931,8 @@ a.profile-stat.clickable:hover .stat-label {
     top: 0;
     left: 0;
     right: 0;
-    height: 4px;
-    opacity: 0.8;
+    height: 3px;
+    opacity: 0.7;
 }
 
 .platform-full-card.douban::before {
@@ -1957,25 +1960,32 @@ a.profile-stat.clickable:hover .stat-label {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px 24px;
-    background: rgba(0, 0, 0, 0.2);
+    padding: 14px 18px;
+    background: transparent;
     border-bottom: 1px solid var(--border-color);
+    min-height: 54px;
 }
 
 .card-brand {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+}
+
+.card-brand h3 {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.2;
 }
 
 .brand-icon {
-    font-size: 2.5rem;
-    width: 60px;
-    height: 60px;
+    font-size: 1.8rem;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--accent-gradient-soft);
+    background: rgba(255, 255, 255, 0.04);
     border-radius: var(--border-radius);
 }
 
@@ -1997,10 +2007,15 @@ a.profile-stat.clickable:hover .stat-label {
 
 /* Status Badge */
 .status-badge {
-    padding: 8px 16px;
+    padding: 6px 12px;
     border-radius: 20px;
-    font-size: 0.85rem;
+    font-size: 0.72rem;
     font-weight: 600;
+    min-width: 80px;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .status-badge.connected {
@@ -2044,7 +2059,7 @@ a.profile-stat.clickable:hover .stat-label {
 
 /* Card Body */
 .platform-full-card .card-body {
-    padding: 24px;
+    padding: 16px 18px;
 }
 
 /* Stats Row */
@@ -2169,8 +2184,8 @@ a.profile-stat.clickable:hover .stat-label {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    padding: 16px 24px;
-    background: rgba(0, 0, 0, 0.2);
+    padding: 12px 18px;
+    background: transparent;
     border-top: 1px solid var(--border-color);
 }
 
@@ -2253,6 +2268,10 @@ a.profile-stat.clickable:hover .stat-label {
     .stat-item {
         min-width: calc(50% - 6px);
     }
+
+    .stats-row.compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 /* ============================================
@@ -2260,7 +2279,7 @@ a.profile-stat.clickable:hover .stat-label {
    ============================================ */
 
 .profile-state {
-    padding: 20px 24px;
+    padding: 16px 18px;
 }
 
 .profile-state.not-connected {
@@ -2278,8 +2297,15 @@ a.profile-stat.clickable:hover .stat-label {
 
 .connect-prompt .prompt-text {
     color: var(--text-muted);
-    margin-bottom: 16px;
-    font-size: 0.9rem;
+    margin-bottom: 12px;
+    font-size: 0.82rem;
+}
+
+.connect-buttons {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
 }
 
 .connect-form {
@@ -2316,15 +2342,15 @@ a.profile-stat.clickable:hover .stat-label {
 .profile-info-row {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 12px 0;
-    margin-bottom: 16px;
+    gap: 12px;
+    padding: 8px 0;
+    margin-bottom: 12px;
     border-bottom: 1px solid var(--border-color);
 }
 
 .profile-avatar {
-    width: 56px;
-    height: 56px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid var(--border-color);
@@ -2337,23 +2363,24 @@ a.profile-stat.clickable:hover .stat-label {
 }
 
 .profile-details h4 {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0 0 4px 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.2;
 }
 
 .profile-details .profile-id {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
     margin: 0 0 2px 0;
 }
 
 .profile-details .join-date {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--text-muted);
     margin: 0;
 }
@@ -2361,10 +2388,10 @@ a.profile-stat.clickable:hover .stat-label {
 .btn-link {
     color: var(--accent-primary);
     text-decoration: none;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     font-weight: 500;
     white-space: nowrap;
-    padding: 8px 16px;
+    padding: 6px 12px;
     border-radius: var(--border-radius-sm);
     background: rgba(99, 102, 241, 0.1);
     transition: var(--transition);
@@ -2376,15 +2403,20 @@ a.profile-stat.clickable:hover .stat-label {
 
 /* Stats Row Compact */
 .stats-row.compact {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
     margin-bottom: 0;
 }
 
 .stats-row.compact .stat-item {
-    padding: 12px 8px;
+    padding: 10px 6px;
+    min-width: 0;
+    min-height: 64px;
 }
 
 .stats-row.compact .stat-value {
-    font-size: 1.4rem;
+    font-size: 1.2rem;
 }
 
 .stats-row.compact .stat-name {
@@ -4039,6 +4071,39 @@ body {
     border-color: rgba(255, 179, 64, 0.4);
 }
 
+.wishlist-library-link,
+.wishlist-library-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(74, 222, 128, 0.35);
+    font-size: 0.7rem;
+    color: var(--success);
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+.wishlist-library-link:hover {
+    border-color: rgba(74, 222, 128, 0.7);
+    color: #c8f7d4;
+}
+
+.wishlist-library-file {
+    display: inline-flex;
+    align-items: center;
+    max-width: 280px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    border: 1px dashed rgba(148, 163, 184, 0.4);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .wishlist-meta {
     font-size: 0.72rem;
     color: var(--text-secondary);
@@ -4063,6 +4128,32 @@ body {
     gap: 6px;
 }
 
+.wishlist-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wishlist-filter-toggle input {
+    accent-color: var(--success);
+}
+
+.wishlist-filter-empty {
+    width: 100%;
+    padding: 24px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
 .wishlist-view-toggle .btn.active {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
@@ -4078,6 +4169,110 @@ body {
     flex-wrap: wrap;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
+}
+
+.wishlist-actions {
+    display: inline-flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.wishlist-source-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 20px 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.wishlist-source-filters .filter-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.wishlist-source-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wishlist-source-option input {
+    accent-color: var(--accent-primary);
+}
+
+.wishlist-source-option.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.settings-sub-tabs {
+    display: inline-flex;
+    gap: 8px;
+    padding: 6px;
+    margin: 0 20px 18px;
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+.settings-sub-tab {
+    border: none;
+    padding: 8px 16px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 600;
+    transition: var(--transition);
+}
+
+.settings-sub-tab.active {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.settings-sub-tab:hover {
+    color: var(--text-primary);
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.dashboard-card {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.dashboard-card h3 {
+    margin-bottom: 10px;
+}
+
+.dashboard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.dashboard-hints p {
+    margin: 8px 0;
+    color: var(--text-secondary);
 }
 
 /* Auth status success color */

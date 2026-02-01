@@ -26,7 +26,15 @@ def get_config_path():
             'douban_user_id': '',
             'douban_cookie': '',
             'imdb_user_id': '',
-            'imdb_cookie': ''
+            'imdb_cookie': '',
+            'media_server_url': '',
+            'media_server_api_key': '',
+            'cinepersona_url': '',
+            'cinepersona_session_cookie': '',
+            'cinepersona_consent': False,
+            'cinepersona_auto_sync': False,
+            'server_username': 'cinerecord',
+            'server_password': ''
         }
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(default_config, f, ensure_ascii=False, indent=2)

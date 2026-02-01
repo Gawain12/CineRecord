@@ -9,6 +9,7 @@ except (ImportError, NotImplementedError) as e:
     print(f"Note: eventlet not available ({e}), using threading mode")
 
 import os
+import io
 import sys
 
 # Ensure project root is in path for imports
@@ -17,13 +18,15 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 import logging
+import json
 import requests
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response, redirect, session, render_template_string
 from flask_socketio import SocketIO, emit
 from threading import Timer
 import webbrowser
 import pandas as pd
 import time
+import re
 from datetime import datetime, timezone
 
 # --- PATH RESOLUTION (CRITICAL FOR PACKAGING) ---
@@ -78,8 +81,14 @@ static_dir = get_resource_path('web/static')
 
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, async_mode=ASYNC_MODE, cors_allowed_origins="*", 
-                    ping_timeout=60, ping_interval=25)  # Prevent reconnection during long data fetches
+socketio = SocketIO(
+    app,
+    async_mode=ASYNC_MODE,
+    cors_allowed_origins="*",
+    ping_timeout=60,
+    ping_interval=25,
+    max_http_buffer_size=20 * 1024 * 1024
+)  # Prevent reconnection during long data fetches
 
 # Import helpers after monkey_patch
 from web.config_helper import read_config, write_config
@@ -113,6 +122,552 @@ APP_DATA = {}
 APP_DATA_LOADED = False
 
 from web.data_utils import safe_df_to_records
+
+MEDIA_LIBRARY_CACHE_TTL = 15 * 60  # seconds
+
+def get_server_auth_config():
+    config = read_config()
+    password = str(config.get('server_password', '') or '').strip()
+    if not password:
+        return None
+    username = str(config.get('server_username') or 'cinerecord').strip() or 'cinerecord'
+    return username, password
+
+LOGIN_TEMPLATE = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CineRecord 登录</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
+    .card { max-width:360px; margin:12vh auto; padding:24px; background:#111827; border:1px solid #1f2937; border-radius:12px; }
+    h1 { font-size:18px; margin:0 0 12px; }
+    label { display:block; font-size:12px; margin:10px 0 6px; color:#94a3b8; }
+    input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:#e2e8f0; }
+    button { width:100%; margin-top:16px; padding:10px 12px; border:0; border-radius:8px; background:#2563eb; color:#fff; font-weight:600; cursor:pointer; }
+    .error { margin-top:12px; color:#fca5a5; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔒 CineRecord 登录</h1>
+    <form method="post">
+      <label>用户名</label>
+      <input name="username" autofocus>
+      <label>密码</label>
+      <input type="password" name="password">
+      <button type="submit">登录</button>
+    </form>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  </div>
+</body>
+</html>
+"""
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    auth_config = get_server_auth_config()
+    if not auth_config:
+        return redirect('/')
+    error = None
+    if request.method == 'POST':
+        username = str(request.form.get('username') or '').strip()
+        password = str(request.form.get('password') or '').strip()
+        if username == auth_config[0] and password == auth_config[1]:
+            session['server_auth'] = True
+            return redirect('/')
+        error = '用户名或密码错误'
+    return render_template_string(LOGIN_TEMPLATE, error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('server_auth', None)
+    return redirect('/login')
+
+@app.before_request
+def enforce_login():
+    auth_config = get_server_auth_config()
+    if not auth_config:
+        return None
+    if request.path.startswith('/login') or request.path.startswith('/static/'):
+        return None
+    if session.get('server_auth'):
+        return None
+    return redirect('/login')
+
+def normalize_imdb_id(value):
+    if value is None:
+        return ''
+    s = str(value).strip()
+    if not s:
+        return ''
+    s = s.lower()
+    if s.startswith('tt'):
+        return s
+    if s.isdigit():
+        return f"tt{s}"
+    return s
+
+def normalize_title(value):
+    if value is None:
+        return ''
+    s = str(value).strip().lower()
+    if not s:
+        return ''
+    s = re.sub(r'\s+', ' ', s)
+    return s
+
+def normalize_df_columns(df):
+    if df is None or df.empty:
+        return df
+    rename_map = {}
+    for col in df.columns:
+        new_col = str(col).lstrip('\ufeff').strip()
+        if new_col != col:
+            rename_map[col] = new_col
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
+
+def load_douban_wish_for_user(user_id, force=False):
+    user_id = str(user_id or '').strip()
+    if not user_id:
+        return None
+    wish_path = os.path.join(DATA_DIR, f'douban_{user_id}_wish.csv')
+    if not os.path.exists(wish_path):
+        return None
+    mtime = os.path.getmtime(wish_path)
+    cached_path = APP_DATA.get('douban_wish_path')
+    cached_mtime = APP_DATA.get('douban_wish_mtime')
+    if not force and cached_path == wish_path and cached_mtime == mtime and APP_DATA.get('douban_wish_df') is not None:
+        return APP_DATA.get('douban_wish_df')
+    df_wish = pd.read_csv(wish_path)
+    df_wish = normalize_df_columns(df_wish)
+    df_wish = filter_wish_df(df_wish)
+    df_wish = ensure_type_column(df_wish)
+    APP_DATA['douban_wish_df'] = df_wish
+    APP_DATA['douban_wish_path'] = wish_path
+    APP_DATA['douban_wish_mtime'] = mtime
+    return df_wish
+
+def load_platform_wish_for_user(platform, user_id, force=False, assume_wish=False):
+    platform = str(platform or '').strip().lower()
+    user_id = str(user_id or '').strip()
+    if not platform or not user_id:
+        return None
+    wish_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_wish.csv')
+    if not os.path.exists(wish_path):
+        return None
+    mtime = os.path.getmtime(wish_path)
+    cached_path = APP_DATA.get(f'{platform}_wish_path')
+    cached_mtime = APP_DATA.get(f'{platform}_wish_mtime')
+    cached_df = APP_DATA.get(f'{platform}_wish_df')
+    if not force and cached_path == wish_path and cached_mtime == mtime and cached_df is not None:
+        return cached_df
+    df_wish = pd.read_csv(wish_path)
+    df_wish = normalize_df_columns(df_wish)
+    if assume_wish and 'status' not in df_wish.columns:
+        df_wish['status'] = 'wish'
+    df_wish = filter_wish_df(df_wish)
+    df_wish = ensure_type_column(df_wish)
+    APP_DATA[f'{platform}_wish_df'] = df_wish
+    APP_DATA[f'{platform}_wish_path'] = wish_path
+    APP_DATA[f'{platform}_wish_mtime'] = mtime
+    return df_wish
+
+def load_letterboxd_watchlist(force=False):
+    wish_path = os.path.join(DATA_DIR, 'letterboxd_watchlist.csv')
+    if not os.path.exists(wish_path):
+        return None
+    mtime = os.path.getmtime(wish_path)
+    cached_path = APP_DATA.get('letterboxd_wish_path')
+    cached_mtime = APP_DATA.get('letterboxd_wish_mtime')
+    cached_df = APP_DATA.get('letterboxd_wish_df')
+    if not force and cached_path == wish_path and cached_mtime == mtime and cached_df is not None:
+        return cached_df
+    df_wish = pd.read_csv(wish_path)
+    df_wish = normalize_df_columns(df_wish)
+    if 'status' not in df_wish.columns:
+        df_wish['status'] = 'wish'
+    df_wish = filter_wish_df(df_wish)
+    df_wish = ensure_type_column(df_wish)
+    APP_DATA['letterboxd_wish_df'] = df_wish
+    APP_DATA['letterboxd_wish_path'] = wish_path
+    APP_DATA['letterboxd_wish_mtime'] = mtime
+    return df_wish
+
+def load_cinepersona_watchlist(force=False):
+    wish_path = os.path.join(DATA_DIR, 'cinepersona_watchlist.csv')
+    if not os.path.exists(wish_path):
+        return None
+    mtime = os.path.getmtime(wish_path)
+    cached_path = APP_DATA.get('cinepersona_wish_path')
+    cached_mtime = APP_DATA.get('cinepersona_wish_mtime')
+    cached_df = APP_DATA.get('cinepersona_wish_df')
+    if not force and cached_path == wish_path and cached_mtime == mtime and cached_df is not None:
+        return cached_df
+    df_wish = pd.read_csv(wish_path)
+    df_wish = normalize_df_columns(df_wish)
+    if 'status' not in df_wish.columns:
+        df_wish['status'] = 'wish'
+    df_wish = filter_wish_df(df_wish)
+    df_wish = ensure_type_column(df_wish)
+    APP_DATA['cinepersona_wish_df'] = df_wish
+    APP_DATA['cinepersona_wish_path'] = wish_path
+    APP_DATA['cinepersona_wish_mtime'] = mtime
+    return df_wish
+
+def normalize_media_base_url(url):
+    if not url:
+        return ''
+    base = str(url).strip().rstrip('/')
+    if base.endswith('/web'):
+        base = base[:-4]
+    return base.rstrip('/')
+
+def build_media_item_url(base_url, item_id, server_id=None, server_type=None, plex_machine_id=None):
+    if not base_url or not item_id:
+        return ''
+    base = normalize_media_base_url(base_url)
+    if server_type == 'plex':
+        machine_id = plex_machine_id or server_id
+        if not machine_id:
+            return ''
+        return f"{base}/web/index.html#!/server/{machine_id}/details?key=/library/metadata/{item_id}"
+    if server_type == 'emby':
+        url = f"{base}/web/index.html#!/item?id={item_id}"
+    else:
+        url = f"{base}/web/index.html#!/details?id={item_id}"
+    if server_id:
+        url += f"&serverId={server_id}"
+    return url
+
+def get_provider_id(provider_ids, key):
+    if not isinstance(provider_ids, dict):
+        return ''
+    for k, v in provider_ids.items():
+        if str(k).lower() == str(key).lower():
+            return v
+    return ''
+
+def fetch_media_server_user_id(base_url, headers):
+    try:
+        resp = requests.get(f"{base_url}/Users", headers=headers, timeout=15)
+        resp.raise_for_status()
+        users = resp.json()
+        if isinstance(users, list) and users:
+            return users[0].get('Id')
+    except Exception:
+        return None
+    return None
+
+def detect_media_server_type(base_url, api_key):
+    headers = {"X-Emby-Token": api_key} if api_key else {}
+    try:
+        resp = requests.get(f"{base_url}/System/Info", headers=headers, timeout=10)
+        if resp.status_code == 200:
+            info = resp.json()
+            product = str(info.get('ProductName') or '').lower()
+            if 'emby' in product:
+                return 'emby', info.get('Id')
+            return 'jellyfin', info.get('Id')
+    except Exception:
+        pass
+    try:
+        resp = requests.get(f"{base_url}/identity", params={'X-Plex-Token': api_key}, timeout=10)
+        if resp.status_code == 200:
+            return 'plex', None
+    except Exception:
+        pass
+    return 'emby', None
+
+def fetch_media_server_items(base_url, api_key):
+    headers = {"X-Emby-Token": api_key}
+
+    def fetch_items(endpoint):
+        items = []
+        start_index = 0
+        limit = 200
+        while True:
+            params = {
+                "Recursive": "true",
+                "IncludeItemTypes": "Movie",
+                "Fields": "ProviderIds,ProductionYear,OriginalTitle,Path,MediaSources,ServerId",
+                "StartIndex": start_index,
+                "Limit": limit
+            }
+            resp = requests.get(endpoint, headers=headers, params=params, timeout=20)
+            if resp.status_code >= 400:
+                resp.raise_for_status()
+            data = resp.json()
+            batch = data.get("Items", []) or []
+            if not batch:
+                break
+            items.extend(batch)
+            total = data.get("TotalRecordCount")
+            if isinstance(total, int) and len(items) >= total:
+                break
+            if len(batch) < limit:
+                break
+            start_index += len(batch)
+        return items
+
+    try:
+        return fetch_items(f"{base_url}/Items")
+    except requests.HTTPError as e:
+        resp = e.response
+        if resp is not None and resp.status_code == 400 and 'UserId' in (resp.text or ''):
+            user_id = fetch_media_server_user_id(base_url, headers)
+            if user_id:
+                return fetch_items(f"{base_url}/Users/{user_id}/Items")
+        raise
+
+def simplify_media_items(items, base_url, server_type=None, plex_machine_id=None):
+    simplified = []
+    if not items:
+        return simplified
+    for item in items:
+        provider_ids = item.get('ProviderIds', {}) or {}
+        imdb_id = get_provider_id(provider_ids, 'Imdb')
+        tmdb_id = get_provider_id(provider_ids, 'Tmdb')
+        title = item.get('Name') or item.get('OriginalTitle') or ''
+        year = item.get('ProductionYear') or ''
+        item_id = item.get('Id') or ''
+        server_id = item.get('ServerId') or ''
+        media_path = item.get('Path') or ''
+        if not media_path:
+            media_sources = item.get('MediaSources') or []
+            if isinstance(media_sources, list) and media_sources:
+                media_path = media_sources[0].get('Path') or ''
+        file_name = ''
+        if media_path:
+            try:
+                safe_path = str(media_path).replace('\\', '/')
+                file_name = os.path.basename(safe_path)
+            except Exception:
+                file_name = ''
+        simplified.append({
+            'title': title,
+            'year': year,
+            'imdb_id': imdb_id,
+            'tmdb_id': tmdb_id,
+            'item_id': item_id,
+            'server_id': server_id,
+            'library_url': build_media_item_url(base_url, item_id, server_id, server_type, plex_machine_id),
+            'media_path': media_path,
+            'file_name': file_name
+        })
+    return simplified
+
+def _plex_extract_ids(video):
+    imdb_id = ''
+    tmdb_id = ''
+    def take_imdb(val):
+        nonlocal imdb_id
+        if val and 'tt' in val:
+            m = re.search(r'(tt\\d+)', val)
+            if m:
+                imdb_id = m.group(1)
+    def take_tmdb(val):
+        nonlocal tmdb_id
+        if val:
+            m = re.search(r'(\\d+)', val)
+            if m:
+                tmdb_id = m.group(1)
+    guid_attr = video.get('guid') or ''
+    if 'imdb' in guid_attr:
+        take_imdb(guid_attr)
+    if 'tmdb' in guid_attr:
+        take_tmdb(guid_attr)
+    for guid in video.findall('Guid'):
+        gid = guid.get('id') or ''
+        if 'imdb' in gid:
+            take_imdb(gid)
+        if 'tmdb' in gid:
+            take_tmdb(gid)
+    return imdb_id, tmdb_id
+
+def fetch_plex_items(base_url, token):
+    import xml.etree.ElementTree as ET
+    params = {'X-Plex-Token': token}
+    identity = requests.get(f"{base_url}/identity", params=params, timeout=10)
+    identity.raise_for_status()
+    machine_id = None
+    try:
+        machine_id = ET.fromstring(identity.text).get('machineIdentifier')
+    except Exception:
+        machine_id = None
+
+    sections = requests.get(f"{base_url}/library/sections", params=params, timeout=10)
+    sections.raise_for_status()
+    root = ET.fromstring(sections.text)
+    movie_sections = [s for s in root.findall('Directory') if s.get('type') == 'movie']
+    items = []
+    for section in movie_sections:
+        key = section.get('key')
+        if not key:
+            continue
+        start = 0
+        size = 500
+        while True:
+            section_params = {
+                'X-Plex-Token': token,
+                'type': 1,
+                'X-Plex-Container-Start': start,
+                'X-Plex-Container-Size': size
+            }
+            resp = requests.get(f"{base_url}/library/sections/{key}/all", params=section_params, timeout=15)
+            resp.raise_for_status()
+            tree = ET.fromstring(resp.text)
+            videos = tree.findall('Video')
+            items.extend(videos)
+            total = int(tree.get('totalSize') or len(videos))
+            start += len(videos)
+            if start >= total or not videos:
+                break
+    return items, machine_id
+
+def simplify_plex_items(videos, base_url, machine_id):
+    simplified = []
+    if not videos:
+        return simplified
+    for video in videos:
+        title = video.get('title') or ''
+        year = video.get('year') or ''
+        rating_key = video.get('ratingKey') or ''
+        imdb_id, tmdb_id = _plex_extract_ids(video)
+        media_path = ''
+        file_name = ''
+        media = video.find('Media')
+        part = None
+        if media is not None:
+            part = media.find('Part')
+        if part is not None:
+            media_path = part.get('file') or ''
+        if media_path:
+            safe_path = str(media_path).replace('\\', '/')
+            file_name = os.path.basename(safe_path)
+        simplified.append({
+            'title': title,
+            'year': year,
+            'imdb_id': imdb_id,
+            'tmdb_id': tmdb_id,
+            'item_id': rating_key,
+            'server_id': machine_id,
+            'library_url': build_media_item_url(base_url, rating_key, machine_id, 'plex', machine_id),
+            'media_path': media_path,
+            'file_name': file_name
+        })
+    return simplified
+
+def fetch_media_server_library(config):
+    base_url = normalize_media_base_url(config.get('media_server_url', ''))
+    api_key = str(config.get('media_server_api_key', '') or '').strip()
+    if not base_url or not api_key:
+        return None, base_url
+
+    cache = APP_DATA.get('media_server_library_cache') or {}
+    cached_url = cache.get('base_url')
+    fetched_at = cache.get('fetched_at') or 0
+    if cached_url == base_url and cache.get('items') and (time.time() - fetched_at) < MEDIA_LIBRARY_CACHE_TTL:
+        return cache.get('items'), base_url
+
+    try:
+        server_type, server_id = detect_media_server_type(base_url, api_key)
+        if server_type == 'plex':
+            videos, machine_id = fetch_plex_items(base_url, api_key)
+            simplified = simplify_plex_items(videos, base_url, machine_id)
+        else:
+            items = fetch_media_server_items(base_url, api_key)
+            simplified = simplify_media_items(items, base_url, server_type, server_id)
+    except Exception as e:
+        logger.warning(f"[Media Server] Fetch failed: {e}")
+        return None, base_url
+
+    APP_DATA['media_server_library_cache'] = {
+        'base_url': base_url,
+        'server_type': server_type,
+        'items': simplified,
+        'fetched_at': time.time()
+    }
+    return simplified, base_url
+
+def normalize_cinepersona_url(url):
+    if not url:
+        return ''
+    return str(url).strip().rstrip('/')
+
+def extract_wishlist_imdb_id(record):
+    if not isinstance(record, dict):
+        return ''
+    candidates = [
+        record.get('Const'),
+        record.get('imdb_id'),
+        record.get('IMDb ID'),
+        record.get('IMDB ID'),
+        record.get('Imdb'),
+        record.get('IMDb')
+    ]
+    for value in candidates:
+        imdb_id = normalize_imdb_id(value)
+        if imdb_id:
+            return imdb_id
+    return ''
+
+def apply_media_server_matching(wishlist_records, library_items):
+    if not wishlist_records:
+        return wishlist_records
+
+    if not library_items:
+        for record in wishlist_records:
+            record['library_matched'] = False
+        return wishlist_records
+
+    imdb_index = {}
+    tmdb_index = {}
+    title_year_index = {}
+    for item in library_items:
+        imdb_id = normalize_imdb_id(item.get('imdb_id'))
+        if imdb_id and imdb_id not in imdb_index:
+            imdb_index[imdb_id] = item
+        tmdb_id = str(item.get('tmdb_id') or '').strip()
+        if tmdb_id and tmdb_id not in tmdb_index:
+            tmdb_index[tmdb_id] = item
+        title = normalize_title(item.get('title'))
+        year = str(item.get('year') or '').strip()
+        if title and year:
+            key = f"{title}|{year}"
+            if key not in title_year_index:
+                title_year_index[key] = item
+
+    for record in wishlist_records:
+        match = None
+        imdb_id = extract_wishlist_imdb_id(record)
+        if imdb_id:
+            match = imdb_index.get(imdb_id)
+        if not match:
+            tmdb_id = str(record.get('TMDB ID') or record.get('tmdb_id') or '').strip()
+            if tmdb_id:
+                match = tmdb_index.get(tmdb_id)
+        if not match:
+            title = normalize_title(record.get('Title') or record.get('title') or record.get('Name') or '')
+            year = str(record.get('Year') or record.get('year') or '').strip()
+            if title and year:
+                match = title_year_index.get(f"{title}|{year}")
+
+        if match:
+            record['library_matched'] = True
+            record['library_item_id'] = match.get('item_id')
+            record['library_title'] = match.get('title')
+            record['library_year'] = match.get('year')
+            record['library_url'] = match.get('library_url')
+            record['library_path'] = match.get('media_path')
+            record['library_file_name'] = match.get('file_name')
+        else:
+            record['library_matched'] = False
+
+    return wishlist_records
 
 def filter_wish_df(df, allowed_statuses=None):
     if df is None or df.empty:
@@ -157,6 +712,194 @@ def ensure_type_column(df):
         df['Type'] = ''
     return df
 
+def build_wishlist_df(config):
+    frames = []
+    sources = [
+        ('douban', str(config.get('douban_user_id') or '').strip(), False),
+        ('imdb', str(config.get('imdb_user_id') or '').strip(), True),
+        ('trakt', str(config.get('trakt_user_id') or '').strip(), True),
+        ('tmdb', str(config.get('tmdb_username') or config.get('tmdb_user_id') or '').strip(), True),
+    ]
+
+    for platform, user_id, assume_wish in sources:
+        if not user_id:
+            continue
+        if platform == 'douban':
+            df = load_douban_wish_for_user(user_id, force=False)
+        else:
+            df = load_platform_wish_for_user(platform, user_id, force=False, assume_wish=assume_wish)
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df['source'] = platform
+        frames.append(df)
+
+    letterboxd_wish = load_letterboxd_watchlist(force=False)
+    if letterboxd_wish is not None and not letterboxd_wish.empty:
+        letterboxd_wish = letterboxd_wish.copy()
+        letterboxd_wish['source'] = 'letterboxd'
+        frames.append(letterboxd_wish)
+
+    cinepersona_wish = load_cinepersona_watchlist(force=False)
+    if cinepersona_wish is not None and not cinepersona_wish.empty:
+        cinepersona_wish = cinepersona_wish.copy()
+        cinepersona_wish['source'] = 'cinepersona'
+        frames.append(cinepersona_wish)
+
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True, sort=False)
+
+def _extract_imdb_watchlist_items(data):
+    records = []
+    seen = set()
+    list_context_keys = {
+        'listItemId', 'listItem', 'listItemCreatedAt', 'listItemCreated', 'listItemRanking',
+        'listItemTitle', 'listItemRank', 'listItemTime'
+    }
+
+    def normalize_title_type(value):
+        if not value:
+            return ''
+        if isinstance(value, dict):
+            value = value.get('id') or value.get('text') or ''
+        return str(value)
+
+    def add_record(title_obj, meta=None):
+        imdb_id = title_obj.get('id') or title_obj.get('titleId') or title_obj.get('const')
+        if not imdb_id or imdb_id in seen:
+            return
+        seen.add(imdb_id)
+        title_text = ''
+        if isinstance(title_obj.get('titleText'), dict):
+            title_text = title_obj.get('titleText', {}).get('text') or ''
+        if not title_text and isinstance(title_obj.get('originalTitleText'), dict):
+            title_text = title_obj.get('originalTitleText', {}).get('text') or ''
+        if not title_text:
+            title_text = title_obj.get('title') or ''
+        year = ''
+        if isinstance(title_obj.get('releaseYear'), dict):
+            year = title_obj.get('releaseYear', {}).get('year') or ''
+        if not year:
+            year = title_obj.get('year') or ''
+        cover_url = ''
+        if isinstance(title_obj.get('primaryImage'), dict):
+            cover_url = title_obj.get('primaryImage', {}).get('url') or ''
+        if not cover_url and isinstance(title_obj.get('image'), dict):
+            cover_url = title_obj.get('image', {}).get('url') or ''
+        title_type = normalize_title_type(title_obj.get('titleType'))
+        record = {
+            'Const': imdb_id,
+            'Title': title_text,
+            'Year': year,
+            'Cover URL': cover_url,
+            'URL': f"https://www.imdb.com/title/{imdb_id}/",
+            'status': 'wish',
+            'type': title_type
+        }
+        if meta and meta.get('date_added'):
+            record['Date Added'] = meta.get('date_added')
+        records.append(record)
+
+    def traverse(node, meta=None, in_list=False, require_list=False):
+        if isinstance(node, dict):
+            current_meta = meta or {}
+            date_added = None
+            for key in ['listItemCreatedAt', 'createdAt', 'created', 'dateAdded', 'addedAt', 'listItemCreated']:
+                if key in node:
+                    date_added = node.get(key)
+                    break
+            if date_added:
+                current_meta = dict(current_meta)
+                current_meta['date_added'] = date_added
+
+            list_context = in_list or any(k in node for k in list_context_keys)
+
+            title_obj = None
+            if 'titleText' in node and ('id' in node or 'titleId' in node or 'const' in node):
+                title_obj = node
+            elif isinstance(node.get('title'), dict):
+                title_obj = node.get('title')
+
+            if title_obj and (list_context or not require_list):
+                add_record(title_obj, current_meta)
+
+            for value in node.values():
+                traverse(value, current_meta, list_context, require_list)
+        elif isinstance(node, list):
+            for item in node:
+                traverse(item, meta, in_list, require_list)
+
+    traverse(data, require_list=True)
+    if not records:
+        seen.clear()
+        records.clear()
+        traverse(data, require_list=False)
+    return records
+
+def fetch_imdb_watchlist(cookie, user_id=None, max_pages=50):
+    headers = {
+        'Cookie': cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+    session = requests.Session()
+    records = []
+    seen = set()
+
+    def fetch_from_base(base_url):
+        nonlocal records, seen
+        for page in range(1, max_pages + 1):
+            url = f"{base_url}?sort=list_order,asc&mode=detail&page={page}"
+            try:
+                resp = session.get(url, headers=headers, timeout=30)
+            except Exception as e:
+                logger.error(f"IMDb watchlist request error: {e}")
+                break
+
+            if resp.status_code != 200:
+                logger.error(f"IMDb watchlist fetch failed: {resp.status_code}")
+                break
+
+            match = re.search(r'<script id=\"__NEXT_DATA__\" type=\"application/json\">(.+?)</script>', resp.text, re.DOTALL)
+            if not match:
+                logger.error("IMDb watchlist page missing __NEXT_DATA__")
+                break
+
+            try:
+                data = json.loads(match.group(1))
+            except Exception as e:
+                logger.error(f"IMDb watchlist JSON parse error: {e}")
+                break
+
+            page_records = _extract_imdb_watchlist_items(data)
+            if not page_records:
+                break
+
+            new_count = 0
+            for record in page_records:
+                imdb_id = record.get('Const')
+                if imdb_id and imdb_id in seen:
+                    continue
+                if imdb_id:
+                    seen.add(imdb_id)
+                records.append(record)
+                new_count += 1
+
+            if new_count == 0:
+                break
+
+    if user_id:
+        fetch_from_base(f'https://www.imdb.com/user/{user_id}/watchlist/')
+    if not records:
+        fetch_from_base('https://www.imdb.com/list/watchlist/')
+
+    return records
+
 def ensure_export_type_column(df):
     if df is None or df.empty:
         return df
@@ -197,13 +940,14 @@ def load_platform_data():
     
     # Load Douban and IMDb
     for platform in ['douban', 'imdb']:
-        user_id = config.get(f'{platform}_user_id')
+        user_id = str(config.get(f'{platform}_user_id') or '').strip()
         if user_id:
             # Load Ratings
             csv_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_ratings.csv')
             if os.path.exists(csv_path):
                 try:
                     df = pd.read_csv(csv_path)
+                    df = normalize_df_columns(df)
                     source_cols = {'Type', 'type', 'Title Type', 'TmdbIdType', 'tmdb_type'}
                     had_type = 'Type' in df.columns
                     has_source = bool(set(df.columns) & source_cols)
@@ -218,17 +962,12 @@ def load_platform_data():
             
             # Load Wishlist (Want to Watch)
             if platform == 'douban':
-                wish_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_wish.csv')
-                if os.path.exists(wish_path):
-                    try:
-                        df_wish = pd.read_csv(wish_path)
-                        df_wish = filter_wish_df(df_wish)
-                        df_wish = ensure_type_column(df_wish)
-                        APP_DATA[f'{platform}_wish_df'] = df_wish
-                        APP_DATA[f'{platform}_wish_path'] = wish_path
+                try:
+                    df_wish = load_douban_wish_for_user(user_id)
+                    if df_wish is not None:
                         logger.info(f"[Startup] Loaded {platform} wishlist: {len(df_wish)} records")
-                    except Exception as e:
-                        logger.error(f"[Startup] Error loading {platform} wishlist: {e}")
+                except Exception as e:
+                    logger.error(f"[Startup] Error loading {platform} wishlist: {e}")
     
     # Load Trakt
     trakt_user_id = config.get('trakt_user_id')
@@ -901,13 +1640,8 @@ def download_wishlist():
 
     format_type = request.args.get('format', 'cinerecord-csv')
 
-    df = APP_DATA.get('douban_wish_df')
-    if df is None or df.empty:
-        config = read_config()
-        user_id = config.get('douban_user_id', '')
-        wish_path = os.path.join(DATA_DIR, f'douban_{user_id}_wish.csv')
-        if os.path.exists(wish_path):
-            df = pd.read_csv(wish_path)
+    config = read_config()
+    df = build_wishlist_df(config)
 
     if df is None or df.empty:
         return Response("No wishlist data available", status=404)
@@ -2037,79 +2771,372 @@ def handle_fetch(data):
 
 @socketio.on('fetch_wish')
 def handle_fetch_wish(data):
-    platform = data.get('platform')
+    platform = str(data.get('platform') or '').strip().lower()
     config = read_config()
-    # Prioritize user_id from payload over config
-    user_id = data.get('user_id') or config.get(f'{platform}_user_id')
-    cookie = config.get(f'{platform}_cookie')
     force_full = bool(data.get('force_full'))
-    
-    if not (user_id and cookie):
-        message = f'❌ 请先在设置中填写 {platform.upper()} 用户ID和Cookie。' if platform else '❌ 未指定平台'
-        emit('log', {'message': message, 'type': 'error'})
+
+    if not platform:
+        emit('log', {'message': '❌ 未指定平台', 'type': 'error'})
         return
 
-    expected_path = os.path.join(DATA_DIR, f'{platform}_{user_id}_wish.csv')
-    if force_full and platform == 'douban':
+    def clear_wish_cache(expected_path, platform_key):
+        if not force_full:
+            return
         try:
-            if os.path.exists(expected_path):
+            if expected_path and os.path.exists(expected_path):
                 os.remove(expected_path)
-            APP_DATA.pop(f'{platform}_wish_df', None)
-            APP_DATA.pop(f'{platform}_wish_path', None)
+            APP_DATA.pop(f'{platform_key}_wish_df', None)
+            APP_DATA.pop(f'{platform_key}_wish_path', None)
+            APP_DATA.pop(f'{platform_key}_wish_mtime', None)
             socketio.emit('log', {'message': '🧹 已清理本地想看缓存，开始全量重建...', 'type': 'info'})
         except Exception as e:
             logger.error(f"Failed to clear wish cache: {e}")
-    
-    def on_complete(result):
+
+    def on_complete(result, expected_path, user_id):
         if result is not None:
             df = filter_wish_df(pd.DataFrame(result))
             df = ensure_type_column(df)
             if df is None:
                 df = pd.DataFrame()
             count = len(df)
-            
+
             # Save to APP_DATA only if main user
-            config_user_id = config.get(f'{platform}_user_id')
+            if platform == 'tmdb':
+                config_user_id = config.get('tmdb_username') or config.get('tmdb_user_id')
+            else:
+                config_user_id = config.get(f'{platform}_user_id')
             is_main_user = str(user_id) == str(config_user_id) if config_user_id else True
 
             try:
                 if is_main_user:
                     APP_DATA[f'{platform}_wish_df'] = df
-                    APP_DATA[f'{platform}_wish_path'] = expected_path
+                    APP_DATA[f'{platform}_wish_path'] = expected_path or ''
+                    try:
+                        if expected_path:
+                            APP_DATA[f'{platform}_wish_mtime'] = os.path.getmtime(expected_path)
+                        else:
+                            APP_DATA[f'{platform}_wish_mtime'] = None
+                    except Exception:
+                        APP_DATA[f'{platform}_wish_mtime'] = None
             except Exception as e:
                 logger.error(f"Failed to cache wish data: {e}")
-                
+
             socketio.emit('log', {'message': f'✅ {platform.upper()} 想看列表获取完成: {count} 部', 'type': 'success'})
             socketio.emit('fetch_wish_complete', {
                 'platform': platform,
                 'count': count,
-                'path': expected_path,
+                'path': expected_path or '',
                 'sample': safe_df_to_records(df.head(5)) if not df.empty else []
             })
         else:
             socketio.emit('log', {'message': f'❌ 获取 {platform.upper()} 想看列表失败。', 'type': 'error'})
 
     if platform == 'douban':
+        user_id = data.get('user_id') or config.get('douban_user_id')
+        cookie = config.get('douban_cookie')
+
+        if not (user_id and cookie):
+            emit('log', {'message': '❌ 请先在设置中填写 DOUBAN 用户ID和Cookie。', 'type': 'error'})
+            return
+
+        expected_path = os.path.join(DATA_DIR, f'douban_{user_id}_wish.csv')
+        clear_wish_cache(expected_path, platform)
+
         import threading
-        # Call run_wish_scraper
         threading.Thread(target=lambda: on_complete(run_wish_scraper(
             user_id, cookie, expected_path, socketio, force_full_refresh=force_full
-        ))).start()
+        ), expected_path, user_id)).start()
+        return
+
+    if platform == 'imdb':
+        user_id = data.get('user_id') or config.get('imdb_user_id')
+        cookie = config.get('imdb_cookie')
+
+        if not user_id:
+            emit('log', {'message': '❌ 请先在设置中填写 IMDb 用户ID。', 'type': 'error'})
+            return
+        if not cookie:
+            emit('log', {'message': '❌ 请先在设置中填写 IMDb Cookie。', 'type': 'error'})
+            return
+
+        expected_path = os.path.join(DATA_DIR, f'imdb_{user_id}_wish.csv')
+        clear_wish_cache(expected_path, platform)
+
+        def fetch_imdb_wish():
+            try:
+                records = fetch_imdb_watchlist(cookie, user_id=user_id)
+                if records is None:
+                    return None
+                if records:
+                    pd.DataFrame(records).to_csv(expected_path, index=False)
+                return records
+            except Exception as e:
+                logger.error(f"IMDb wish fetch error: {e}")
+                return None
+
+        import threading
+        threading.Thread(target=lambda: on_complete(fetch_imdb_wish(), expected_path, user_id), daemon=True).start()
+        return
+
+    if platform == 'trakt':
+        client_id = config.get('trakt_client_id', '')
+        client_secret = config.get('trakt_client_secret', '')
+        access_token = config.get('trakt_access_token', '')
+        refresh_token = config.get('trakt_refresh_token', '')
+        token_expires = config.get('trakt_token_expires')
+
+        if not client_id or not access_token:
+            emit('log', {'message': '❌ 请先授权 Trakt 账号', 'type': 'error'})
+            return
+
+        user_id = config.get('trakt_user_id', 'me')
+        expected_path = os.path.join(DATA_DIR, f'trakt_{user_id}_wish.csv')
+        clear_wish_cache(expected_path, platform)
+
+        def fetch_trakt_wish():
+            try:
+                client = TraktClient(client_id, client_secret, access_token, refresh_token, token_expires=token_expires)
+                if client.is_token_expired():
+                    if client.refresh_access_token():
+                        config['trakt_access_token'] = client.access_token
+                        config['trakt_refresh_token'] = client.refresh_token
+                        config['trakt_token_expires'] = client.token_expires.isoformat()
+                        write_config(config)
+
+                records = []
+                page = 1
+                while True:
+                    result = client.get_watchlist('me', item_type='movies', page=page, limit=100)
+                    if not result:
+                        break
+                    items = result.get('items', [])
+                    if not items:
+                        break
+                    for item in items:
+                        movie = item.get('movie', {}) or {}
+                        ids = movie.get('ids', {}) or {}
+                        slug = ids.get('slug') or ''
+                        record = {
+                            'Title': movie.get('title', ''),
+                            'Year': movie.get('year', ''),
+                            'tmdb_id': ids.get('tmdb'),
+                            'imdb_id': ids.get('imdb'),
+                            'trakt_id': ids.get('trakt'),
+                            'URL': f"https://trakt.tv/movies/{slug}" if slug else '',
+                            'Genres': ', '.join(movie.get('genres', []) or []),
+                            'Date Added': item.get('listed_at', '') or '',
+                            'status': 'wish',
+                            'type': 'movie',
+                            'source': 'trakt'
+                        }
+                        records.append(record)
+                    total_pages = result.get('total_pages', 1)
+                    if page >= total_pages:
+                        break
+                    page += 1
+
+                if records:
+                    pd.DataFrame(records).to_csv(expected_path, index=False)
+                return records
+            except Exception as e:
+                logger.error(f"Trakt wish fetch error: {e}")
+                return None
+
+        import threading
+        threading.Thread(target=lambda: on_complete(fetch_trakt_wish(), expected_path, user_id), daemon=True).start()
+        return
+
+    if platform == 'tmdb':
+        from scrapers.tmdb_client import DEFAULT_TMDB_API_KEY
+        api_key = config.get('tmdb_api_key') or DEFAULT_TMDB_API_KEY
+        session_id = config.get('tmdb_session_id', '')
+
+        if not session_id:
+            emit('log', {'message': '❌ 请先完成 TMDB 用户授权', 'type': 'error'})
+            return
+
+        def fetch_tmdb_wish():
+            try:
+                client = TMDBClient(api_key, session_id)
+                if not config.get('tmdb_username'):
+                    account = client.get_account_details() or {}
+                    username = account.get('username')
+                    if username:
+                        config['tmdb_username'] = username
+                        write_config(config)
+
+                user_id = config.get('tmdb_username') or config.get('tmdb_user_id') or 'tmdb'
+                expected_path = os.path.join(DATA_DIR, f'tmdb_{user_id}_wish.csv')
+                clear_wish_cache(expected_path, platform)
+
+                records = []
+                page = 1
+                while True:
+                    result = client.get_watchlist(page=page)
+                    if not result:
+                        break
+                    items = result.get('results', [])
+                    if not items:
+                        break
+                    for movie in items:
+                        tmdb_id = movie.get('id')
+                        poster_path = movie.get('poster_path')
+                        cover_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ''
+                        record = {
+                            'Title': movie.get('title') or movie.get('name') or '',
+                            'Year': (movie.get('release_date') or movie.get('first_air_date') or '')[:4],
+                            'tmdb_id': tmdb_id,
+                            'URL': f"https://www.themoviedb.org/movie/{tmdb_id}" if tmdb_id else '',
+                            'Cover URL': cover_url,
+                            'Date Added': movie.get('created_at', '') or '',
+                            'status': 'wish',
+                            'type': 'movie',
+                            'source': 'tmdb'
+                        }
+                        records.append(record)
+                    total_pages = result.get('total_pages', 1)
+                    if page >= total_pages:
+                        break
+                    page += 1
+
+                if records:
+                    pd.DataFrame(records).to_csv(expected_path, index=False)
+                return records, expected_path, user_id
+            except Exception as e:
+                logger.error(f"TMDB wish fetch error: {e}")
+                return None, None, None
+
+        import threading
+        def run_tmdb_fetch():
+            records, expected_path, user_id = fetch_tmdb_wish()
+            on_complete(records, expected_path, user_id)
+
+        threading.Thread(target=run_tmdb_fetch, daemon=True).start()
+        return
+
+    emit('log', {'message': f'❌ 未支持的平台: {platform}', 'type': 'error'})
+
+
+@socketio.on('fetch_cinepersona_watchlist')
+def handle_fetch_cinepersona_watchlist(data):
+    config = read_config()
+    if not config.get('cinepersona_consent'):
+        emit('log', {'message': '⚠️ 请先在设置中同意 CinePersona 数据同步', 'type': 'warning'})
+        return
+
+    base_url = normalize_cinepersona_url(config.get('cinepersona_url', ''))
+    if not base_url:
+        emit('log', {'message': '❌ 请先配置 CinePersona 地址', 'type': 'error'})
+        return
+
+    session_cookie = config.get('cinepersona_session_cookie', '')
+    if not session_cookie:
+        emit('log', {'message': '⚠️ 未填写 CinePersona Cookie，无法拉取在线想看', 'type': 'warning'})
+        return
+
+    headers = {
+        'Cookie': session_cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+    }
+
+    try:
+        resp = requests.get(f'{base_url}/api/watchlist', headers=headers, timeout=30)
+        if resp.status_code != 200:
+            emit('log', {'message': f'❌ CinePersona 想看获取失败: {resp.status_code}', 'type': 'error'})
+            return
+        payload = resp.json()
+    except Exception as e:
+        logger.error(f"CinePersona watchlist fetch error: {e}")
+        emit('log', {'message': f'❌ CinePersona 想看获取失败: {e}', 'type': 'error'})
+        return
+
+    items = payload.get('items') or []
+    records = []
+    for item in items:
+        movie = item.get('movie') or {}
+        title = movie.get('titleLocalized') or movie.get('titleEn') or ''
+        release_date = movie.get('releaseDate') or ''
+        year = str(release_date)[:4] if release_date else ''
+        tmdb_id = movie.get('tmdbId')
+        imdb_id = movie.get('imdbId')
+        poster_path = movie.get('posterPath') or ''
+        cover_url = ''
+        if poster_path:
+            if str(poster_path).startswith('http'):
+                cover_url = poster_path
+            else:
+                cover_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+        url = ''
+        if imdb_id:
+            url = f"https://www.imdb.com/title/{imdb_id}/"
+        elif tmdb_id:
+            url = f"https://www.themoviedb.org/movie/{tmdb_id}"
+        records.append({
+            'Title': title,
+            'Year': year,
+            'tmdb_id': tmdb_id,
+            'imdb_id': imdb_id,
+            'Cover URL': cover_url,
+            'URL': url,
+            'Date Added': item.get('addedAt') or '',
+            'status': 'wish',
+            'type': 'movie'
+        })
+
+    if records:
+        df = pd.DataFrame(records)
+        df = ensure_type_column(df)
+        save_path = os.path.join(DATA_DIR, 'cinepersona_watchlist.csv')
+        df.to_csv(save_path, index=False, encoding='utf-8-sig')
+        APP_DATA['cinepersona_wish_df'] = df
+        APP_DATA['cinepersona_wish_path'] = save_path
+        try:
+            APP_DATA['cinepersona_wish_mtime'] = os.path.getmtime(save_path)
+        except Exception:
+            APP_DATA['cinepersona_wish_mtime'] = None
+
+    emit('log', {'message': f'✅ CinePersona 想看同步完成: {len(records)} 部', 'type': 'success'})
+    emit('fetch_wish_complete', {
+        'platform': 'cinepersona',
+        'count': len(records),
+        'path': os.path.join(DATA_DIR, 'cinepersona_watchlist.csv'),
+        'sample': safe_df_to_records(pd.DataFrame(records).head(5)) if records else []
+    })
 
 @socketio.on('get_wishlist_library')
 def handle_get_wishlist_library(data=None):
     """Return aggregated wishlist data for the main user"""
     wishlist_data = []
-    
-    # Load Douban Wishlist
-    douban_wish = APP_DATA.get('douban_wish_df')
-    if douban_wish is not None and not douban_wish.empty:
-        douban_wish = filter_wish_df(douban_wish)
-        douban_wish = ensure_type_column(douban_wish)
-        records = douban_wish.where(pd.notnull(douban_wish), None).to_dict('records')
-        for r in records: r['source'] = 'douban'
+
+    try:
+        config = read_config()
+        df = build_wishlist_df(config)
+    except Exception as e:
+        df = None
+        logger.error(f"[Wishlist] Error loading wishlist data: {e}")
+
+    if df is not None and not df.empty:
+        records = safe_df_to_records(df)
         wishlist_data.extend(records)
-        
+    else:
+        config = read_config()
+        user_id = str(config.get('douban_user_id') or '').strip()
+        if user_id:
+            wish_path = os.path.join(DATA_DIR, f'douban_{user_id}_wish.csv')
+            if not os.path.exists(wish_path):
+                socketio.emit('log', {'message': f'⚠️ 未找到想看文件: {os.path.basename(wish_path)}', 'type': 'warning'})
+            else:
+                socketio.emit('log', {'message': '⚠️ 想看文件已读取但无可显示条目', 'type': 'warning'})
+
+    # Media server matching (Emby/Jellyfin)
+    try:
+        config = read_config()
+        library_items, _ = fetch_media_server_library(config)
+        wishlist_data = apply_media_server_matching(wishlist_data, library_items)
+    except Exception as e:
+        logger.warning(f"[Media Server] Matching skipped: {e}")
+
     emit('wishlist_library_data', {'items': wishlist_data, 'count': len(wishlist_data)})
 
 @socketio.on('get_backups_list')
@@ -3164,6 +4191,91 @@ def handle_letterboxd_upload(data):
     except Exception as e:
         logger.exception("Letterboxd CSV parse error")
         emit('log', {'message': f'❌ 解析 Letterboxd CSV 失败: {e}', 'type': 'error'})
+
+
+@socketio.on('upload_letterboxd_watchlist')
+def handle_letterboxd_watchlist_upload(data):
+    """Handle Letterboxd watchlist CSV upload and save as wishlist"""
+    import io
+    import pandas as pd
+    import os
+
+    try:
+        csv_content = data.get('content', '')
+        filename = data.get('filename', 'watchlist.csv')
+
+        if not csv_content:
+            emit('log', {'message': '❌ 未接收到文件内容', 'type': 'error'})
+            return
+
+        emit('log', {'message': f'📥 正在解析 {filename}...', 'type': 'info'})
+
+        df = pd.read_csv(io.StringIO(csv_content))
+        df = normalize_df_columns(df)
+
+        column_mapping = {
+            'Name': 'Title',
+            'Year': 'Year',
+            'Letterboxd URI': 'URL'
+        }
+        for old_col, new_col in column_mapping.items():
+            if old_col in df.columns:
+                df = df.rename(columns={old_col: new_col})
+
+        if 'status' not in df.columns:
+            df['status'] = 'wish'
+        if 'type' not in df.columns:
+            df['type'] = 'movie'
+
+        # Enrich IMDb/TMDB IDs if missing
+        try:
+            from adapters.utils.letterboxd_mapper import get_mapper
+            mapper = get_mapper()
+            if 'IMDb ID' not in df.columns:
+                df['IMDb ID'] = None
+            if 'TMDB ID' not in df.columns:
+                df['TMDB ID'] = None
+
+            url_col = 'URL' if 'URL' in df.columns else None
+            if url_col:
+                missing_indices = df[df['IMDb ID'].isna() & df[url_col].notna()].index.tolist()
+                total_missing = len(missing_indices)
+                if total_missing:
+                    emit('log', {'message': f'🔍 正在补充 IMDb/TMDB ID (共{total_missing}条)...', 'type': 'info'})
+                for idx, row in enumerate(missing_indices, start=1):
+                    ids = mapper.get_platform_ids(str(df.at[row, url_col]).strip()) or {}
+                    if ids.get('imdb_id'):
+                        df.at[row, 'IMDb ID'] = ids.get('imdb_id')
+                    if ids.get('tmdb_id'):
+                        df.at[row, 'TMDB ID'] = ids.get('tmdb_id')
+                    if idx % 20 == 0:
+                        emit('log', {'message': f'... 已处理 {idx}/{total_missing}', 'type': 'info'})
+        except Exception:
+            pass
+
+        df = filter_wish_df(df)
+        df = ensure_type_column(df)
+
+        save_path = os.path.join(DATA_DIR, 'letterboxd_watchlist.csv')
+        df.to_csv(save_path, index=False, encoding='utf-8-sig')
+
+        APP_DATA['letterboxd_wish_df'] = df
+        APP_DATA['letterboxd_wish_path'] = save_path
+        try:
+            APP_DATA['letterboxd_wish_mtime'] = os.path.getmtime(save_path)
+        except Exception:
+            APP_DATA['letterboxd_wish_mtime'] = None
+
+        emit('log', {'message': f'✅ Letterboxd 想看导入成功: {len(df)} 部', 'type': 'success'})
+        emit('fetch_wish_complete', {
+            'platform': 'letterboxd',
+            'count': len(df),
+            'path': save_path,
+            'sample': safe_df_to_records(df.head(5)) if not df.empty else []
+        })
+    except Exception as e:
+        logger.exception("Letterboxd watchlist CSV parse error")
+        emit('log', {'message': f'❌ 解析 Letterboxd 想看失败: {e}', 'type': 'error'})
 
 # ==========================================
 # Trakt OAuth Device Flow Handlers

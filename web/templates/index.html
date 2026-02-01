@@ -20,11 +20,10 @@
                 <span class="nav-title">CineRecord Hub</span>
             </div>
             <nav class="nav-tabs">
-                <button class="nav-tab active" data-tab="accounts" data-i18n="nav.accounts">🔐 账户</button>
+                <button class="nav-tab active" data-tab="dashboard" data-i18n="nav.dashboard">🏠 总览</button>
                 <button class="nav-tab" data-tab="data" data-i18n="nav.data">📊 数据</button>
-                <button class="nav-tab" data-tab="wishlist" data-i18n="nav.wishlist">✨ 想看</button>
-                <button class="nav-tab" data-tab="backups" data-i18n="nav.backups">📁 备份</button>
                 <button class="nav-tab" data-tab="sync" data-i18n="nav.sync">🔄 同步</button>
+                <button class="nav-tab" data-tab="wishlist" data-i18n="nav.wishlist">✨ 想看</button>
                 <button class="nav-tab" data-tab="settings" data-i18n="nav.settings">⚙️ 设置</button>
             </nav>
             <div class="nav-actions">
@@ -111,11 +110,55 @@
 
             <!-- Main content area -->
             <main class="content-main">
-                <!-- Tab: Accounts - Complete Platform Cards -->
-                <div class="tab-content active" id="tab-accounts">
+                <!-- Tab: Dashboard -->
+                <div class="tab-content active" id="tab-dashboard">
                     <div class="content-header">
-                        <h2 data-i18n="accounts.title">账户中心</h2>
-                        <p data-i18n="accounts.subtitle">管理平台账户、查看数据、配置认证</p>
+                        <h2>总览</h2>
+                        <p>快速查看状态并执行常用操作</p>
+                    </div>
+                    <div class="dashboard-grid">
+                        <div class="dashboard-card">
+                            <h3>快速操作</h3>
+                            <div class="dashboard-actions">
+                                <button class="btn btn-primary" onclick="refreshLibrary(1)">🔄 刷新影片库</button>
+                                <button class="btn btn-secondary" onclick="triggerFetchWish('douban')">✨ 刷新想看</button>
+                                <button class="btn btn-outline" onclick="openSettingsSection('tab-settings')">⚙️ 设置与备份</button>
+                            </div>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3>连接 CinePersona</h3>
+                            <div class="dashboard-hints">
+                                <p>🧬 生成你的电影 DNA 与长期趋势分析</p>
+                                <p>☁️ 多用户在线服务，登录后可在任何设备查看</p>
+                                <p>✅ 同意后再同步数据，隐私控制在你手里</p>
+                                <p>📤 先在 CineRecord 导出数据，再去 CinePersona 导入</p>
+                            </div>
+                            <div class="dashboard-actions">
+                                <a class="btn btn-primary" id="cinepersona-link" target="_blank">打开 CinePersona</a>
+                                <a class="btn btn-secondary" id="cinepersona-import-link" target="_blank">上传导入</a>
+                            </div>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3>使用指引</h3>
+                            <div class="dashboard-hints">
+                                <p>📊 在「数据」查看评分库与同步工具</p>
+                                <p>✨ 在「想看」聚合多平台片单</p>
+                                <p>⚙️ 在「设置」管理账户、备份与下载站点</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Accounts - Complete Platform Cards -->
+                <div class="tab-content" id="tab-settings">
+                    <div class="content-header">
+                        <h2>设置与管理</h2>
+                        <p>账户连接、备份与系统设置</p>
+                    </div>
+                    <div class="settings-sub-tabs">
+                        <button class="settings-sub-tab active" data-settings-target="tab-settings">🔐 账户</button>
+                        <button class="settings-sub-tab" data-settings-target="tab-backups">📁 备份</button>
+                        <button class="settings-sub-tab" data-settings-target="tab-config">⚙️ 系统</button>
                     </div>
 
                     <!-- Three Complete Platform Cards (Vertical Stack) -->
@@ -646,21 +689,60 @@
                         <p data-i18n="wishlist.subtitle">汇集各平台的想看数据</p>
                     </div>
                     <div class="wishlist-controls-row">
-                        <button class="btn btn-primary btn-sm" id="refresh-wishlist-btn"
-                            onclick="triggerFetchWish('douban', this)">
-                            <img src="/static/images/platforms/douban.png"
-                                style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
-                            刷新豆瓣想看
-                        </button>
+                        <div class="wishlist-actions">
+                            <button class="btn btn-primary btn-sm wishlist-fetch-btn" id="refresh-wishlist-btn"
+                                data-platform="douban">
+                                <img src="/static/images/platforms/douban.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
+                                刷新豆瓣想看
+                            </button>
+                            <button class="btn btn-secondary btn-sm wishlist-fetch-btn" data-platform="imdb">
+                                <img src="/static/images/platforms/imdb.svg"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
+                                刷新 IMDb 想看
+                            </button>
+                            <button class="btn btn-secondary btn-sm wishlist-fetch-btn" data-platform="trakt">
+                                <img src="/static/images/platforms/trakt.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
+                                刷新 Trakt 想看
+                            </button>
+                            <button class="btn btn-secondary btn-sm wishlist-fetch-btn" data-platform="tmdb">
+                                <img src="/static/images/platforms/tmdb.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
+                                刷新 TMDB 想看
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="cinepersona-wishlist-btn">
+                                🧬 从 CinePersona 同步
+                            </button>
+                            <button class="btn btn-outline btn-sm" id="letterboxd-watchlist-btn">
+                                <img src="/static/images/platforms/letterboxd.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">
+                                导入 Letterboxd 想看
+                            </button>
+                            <input type="file" id="letterboxd-watchlist-input" accept=".csv" style="display:none;">
+                        </div>
                         <button class="btn btn-secondary btn-sm" onclick="downloadWishlist()">
                             导出想看
                         </button>
+                        <label class="wishlist-filter-toggle">
+                            <input type="checkbox" id="wishlist-filter-undownloaded">
+                            <span>仅显示未下载</span>
+                        </label>
                         <div class="wishlist-view-toggle" role="group" aria-label="Wishlist view mode">
                             <button class="btn btn-secondary btn-sm" id="wishlist-view-grid" data-view="grid">🔳
                                 网格</button>
                             <button class="btn btn-secondary btn-sm" id="wishlist-view-list" data-view="list">📋
                                 列表</button>
                         </div>
+                    </div>
+                    <div class="wishlist-source-filters" id="wishlist-source-filters">
+                        <span class="filter-label">来源：</span>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="douban" checked> 豆瓣</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked> Trakt</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="imdb" checked> IMDb</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="cinepersona" checked> CinePersona</label>
                     </div>
                     <div class="unified-library" id="wishlist-library">
                         <div class="library-empty" id="wishlist-empty">
@@ -679,6 +761,11 @@
                     <div class="content-header">
                         <h2>数据管理</h2>
                         <p>管理我的平台数据与好友备份</p>
+                    </div>
+                    <div class="settings-sub-tabs">
+                        <button class="settings-sub-tab" data-settings-target="tab-settings">🔐 账户</button>
+                        <button class="settings-sub-tab active" data-settings-target="tab-backups">📁 备份</button>
+                        <button class="settings-sub-tab" data-settings-target="tab-config">⚙️ 系统</button>
                     </div>
 
                     <!-- Sub-tabs for backup page -->
@@ -1149,11 +1236,16 @@
                 </div>
                 <!-- End Sync Tab -->
 
-                <!-- Tab: Settings -->
-                <div class="tab-content" id="tab-settings">
+                <!-- Tab: Config -->
+                <div class="tab-content" id="tab-config">
                     <div class="content-header">
                         <h2 data-i18n="settings.title">设置</h2>
                         <p data-i18n="settings.subtitle">配置应用程序和账户认证</p>
+                    </div>
+                    <div class="settings-sub-tabs">
+                        <button class="settings-sub-tab" data-settings-target="tab-settings">🔐 账户</button>
+                        <button class="settings-sub-tab" data-settings-target="tab-backups">📁 备份</button>
+                        <button class="settings-sub-tab active" data-settings-target="tab-config">⚙️ 系统</button>
                     </div>
 
                     <!-- Authentication Section -->
@@ -1249,6 +1341,108 @@
                             <div class="settings-input-group">
                                 <input type="number" id="sync-delay" value="2" min="1" max="10" style="width: 80px;">
                                 <span data-i18n="status.seconds">秒</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Media Server Settings -->
+                    <div class="settings-section">
+                        <h3>📺 媒体库 (Emby/Jellyfin)</h3>
+                        <p class="section-desc">用于想看列表查重，匹配到库内将显示库内地址。</p>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>媒体库地址</span>
+                                <small>例如 http://192.168.1.2:8096</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; max-width: 520px;">
+                                <input type="text" id="media-server-url" placeholder="http://localhost:8096">
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>API Key</span>
+                                <small>从 Emby/Jellyfin 管理后台获取</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; max-width: 520px;">
+                                <input type="password" id="media-server-api-key" placeholder="填入 API Key">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CinePersona Integration -->
+                    <div class="settings-section">
+                        <h3>🧬 CinePersona 集成</h3>
+                        <p class="section-desc">把本地数据同步到 CinePersona 做长期分析，也可拉取在线想看。需要用户授权与明确同意。</p>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>CinePersona 地址</span>
+                                <small>例如 https://cinepersona.yourdomain.com</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; max-width: 520px;">
+                                <input type="text" id="cinepersona-url" placeholder="https://cinepersona.example.com">
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>会话 Cookie（可选）</span>
+                                <small>用于一键同步/拉取，缺省则仅显示导入引导</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; max-width: 520px;">
+                                <input type="password" id="cinepersona-session-cookie" placeholder="粘贴 CinePersona 登录 Cookie">
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>我同意同步我的观影数据</span>
+                                <small>仅在勾选后才允许同步到 CinePersona</small>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="cinepersona-consent">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>自动同步（可选）</span>
+                                <small>每次获取数据后自动推送到 CinePersona</small>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="cinepersona-auto-sync">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>快速入口</span>
+                                <small>打开 CinePersona 或导入页面</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; gap: 8px; display: flex;">
+                                <a class="btn btn-secondary btn-sm" id="cinepersona-link-settings" target="_blank">打开 CinePersona</a>
+                                <a class="btn btn-outline btn-sm" id="cinepersona-import-link-settings" target="_blank">上传导入</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Server Access -->
+                    <div class="settings-section">
+                        <h3>🔒 访问认证</h3>
+                        <p class="section-desc">仅服务器部署时使用，设置后需浏览器输入账号密码。</p>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>用户名</span>
+                                <small>默认 cinerecord</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; max-width: 300px;">
+                                <input type="text" id="server-username" placeholder="cinerecord">
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <span>密码</span>
+                                <small>留空则不启用</small>
+                            </div>
+                            <div class="settings-input-group" style="flex: 1; max-width: 300px;">
+                                <input type="password" id="server-password" placeholder="设置后启用认证">
                             </div>
                         </div>
                     </div>

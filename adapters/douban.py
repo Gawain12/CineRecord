@@ -47,14 +47,17 @@ class DoubanAdapter(PlatformAdapter):
         super().__init__(logger, config)
         self.cache_file = config.get('cache_file', 'data/db_imdb.csv')
         self._cache: Optional[IDMappingCache] = None
+        self.review_map: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _normalize_status(status: str) -> str:
         s = str(status).lower().strip() if status else ''
         if s == 'mark':
             return 'wish'
-        if s == 'collect':
+        if s in {'collect', 'watched'}:
             return 'done'
+        if s == 'do':
+            return 'doing'
         return s
 
     @staticmethod
@@ -74,10 +77,24 @@ class DoubanAdapter(PlatformAdapter):
         if s in {'wish', 'want_to_watch', 'mark'}:
             return {'mark', 'wish', 'want_to_watch'}
         if s in {'done', 'collect', 'watched'}:
-            return {'done'}
+            return {'done', 'collect', 'watched'}
         if s in {'doing', 'do'}:
-            return {'doing'}
+            return {'doing', 'do'}
         return {s} if s else set()
+
+    def _write_report(self, output_path: str, records: List[Dict[str, Any]], suffix: str, label: str) -> Optional[str]:
+        if not records:
+            return None
+        base, _ = os.path.splitext(output_path)
+        report_path = f"{base}_{suffix}.csv"
+        try:
+            df = pd.DataFrame(records)
+            df.to_csv(report_path, index=False, encoding='utf-8-sig')
+            self.logger.warning(f"{label}，已输出明细: {report_path}")
+            return report_path
+        except Exception as e:
+            self.logger.error(f"无法写入 {label} 明细: {e}")
+            return None
     
     @property
     def cache(self) -> IDMappingCache:
@@ -152,6 +169,16 @@ class DoubanAdapter(PlatformAdapter):
             
             # 加载缓存
             self.logger.info(f"已加载 {len(self.cache)} 条IMDb缓存。")
+
+            # 预取长影评（仅已看/在看）
+            self.review_map = {}
+            if api_status in {'done', 'doing'}:
+                try:
+                    self.review_map = await self._fetch_reviews_map(session, user_id)
+                    if self.review_map:
+                        self.logger.info(f"已加载 {len(self.review_map)} 条长影评。")
+                except Exception as e:
+                    self.logger.warning(f"长影评获取失败: {e}")
             
             # 加载已有数据
             force_refresh = bool(force_full_refresh)
@@ -206,6 +233,7 @@ class DoubanAdapter(PlatformAdapter):
             
             # 获取新数据
             new_interests = []
+            skipped_status: List[Dict[str, Any]] = []
             for page_num in range(total_pages):
                 self.logger.progress(page_num, total_pages, f"获取列表 {page_num+1}/{total_pages}")
                 page_data = await self._fetch_page(session, api_url, page_num * page_size, page_size, api_status)
@@ -216,6 +244,14 @@ class DoubanAdapter(PlatformAdapter):
                 for interest in page_data['interests']:
                     item_status = str(interest.get('status') or '').lower().strip()
                     if allowed_statuses and item_status not in allowed_statuses:
+                        subject = interest.get('subject', {}) or {}
+                        skipped_status.append({
+                            'douban_id': subject.get('id', ''),
+                            'title': subject.get('title', ''),
+                            'status': item_status,
+                            'date': str(interest.get('create_time', '')).split(' ')[0],
+                            'url': subject.get('url', '')
+                        })
                         continue
                     if interest.get('subject', {}).get('id') in existing_ids:
                         should_stop = True
@@ -225,21 +261,66 @@ class DoubanAdapter(PlatformAdapter):
                     break
             
             self.logger.progress(total_pages, total_pages, "列表获取完成")
+
+            if skipped_status:
+                self.logger.warning(f"跳过 {len(skipped_status)} 条非目标状态记录。")
+                self._write_report(output_path, skipped_status, "skipped_status", "非目标状态记录")
             
             if not new_interests:
                 self.logger.success("数据已是最新。")
-                return self._load_existing_data(output_path, interest_status)
+                try:
+                    df_existing = pd.read_csv(output_path)
+                    if interest_status and 'status' in df_existing.columns:
+                        status_series = df_existing['status'].fillna('').astype(str).str.lower().str.strip()
+                        allowed_statuses = self._allowed_statuses(interest_status)
+                        if allowed_statuses:
+                            df_existing = df_existing[status_series.isin(allowed_statuses)]
+                    df_existing = self._apply_review_columns(df_existing, self.review_map)
+                    df_existing.to_csv(output_path, index=False, encoding='utf-8-sig')
+                    return self.clean_df_for_json(df_existing)
+                except Exception:
+                    return self._load_existing_data(output_path, interest_status)
             
             self.logger.info(f"发现 {len(new_interests)} 条新记录，开始处理...")
             new_interests.reverse()
             
             # 处理数据并获取IMDB ID
-            tasks = [self._process_interest(session, i, interest_status) for i in new_interests]
+            tasks = []
+            task_map: Dict[asyncio.Task, Dict[str, Any]] = {}
+            for interest in new_interests:
+                task = asyncio.create_task(self._process_interest(session, interest, interest_status))
+                tasks.append(task)
+                task_map[task] = interest
             new_movies = []
-            for i, f in enumerate(asyncio.as_completed(tasks)):
-                record = await f
+            failed_process: List[Dict[str, Any]] = []
+            for i, task in enumerate(asyncio.as_completed(tasks)):
+                interest = task_map.get(task, {})
+                subject = interest.get('subject', {}) or {}
+                failure_recorded = False
+                try:
+                    record = await task
+                except Exception as e:
+                    failed_process.append({
+                        'douban_id': subject.get('id', ''),
+                        'title': subject.get('title', ''),
+                        'status': str(interest.get('status') or '').lower().strip(),
+                        'date': str(interest.get('create_time', '')).split(' ')[0],
+                        'url': subject.get('url', ''),
+                        'reason': str(e)
+                    })
+                    failure_recorded = True
+                    record = None
                 if record:
                     new_movies.append(record)
+                elif not failure_recorded:
+                    failed_process.append({
+                        'douban_id': subject.get('id', ''),
+                        'title': subject.get('title', ''),
+                        'status': str(interest.get('status') or '').lower().strip(),
+                        'date': str(interest.get('create_time', '')).split(' ')[0],
+                        'url': subject.get('url', ''),
+                        'reason': 'empty_record'
+                    })
                 self.logger.progress(i + 1, len(tasks), f"处理详情 {i+1}/{len(tasks)}")
             
             # 保存
@@ -258,12 +339,18 @@ class DoubanAdapter(PlatformAdapter):
             df_final = pd.concat([df_new, df_existing], ignore_index=True)
             cols = ['Const', 'Your Rating', 'Date Rated', 'Title', 'Directors', 'Actors',
                     'Country', 'Year', 'Genres', 'Douban Rating', 'Num Votes', 'MyComment',
-                    'URL', 'Cover URL', 'douban_id', 'Type', 'status']
-            df_final = df_final.reindex(columns=cols)
+                    'URL', 'Cover URL', 'douban_id', 'Type', 'status',
+                    'Review Title', 'Review Content', 'Review URL', 'Review Date']
+            df_final = self._apply_review_columns(df_final, self.review_map)
+            df_final = df_final.reindex(columns=[c for c in cols if c in df_final.columns])
             df_final.drop_duplicates(subset=['douban_id'], keep='first', inplace=True)
             df_final.sort_values(by='Date Rated', ascending=False, inplace=True)
             df_final.to_csv(output_path, index=False, encoding='utf-8-sig')
-            
+
+            if failed_process:
+                self.logger.warning(f"处理失败或为空的记录共 {len(failed_process)} 条。")
+                self._write_report(output_path, failed_process, "failed_process", "处理失败或为空的记录")
+
             self.logger.success(f"成功！新增 {len(df_new)} 条，总计 {len(df_final)} 条。")
             return self.clean_df_for_json(df_final)
     
@@ -296,6 +383,88 @@ class DoubanAdapter(PlatformAdapter):
             except Exception as e:
                 self.logger.error(f"请求异常 (尝试 {i+1}/{retries}): {e}")
         return None
+
+    async def _fetch_reviews_page(self, session: aiohttp.ClientSession, url: str,
+                                  start: int, size: int = 50, retries: int = 3) -> Optional[Dict]:
+        params = {"type": "movie", "count": size, "start": start}
+        for i in range(retries):
+            await asyncio.sleep(random.uniform(0.6, 1.5))
+            try:
+                async with session.get(url, params=params, verify_ssl=False, timeout=30) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    self.logger.warning(f"长评请求失败 (尝试 {i+1}/{retries}): HTTP {resp.status}")
+            except Exception as e:
+                self.logger.warning(f"长评请求异常 (尝试 {i+1}/{retries}): {e}")
+        return None
+
+    async def _fetch_reviews_map(self, session: aiohttp.ClientSession, user_id: str) -> Dict[str, Dict[str, Any]]:
+        url = f"{self.API_BASE}/user/{user_id}/reviews"
+        start = 0
+        size = 50
+        reviews_map: Dict[str, Dict[str, Any]] = {}
+        total = None
+
+        while True:
+            data = await self._fetch_reviews_page(session, url, start, size)
+            if not data:
+                break
+            items = data.get('reviews') or data.get('items') or []
+            if total is None:
+                total = data.get('total')
+            if not items:
+                break
+            for review in items:
+                subject = review.get('subject') or {}
+                subject_id = str(
+                    subject.get('id')
+                    or review.get('subject_id')
+                    or review.get('subjectId')
+                    or ''
+                ).strip()
+                if not subject_id:
+                    continue
+                reviews_map[subject_id] = {
+                    'title': review.get('title') or review.get('subject_title') or '',
+                    'content': review.get('content')
+                               or review.get('text')
+                               or review.get('abstract')
+                               or review.get('summary')
+                               or review.get('short_content')
+                               or '',
+                    'url': review.get('sharing_url')
+                           or review.get('share_url')
+                           or review.get('url')
+                           or review.get('uri')
+                           or '',
+                    'date': review.get('create_time')
+                            or review.get('created_at')
+                            or review.get('created')
+                            or review.get('update_time')
+                            or ''
+                }
+            start += len(items)
+            if total is not None and start >= int(total):
+                break
+        return reviews_map
+
+    def _apply_review_columns(self, df: pd.DataFrame, reviews_map: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
+        if df is None or df.empty:
+            return df
+        for col in ['Review Title', 'Review Content', 'Review URL', 'Review Date']:
+            if col not in df.columns:
+                df[col] = ''
+        if not reviews_map or 'douban_id' not in df.columns:
+            return df
+        def pick(subject_id, field):
+            if subject_id is None:
+                return ''
+            return reviews_map.get(str(subject_id).strip(), {}).get(field, '')
+        df['Review Title'] = df['douban_id'].apply(lambda x: pick(x, 'title'))
+        df['Review Content'] = df['douban_id'].apply(lambda x: pick(x, 'content'))
+        df['Review URL'] = df['douban_id'].apply(lambda x: pick(x, 'url'))
+        df['Review Date'] = df['douban_id'].apply(lambda x: pick(x, 'date'))
+        return df
     
     async def _process_interest(self, session: aiohttp.ClientSession, interest: Dict,
                                interest_status: str = 'done') -> Optional[Dict]:
@@ -337,8 +506,22 @@ class DoubanAdapter(PlatformAdapter):
             'Cover URL': subject.get('cover_url'),
             'douban_id': subject.get('id'),
             'Type': media_type,
-            'status': self._normalize_status(status or interest_status)
+            'status': self._normalize_status(status or interest_status),
+            'Review Title': '',
+            'Review Content': '',
+            'Review URL': '',
+            'Review Date': ''
         }
+
+        # 填充长影评
+        subject_id = str(data.get('douban_id') or '').strip()
+        if subject_id and self.review_map:
+            review = self.review_map.get(subject_id)
+            if review:
+                data['Review Title'] = review.get('title', '')
+                data['Review Content'] = review.get('content', '')
+                data['Review URL'] = review.get('url', '')
+                data['Review Date'] = review.get('date', '')
         
         # 获取IMDB ID
         douban_id = data.get('douban_id')

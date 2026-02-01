@@ -444,6 +444,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // ========================================
     // Tab Navigation
     // ========================================
+    const TAB_ALIASES = {
+        accounts: 'settings',
+        account: 'settings',
+        backups: 'settings',
+        config: 'settings'
+    };
+
+    const TAB_GROUPS = {
+        dashboard: ['tab-dashboard'],
+        data: ['tab-data'],
+        sync: ['tab-sync'],
+        wishlist: ['tab-wishlist']
+    };
+
+    let currentSettingsSection = 'tab-settings';
+
+    function normalizeTabId(tabId) {
+        if (!tabId) return 'dashboard';
+        const normalized = String(tabId).toLowerCase().trim();
+        return TAB_ALIASES[normalized] || normalized;
+    }
+
     ui.navTabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const tabId = tab.dataset.tab;
@@ -451,28 +473,82 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    function showSettingsSection(targetId) {
+        const settingsTargets = ['tab-settings', 'tab-backups', 'tab-config'];
+        const normalizedTarget = settingsTargets.includes(targetId) ? targetId : 'tab-settings';
+        settingsTargets.forEach(id => document.getElementById(id)?.classList.remove('active'));
+        document.getElementById(normalizedTarget)?.classList.add('active');
+        currentSettingsSection = normalizedTarget;
+
+        document.querySelectorAll('.settings-sub-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.settingsTarget === normalizedTarget);
+        });
+
+        // Lazy init for backups when the section is shown
+        if (normalizedTarget === 'tab-backups') {
+            loadMyFilesList();
+            initBackupSubTabs();
+        }
+    }
+
+    function openSettingsSection(targetId) {
+        currentSettingsSection = targetId || 'tab-settings';
+        switchTab('settings');
+    }
+
     function switchTab(tabId) {
+        const rawTab = String(tabId || '').toLowerCase().trim();
+        if (rawTab === 'backups') currentSettingsSection = 'tab-backups';
+        if (rawTab === 'config') currentSettingsSection = 'tab-config';
+        if (rawTab === 'accounts' || rawTab === 'account') currentSettingsSection = 'tab-settings';
+
+        let normalized = normalizeTabId(tabId);
+        let targets = TAB_GROUPS[normalized] || [`tab-${normalized}`];
+        const hasTarget = targets.some(targetId => document.getElementById(targetId));
+        if (!hasTarget && normalized !== 'settings') {
+            normalized = 'dashboard';
+            targets = TAB_GROUPS[normalized];
+        }
+
         // Update nav tabs
         ui.navTabs.forEach(t => t.classList.remove('active'));
-        document.querySelector(`[data-tab="${tabId}"]`)?.classList.add('active');
+        document.querySelector(`[data-tab="${normalized}"]`)?.classList.add('active');
 
         // Update content
         ui.tabContents.forEach(content => content.classList.remove('active'));
-        document.getElementById(`tab-${tabId}`)?.classList.add('active');
+
+        if (normalized === 'settings') {
+            showSettingsSection(currentSettingsSection);
+        } else {
+            targets.forEach(targetId => {
+                document.getElementById(targetId)?.classList.add('active');
+            });
+        }
 
         // Load data for dynamic tabs
-        if (tabId === 'wishlist') {
+        if (normalized === 'wishlist') {
             loadWishlistLibrary();
             updateWishlistViewToggle();
-        } else if (tabId === 'backups') {
-            // Load my-files by default (first tab)
-            loadMyFilesList();
-            initBackupSubTabs();
         }
 
         // Save session state when tab changes
         saveSessionState();
     }
+
+    function initSettingsSubTabs() {
+        document.querySelectorAll('.settings-sub-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = btn.dataset.settingsTarget;
+                if (target) {
+                    openSettingsSection(target);
+                }
+            });
+        });
+    }
+
+    initSettingsSubTabs();
+    window.switchTab = switchTab;
+    window.openSettingsSection = openSettingsSection;
 
 
     // ========================================
@@ -503,6 +579,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (imdbCookieConfig && config.imdb_cookie) imdbCookieConfig.value = config.imdb_cookie;
         if (doubanUserIdConfig && config.douban_user_id) doubanUserIdConfig.value = config.douban_user_id;
         if (imdbUserIdConfig && config.imdb_user_id) imdbUserIdConfig.value = config.imdb_user_id;
+
+        const mediaServerUrl = document.getElementById('media-server-url');
+        const mediaServerApiKey = document.getElementById('media-server-api-key');
+        if (mediaServerUrl) mediaServerUrl.value = config.media_server_url || '';
+        if (mediaServerApiKey) mediaServerApiKey.value = config.media_server_api_key || '';
+        const serverUsername = document.getElementById('server-username');
+        const serverPassword = document.getElementById('server-password');
+        if (serverUsername) serverUsername.value = config.server_username || 'cinerecord';
+        if (serverPassword && config.server_password) serverPassword.value = config.server_password;
+        const cinepersonaUrl = document.getElementById('cinepersona-url');
+        const cinepersonaCookie = document.getElementById('cinepersona-session-cookie');
+        const cinepersonaConsent = document.getElementById('cinepersona-consent');
+        const cinepersonaAutoSync = document.getElementById('cinepersona-auto-sync');
+        if (cinepersonaUrl) cinepersonaUrl.value = config.cinepersona_url || '';
+        if (cinepersonaCookie && config.cinepersona_session_cookie) cinepersonaCookie.value = config.cinepersona_session_cookie;
+        if (cinepersonaConsent) cinepersonaConsent.checked = !!config.cinepersona_consent;
+        if (cinepersonaAutoSync) cinepersonaAutoSync.checked = !!config.cinepersona_auto_sync;
+
+        const cinepersonaLink = document.getElementById('cinepersona-link');
+        const cinepersonaImportLink = document.getElementById('cinepersona-import-link');
+        const cinepersonaLinkSettings = document.getElementById('cinepersona-link-settings');
+        const cinepersonaImportLinkSettings = document.getElementById('cinepersona-import-link-settings');
+        if (cinepersonaUrl && cinepersonaUrl.value) {
+            const base = cinepersonaUrl.value.replace(/\/+$/, '');
+            if (cinepersonaLink) cinepersonaLink.href = base;
+            if (cinepersonaImportLink) cinepersonaImportLink.href = `${base}/import`;
+            if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = base;
+            if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = `${base}/import`;
+        } else {
+            if (cinepersonaLink) cinepersonaLink.href = '#';
+            if (cinepersonaImportLink) cinepersonaImportLink.href = '#';
+            if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = '#';
+            if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = '#';
+        }
 
         // Check for existing data files
         socket.emit('check_local_data', config);
@@ -1755,7 +1865,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.account-summary-card').forEach(card => {
         card.addEventListener('click', () => {
             const platform = card.id.replace('-summary-card', '');
-            switchTab('accounts');
+            openSettingsSection('tab-settings');
             // Scroll to platform card
             const fullCard = document.getElementById(`${platform}-card`);
             if (fullCard) {
@@ -1860,7 +1970,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (configDoubanBtn) {
         configDoubanBtn.addEventListener('click', () => {
-            switchTab('settings');
+            openSettingsSection('tab-settings');
             log('💡 请在设置页面配置豆瓣 Cookie', 'info');
             // Scroll to Douban cookie section
             setTimeout(() => {
@@ -1875,7 +1985,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (configImdbBtn) {
         configImdbBtn.addEventListener('click', () => {
-            switchTab('settings');
+            openSettingsSection('tab-settings');
             log('💡 请在设置页面配置 IMDB Cookie', 'info');
             // Scroll to IMDB cookie section
             setTimeout(() => {
@@ -2118,7 +2228,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!cookie) {
             log(`❌ 请先在设置中配置 ${platform.toUpperCase()} Cookie`, 'error');
-            switchTab('settings');
+            openSettingsSection('tab-settings');
             return;
         }
 
@@ -2138,6 +2248,14 @@ document.addEventListener('DOMContentLoaded', () => {
             douban_cookie: document.getElementById('douban-cookie-config')?.value || appState.douban_cookie || '',
             imdb_user_id: document.getElementById('imdb-user-id-config')?.value || appState.imdb_user_id || '',
             imdb_cookie: document.getElementById('imdb-cookie-config')?.value || appState.imdb_cookie || '',
+            media_server_url: document.getElementById('media-server-url')?.value?.trim() || '',
+            media_server_api_key: document.getElementById('media-server-api-key')?.value?.trim() || '',
+            server_username: document.getElementById('server-username')?.value?.trim() || 'cinerecord',
+            server_password: document.getElementById('server-password')?.value || '',
+            cinepersona_url: document.getElementById('cinepersona-url')?.value?.trim() || '',
+            cinepersona_session_cookie: document.getElementById('cinepersona-session-cookie')?.value || '',
+            cinepersona_consent: !!document.getElementById('cinepersona-consent')?.checked,
+            cinepersona_auto_sync: !!document.getElementById('cinepersona-auto-sync')?.checked,
             download_sites_enabled: downloadConfig.enabledIds,
             download_sites_custom: downloadConfig.customSites
         };
@@ -2149,6 +2267,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         socket.emit('save_config', configData);
         if (window.log) window.log('💾 配置已保存', 'success');
+
+        if (configData.cinepersona_url) {
+            const base = configData.cinepersona_url.replace(/\/+$/, '');
+            const cinepersonaLink = document.getElementById('cinepersona-link');
+            const cinepersonaImportLink = document.getElementById('cinepersona-import-link');
+            const cinepersonaLinkSettings = document.getElementById('cinepersona-link-settings');
+            const cinepersonaImportLinkSettings = document.getElementById('cinepersona-import-link-settings');
+            if (cinepersonaLink) cinepersonaLink.href = base;
+            if (cinepersonaImportLink) cinepersonaImportLink.href = `${base}/import`;
+            if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = base;
+            if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = `${base}/import`;
+        }
 
         // Show feedback on both buttons if they exist
         if (ui.saveConfigBtn) highlightElement(ui.saveConfigBtn, 'success');
@@ -2291,7 +2421,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!appState.douban_cookie) {
                 log('❌ 请先登录豆瓣账号', 'error');
-                switchTab('account');
+                openSettingsSection('tab-settings');
                 return;
             }
             // Use socket event for trakt-to-douban
@@ -2312,7 +2442,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!appState.trakt_ready) {
                 log('❌ 请先授权 Trakt 账号', 'error');
-                switchTab('account');
+                openSettingsSection('tab-settings');
                 return;
             }
             // Use socket event for imdb-to-trakt
@@ -2332,7 +2462,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!appState.tmdb_ready) {
                 log('❌ 请先授权 TMDB 账号', 'error');
-                switchTab('accounts');
+                openSettingsSection('tab-settings');
                 return;
             }
             setButtonsState(true);
@@ -2351,7 +2481,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!appState.tmdb_ready) {
                 log('❌ 请先授权 TMDB 账号', 'error');
-                switchTab('accounts');
+                openSettingsSection('tab-settings');
                 return;
             }
             setButtonsState(true);
@@ -2993,7 +3123,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // NEW: Save logs (last 100 entries)
                 logs: [],
                 // NEW: Save active tab
-                activeTab: document.querySelector('.nav-tab.active')?.dataset.tab || 'accounts',
+                activeTab: document.querySelector('.nav-tab.active')?.dataset.tab || 'dashboard',
+                settingsSection: currentSettingsSection,
                 // NEW: Save movie data (first 50 entries per platform to limit size)
                 movieData: {},
                 // NEW: Save data preview card states
@@ -3162,16 +3293,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // NEW: Restore active tab
+            if (sessionData.settingsSection) {
+                currentSettingsSection = sessionData.settingsSection;
+            }
             if (sessionData.activeTab) {
-                const targetTab = document.querySelector(`.nav-tab[data-tab="${sessionData.activeTab}"]`);
-                const targetContent = document.getElementById(`tab-${sessionData.activeTab}`);
-                if (targetTab && targetContent) {
-                    // Switch tabs
-                    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                    targetTab.classList.add('active');
-                    targetContent.classList.add('active');
-                }
+                switchTab(normalizeTabId(sessionData.activeTab));
             }
 
             // NEW: Restore movie data
@@ -3709,18 +3835,23 @@ document.addEventListener('DOMContentLoaded', function () {
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Event Handler for Fetch Wish Button
+    // 1. Event Handler for Fetch Wish Buttons
     const fetchDoubanWishBtn = document.getElementById('fetch-douban-wish-btn');
     if (fetchDoubanWishBtn) {
         fetchDoubanWishBtn.addEventListener('click', () => {
-            if (window.log) window.log('🚀 开始获取 豆瓣 想看列表...', 'info');
+            triggerFetchWish('douban', fetchDoubanWishBtn);
+        });
+    }
 
-            fetchDoubanWishBtn.disabled = true;
-            fetchDoubanWishBtn.innerHTML = '<span class="loading-spinner"></span> 处理中...';
-
-            if (window.socket) {
-                window.socket.emit('fetch_wish', { platform: 'douban' });
-            }
+    const wishlistFetchButtons = document.querySelectorAll('.wishlist-fetch-btn');
+    if (wishlistFetchButtons.length) {
+        wishlistFetchButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const platform = btn.dataset.platform;
+                if (platform) {
+                    triggerFetchWish(platform, btn);
+                }
+            });
         });
     }
 
@@ -3732,6 +3863,61 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         updateWishlistViewToggle();
+    }
+
+    const wishlistFilterToggle = document.getElementById('wishlist-filter-undownloaded');
+    if (wishlistFilterToggle) {
+        if (typeof wishlistState !== 'undefined') {
+            wishlistState.filterUndownloaded = wishlistFilterToggle.checked;
+        }
+        wishlistFilterToggle.addEventListener('change', () => {
+            if (typeof wishlistState !== 'undefined') {
+                wishlistState.filterUndownloaded = wishlistFilterToggle.checked;
+                renderWishlistPage(1);
+            }
+        });
+    }
+
+    const wishlistSourceFilters = document.querySelectorAll('#wishlist-source-filters input[data-source]');
+    if (wishlistSourceFilters.length) {
+        wishlistSourceFilters.forEach(cb => {
+            cb.addEventListener('change', () => {
+                syncWishlistSourceSelection();
+                renderWishlistPage(1);
+            });
+        });
+    }
+
+    const letterboxdWatchlistBtn = document.getElementById('letterboxd-watchlist-btn');
+    const letterboxdWatchlistInput = document.getElementById('letterboxd-watchlist-input');
+    if (letterboxdWatchlistBtn && letterboxdWatchlistInput) {
+        letterboxdWatchlistBtn.addEventListener('click', () => letterboxdWatchlistInput.click());
+        letterboxdWatchlistInput.addEventListener('change', async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            try {
+                const content = await file.text();
+                window.socket.emit('upload_letterboxd_watchlist', {
+                    filename: file.name,
+                    content
+                });
+                if (window.log) window.log('📥 正在导入 Letterboxd 想看列表...', 'info');
+            } catch (err) {
+                if (window.log) window.log(`❌ 读取文件失败: ${err}`, 'error');
+            } finally {
+                letterboxdWatchlistInput.value = '';
+            }
+        });
+    }
+
+    const cinepersonaWishlistBtn = document.getElementById('cinepersona-wishlist-btn');
+    if (cinepersonaWishlistBtn) {
+        cinepersonaWishlistBtn.addEventListener('click', () => {
+            if (window.socket) {
+                window.socket.emit('fetch_cinepersona_watchlist', {});
+                if (window.log) window.log('🧬 正在从 CinePersona 拉取想看...', 'info');
+            }
+        });
     }
 
     // 2. Socket Listeners for Wishlist
@@ -3751,11 +3937,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetchDoubanWishBtn.disabled = false;
                 fetchDoubanWishBtn.innerHTML = '📥 获取想看';
             }
-            const wishlistRefreshBtn = document.getElementById('refresh-wishlist-btn');
-            if (wishlistRefreshBtn) {
-                wishlistRefreshBtn.disabled = false;
-                wishlistRefreshBtn.innerHTML = '刷新豆瓣想看';
-            }
+            document.querySelectorAll(`.wishlist-fetch-btn[data-platform="${data.platform}"]`).forEach(btn => {
+                btn.disabled = false;
+                if (btn.dataset.label) {
+                    btn.innerHTML = btn.dataset.label;
+                }
+            });
 
             // Refresh wishlist view if active
             const activeTab = document.querySelector('.nav-tab.active');
@@ -3800,6 +3987,22 @@ function loadWishlistLibrary() {
 
 const WISHLIST_VIEW_STORAGE_KEY = 'wishlist_view_mode';
 const WISHLIST_PAGE_SIZES = { grid: 24, list: 12 };
+const WISHLIST_SOURCE_LABELS = {
+    douban: '豆瓣',
+    imdb: 'IMDb',
+    trakt: 'Trakt',
+    tmdb: 'TMDB',
+    letterboxd: 'Letterboxd',
+    cinepersona: 'CinePersona'
+};
+
+function normalizeWishlistSource(value) {
+    return String(value || '').toLowerCase().trim();
+}
+
+function getWishlistSource(movie) {
+    return normalizeWishlistSource(movie?.source || movie?.Source || movie?.platform || '');
+}
 
 function getSavedWishlistViewMode() {
     try {
@@ -3836,7 +4039,8 @@ function setWishlistViewMode(mode) {
 
     wishlistState.viewMode = normalized;
     wishlistState.pageSize = WISHLIST_PAGE_SIZES[normalized] || WISHLIST_PAGE_SIZES.grid;
-    wishlistState.totalPages = Math.ceil(wishlistState.items.length / wishlistState.pageSize) || 1;
+    const displayItems = getWishlistDisplayItems();
+    wishlistState.totalPages = Math.ceil(displayItems.length / wishlistState.pageSize) || 1;
     wishlistState.currentPage = Math.min(wishlistState.currentPage, wishlistState.totalPages) || 1;
 
     try {
@@ -3865,11 +4069,83 @@ function formatWishlistVotes(num) {
 const initialWishlistViewMode = getSavedWishlistViewMode();
 const wishlistState = {
     items: [],
+    totalCount: 0,
     currentPage: 1,
     pageSize: WISHLIST_PAGE_SIZES[initialWishlistViewMode] || WISHLIST_PAGE_SIZES.grid,
     totalPages: 1,
-    viewMode: initialWishlistViewMode
+    viewMode: initialWishlistViewMode,
+    filterUndownloaded: false,
+    activeSources: []
 };
+
+function isLibraryMatched(movie) {
+    if (!movie) return false;
+    if (movie.library_matched !== undefined) return !!movie.library_matched;
+    if (movie.libraryMatched !== undefined) return !!movie.libraryMatched;
+    if (movie.library_match && typeof movie.library_match === 'object') {
+        return !!movie.library_match.matched;
+    }
+    return false;
+}
+
+function updateWishlistSourceFilters(items) {
+    const container = document.getElementById('wishlist-source-filters');
+    if (!container) return;
+
+    const availableSources = new Set();
+    (items || []).forEach(item => {
+        const source = getWishlistSource(item);
+        if (source) availableSources.add(source);
+    });
+
+    const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"][data-source]'));
+    if (!checkboxes.length) return;
+
+    if (!availableSources.size) {
+        wishlistState.activeSources = [];
+    }
+
+    if (!wishlistState.activeSources.length && availableSources.size) {
+        wishlistState.activeSources = Array.from(availableSources);
+    } else {
+        wishlistState.activeSources = wishlistState.activeSources.filter(source => availableSources.has(source));
+        if (!wishlistState.activeSources.length && availableSources.size) {
+            wishlistState.activeSources = Array.from(availableSources);
+        }
+    }
+
+    checkboxes.forEach(cb => {
+        const source = normalizeWishlistSource(cb.dataset.source);
+        const hasSource = availableSources.has(source);
+        cb.disabled = !hasSource;
+        cb.checked = wishlistState.activeSources.includes(source);
+        const label = cb.closest('.wishlist-source-option');
+        if (label) label.classList.toggle('disabled', !hasSource);
+    });
+}
+
+function syncWishlistSourceSelection() {
+    const container = document.getElementById('wishlist-source-filters');
+    if (!container) return;
+
+    const selections = Array.from(container.querySelectorAll('input[type="checkbox"][data-source]'))
+        .filter(cb => cb.checked && !cb.disabled)
+        .map(cb => normalizeWishlistSource(cb.dataset.source));
+    wishlistState.activeSources = selections;
+}
+
+function getWishlistDisplayItems() {
+    const items = Array.isArray(wishlistState.items) ? wishlistState.items : [];
+    return items.filter(movie => {
+        const source = getWishlistSource(movie);
+        if (wishlistState.activeSources.length) {
+            if (!source) return false;
+            if (!wishlistState.activeSources.includes(source)) return false;
+        }
+        if (wishlistState.filterUndownloaded && isLibraryMatched(movie)) return false;
+        return true;
+    });
+}
 
 function renderWishlist(items) {
     const listEl = document.getElementById('wishlist-list');
@@ -3877,9 +4153,12 @@ function renderWishlist(items) {
     const paginationEl = document.getElementById('wishlist-pagination');
 
     wishlistState.items = items || [];
+    wishlistState.totalCount = wishlistState.items.length;
     wishlistState.currentPage = 1;
     wishlistState.pageSize = WISHLIST_PAGE_SIZES[wishlistState.viewMode] || WISHLIST_PAGE_SIZES.grid;
-    wishlistState.totalPages = Math.ceil(wishlistState.items.length / wishlistState.pageSize);
+    updateWishlistSourceFilters(wishlistState.items);
+    const displayItems = getWishlistDisplayItems();
+    wishlistState.totalPages = Math.ceil(displayItems.length / wishlistState.pageSize) || 1;
 
     if (!items || items.length === 0) {
         if (listEl) listEl.style.display = 'none';
@@ -3910,13 +4189,23 @@ function renderWishlistPage(page) {
     if (!listEl) return;
 
     listEl.style.display = '';
-    wishlistState.currentPage = page;
-    const start = (page - 1) * wishlistState.pageSize;
+
+    const displayItems = getWishlistDisplayItems();
+    wishlistState.totalPages = Math.ceil(displayItems.length / wishlistState.pageSize) || 1;
+    wishlistState.currentPage = Math.min(page, wishlistState.totalPages) || 1;
+    const start = (wishlistState.currentPage - 1) * wishlistState.pageSize;
     const end = start + wishlistState.pageSize;
-    const pageItems = wishlistState.items.slice(start, end);
+    const pageItems = displayItems.slice(start, end);
 
     listEl.classList.toggle('wishlist-grid-view', wishlistState.viewMode === 'grid');
     listEl.classList.toggle('wishlist-list-view', wishlistState.viewMode === 'list');
+
+    if (displayItems.length === 0) {
+        listEl.style.display = '';
+        listEl.innerHTML = '<div class="wishlist-filter-empty">已全部在媒体库中</div>';
+        if (paginationEl) paginationEl.style.display = 'none';
+        return;
+    }
 
     if (wishlistState.viewMode === 'list') {
         listEl.innerHTML = pageItems.map(movie => {
@@ -3930,15 +4219,20 @@ function renderWishlistPage(page) {
             const actors = movie['Actors'] || '';
             const genres = movie['Genres'] || '';
             const country = movie['Country'] || '';
-            const source = movie.source || movie.Source || '';
-            const links = buildDownloadSiteLinks(movie);
+            const source = getWishlistSource(movie);
+            const sourceLabel = source ? (WISHLIST_SOURCE_LABELS[source] || source.toUpperCase()) : '';
+            const matched = isLibraryMatched(movie);
+            const links = matched ? [] : buildDownloadSiteLinks(movie);
+            const libraryUrl = movie.library_url || '';
+            const libraryFile = movie.library_file_name || movie.library_file || '';
+            const libraryPath = movie.library_path || '';
 
             const metaParts = [];
             if (genres) metaParts.push(genres);
             if (directors) metaParts.push(`导演: ${directors}`);
             if (actors) metaParts.push(`主演: ${actors}`);
             if (country) metaParts.push(country);
-            if (source) metaParts.push(`来源: ${source}`);
+            if (sourceLabel) metaParts.push(`来源: ${sourceLabel}`);
             const metaText = metaParts.filter(Boolean).join(' · ');
 
             let ratingText = '';
@@ -3949,6 +4243,14 @@ function renderWishlistPage(page) {
             const mainLink = movie.URL || movie.douban_url || movie.imdb_url || '#';
             const linksHtml = links.length
                 ? links.map(link => `<a class="wishlist-link" href="${link.url}" target="_blank">${link.label} ↗</a>`).join('')
+                : '';
+            const libraryLinkHtml = matched
+                ? (libraryUrl
+                    ? `<a class="wishlist-library-link" href="${libraryUrl}" target="_blank">库内播放 ↗</a>`
+                    : `<span class="wishlist-library-tag">已入库</span>`)
+                : '';
+            const libraryFileHtml = matched && libraryFile
+                ? `<span class="wishlist-library-file" title="${libraryPath || libraryFile}">${libraryFile}</span>`
                 : '';
 
             return `
@@ -3967,6 +4269,8 @@ function renderWishlistPage(page) {
                     </div>
                     ${metaText ? `<div class="wishlist-meta" title="${metaText}">${metaText}</div>` : ''}
                     <div class="wishlist-submeta">
+                        ${libraryLinkHtml}
+                        ${libraryFileHtml}
                         ${ratingText ? `<span class="wishlist-rating">${ratingText}</span>` : ''}
                         ${votesText ? `<span class="wishlist-votes">${votesText}人评价</span>` : ''}
                         ${dateAdded ? `<span class="wishlist-date">想看于 ${String(dateAdded).substring(0, 10)}</span>` : ''}
@@ -4004,9 +4308,9 @@ function renderWishlistPage(page) {
         if (wishlistState.totalPages > 1) {
             paginationEl.style.display = 'flex';
             paginationEl.innerHTML = `
-                <button class="btn btn-secondary btn-sm" onclick="renderWishlistPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← 上一页</button>
-                <span class="pagination-info">${page} / ${wishlistState.totalPages} (共 ${wishlistState.items.length} 部)</span>
-                <button class="btn btn-secondary btn-sm" onclick="renderWishlistPage(${page + 1})" ${page >= wishlistState.totalPages ? 'disabled' : ''}>下一页 →</button>
+                <button class="btn btn-secondary btn-sm" onclick="renderWishlistPage(${wishlistState.currentPage - 1})" ${wishlistState.currentPage <= 1 ? 'disabled' : ''}>← 上一页</button>
+                <span class="pagination-info">${wishlistState.currentPage} / ${wishlistState.totalPages} (共 ${wishlistState.totalCount} 部)</span>
+                <button class="btn btn-secondary btn-sm" onclick="renderWishlistPage(${wishlistState.currentPage + 1})" ${wishlistState.currentPage >= wishlistState.totalPages ? 'disabled' : ''}>下一页 →</button>
             `;
         } else {
             paginationEl.style.display = 'none';
@@ -4029,6 +4333,9 @@ function downloadWishlist(format = 'cinerecord-csv') {
 function triggerFetchWish(platform, btnEl) {
     const btn = btnEl || document.getElementById('refresh-wishlist-btn');
     if (btn) {
+        if (!btn.dataset.label) {
+            btn.dataset.label = btn.innerHTML;
+        }
         btn.disabled = true;
         btn.innerHTML = '<span class="loading-spinner"></span> 处理中...';
     }
