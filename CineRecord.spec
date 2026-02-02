@@ -60,8 +60,11 @@ a = Analysis(
 )
 
 # Exclude heavy/unused folders
-a.datas += Tree('scrapers', prefix='scrapers', excludes=['letterboxd-csv-imdb-tmdb-mapper', '__pycache__', '*.pyc'])
-a.datas += Tree('config', prefix='config', excludes=['config.json', '__pycache__', '*.pyc'])
+a.datas += Tree('scrapers', prefix='scrapers', excludes=['letterboxd-csv-imdb-tmdb-mapper', '__pycache__', '*.pyc', '.DS_Store'])
+a.datas += Tree('config', prefix='config', excludes=['config.json', '__pycache__', '*.pyc', '.DS_Store'])
+# Include only essential shared data
+if os.path.exists('data/db_imdb.csv'):
+    a.datas += [('data/db_imdb.csv', 'data/db_imdb.csv', 'DATA')]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

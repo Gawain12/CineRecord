@@ -39,6 +39,7 @@ data/letterboxd_platform_mapping.json
 *.log
 *.swp
 tmp/
+tools/
 CLAUDE.md
 CLAUDE.zh.md
 

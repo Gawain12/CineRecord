@@ -6042,9 +6042,8 @@ def handle_export_to_desktop(data):
         emit('export_complete', {'success': False, 'error': str(e)})
 
 
-def open_browser():
+def open_browser(port):
     try:
-        port = int(os.environ.get('CINERECORD_PORT', '8000'))
         webbrowser.open_new(f"http://127.0.0.1:{port}")
     except: pass
 
@@ -6086,7 +6085,8 @@ if __name__ == '__main__':
     scheduler.start()
     logger.info("✅ Task scheduler started")
     
-    # Timer(1.5, open_browser).start()  # Disable auto-open for dev
+    if getattr(sys, 'frozen', False):
+        Timer(1.5, lambda: open_browser(port)).start()
     try:
         # Enable debug in dev, but allow override for production/Docker
         debug_env = os.environ.get('CINERECORD_DEBUG')
