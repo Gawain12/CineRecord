@@ -37,6 +37,11 @@
 
   <img src="docs/images/sync_cn.png" width="800" alt="同步任务预览">
   <p><i>可视化任务调度与实时状态监控</i></p>
+
+  <br>
+
+  <img src="docs/images/wishlist_cn.png" width="800" alt="想看清单预览">
+  <p><i>想看清单：汇集各平台想看数据，支持一键搜索资源</i></p>
 </div>
 
 ---

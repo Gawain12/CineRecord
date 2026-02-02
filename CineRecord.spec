@@ -12,19 +12,18 @@ sys.path.insert(0, project_root)
 from PyInstaller.utils.hooks import collect_all
 
 # Collect all required files
+# Collect all required files
 added_files = [
     ('web/templates', 'web/templates'),
     ('web/static', 'web/static'),
     ('web/tasks', 'web/tasks'),
-    ('scrapers', 'scrapers'),
     ('adapters', 'adapters'),
-    ('config', 'config'),
-    ('data', 'data'),
 ]
 
 a = Analysis(
     ['web/app.py'],
     pathex=[project_root],
+    # Binaries and hiddenimports...
     binaries=[],
     datas=added_files,
     hiddenimports=[
@@ -37,6 +36,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
+
     excludes=[
         'eventlet', 'engineio.async_drivers.eventlet', 'dns',
         'scipy', 'sklearn', 'matplotlib', 'PIL', 'scrapy',
@@ -47,12 +47,21 @@ a = Analysis(
         'docutils', 'pygments', 'curses',
         'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 'wx',
         'multiprocessing.test', 'lib2to3',
+        'torch', 'tensorflow', 'tensorboard',
+        'boto3', 'botocore',
+        'pyarrow', 'numba', 'llvmlite', 'sympy', 'zmq',
+        'uvloop', 'gevent',
+        'psycopg2', 'psycopg2-binary', 'asyncpg', 'psycopg_binary',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+# Exclude heavy/unused folders
+a.datas += Tree('scrapers', prefix='scrapers', excludes=['letterboxd-csv-imdb-tmdb-mapper', '__pycache__', '*.pyc'])
+a.datas += Tree('config', prefix='config', excludes=['config.json', '__pycache__', '*.pyc'])
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

@@ -4,6 +4,33 @@ CineRecord 是一款基于Web的图形化工具，旨在帮助您轻松同步豆
 
 ![CineRecord UI](./web/static/images/cinerecord_hub_ui.png)
 
+## 📸 界面展示
+
+<div align="center">
+  <img src="docs/images/app_demo_dual.webp" width="800" alt="应用演示 (中英双语)">
+  <p><i>快速演示：仪表盘概览与任务流程 (中英双语演示)</i></p>
+
+  <br>
+
+  <img src="docs/images/dashboard_cn.png" width="800" alt="仪表盘预览">
+  <p><i>仪表盘：账户状态与概览</i></p>
+
+  <br>
+
+  <img src="docs/images/library_cn.png" width="800" alt="影片库预览">
+  <p><i>支持多平台数据聚合与 CSV 导出功能</i></p>
+
+  <br>
+
+  <img src="docs/images/sync_cn.png" width="800" alt="同步任务预览">
+  <p><i>可视化任务调度与实时状态监控</i></p>
+
+  <br>
+
+  <img src="docs/images/wishlist_cn.png" width="800" alt="想看清单预览">
+  <p><i>想看清单：汇集各平台想看数据，支持一键搜索资源</i></p>
+</div>
+
 ## 主要功能
 
 - **图形化操作界面**：所有操作都在一个清晰的双栏布局Web界面中完成，无需记忆复杂的命令行参数。
