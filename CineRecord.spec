@@ -11,43 +11,40 @@ sys.path.insert(0, project_root)
 
 from PyInstaller.utils.hooks import collect_all
 
-# Collect all dns modules for eventlet
-datas_dns, binaries_dns, hiddenimports_dns = collect_all('dns')
-
+# Collect all required files
 added_files = [
     ('web/templates', 'web/templates'),
     ('web/static', 'web/static'),
     ('web/tasks', 'web/tasks'),
-    ('web/webview_login.py', 'web'),
     ('scrapers', 'scrapers'),
     ('adapters', 'adapters'),
     ('config', 'config'),
     ('data', 'data'),
-] + datas_dns
+]
 
 a = Analysis(
     ['web/app.py'],
     pathex=[project_root],
-    binaries=binaries_dns,
+    binaries=[],
     datas=added_files,
     hiddenimports=[
-        'eventlet.hubs.epolls',
-        'eventlet.hubs.kqueue',
-        'eventlet.hubs.selects',
-        'engineio.async_drivers.eventlet',
         'flask_socketio',
+        'simple_websocket',
+        'engineio.async_drivers.threading',
         'webview',
         'webview.platforms.cocoa',
-    ] + hiddenimports_dns,
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Heavy packages not used in production
+        'eventlet', 'engineio.async_drivers.eventlet', 'dns',
         'scipy', 'sklearn', 'matplotlib', 'PIL', 'scrapy',
         'twisted', 'numpy.testing', 'pandas.tests',
         'pytest', 'unittest', 'doctest',
         'tkinter', 'tk', 'tcl',
+        'notebook', 'jupyter', 'IPython',
+        'docutils', 'pygments',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
