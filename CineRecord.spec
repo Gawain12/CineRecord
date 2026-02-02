@@ -37,6 +37,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
+    excludes=[
         'eventlet', 'engineio.async_drivers.eventlet', 'dns',
         'scipy', 'sklearn', 'matplotlib', 'PIL', 'scrapy',
         'twisted', 'numpy.testing', 'pandas.tests',
@@ -45,8 +46,7 @@ a = Analysis(
         'notebook', 'jupyter', 'IPython',
         'docutils', 'pygments', 'curses',
         'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 'wx',
-        'email', 'multiprocessing.test', 'lib2to3',
-        'xml.dom.domreg', 'xml.sax', 'pydoc_data',
+        'multiprocessing.test', 'lib2to3',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
