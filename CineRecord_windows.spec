@@ -13,9 +13,6 @@ sys.path.insert(0, project_root)
 
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
-# Collect DNS modules for eventlet
-datas_dns, binaries_dns, hiddenimports_dns = collect_all('dns')
-
 # Collect SSL modules (fix for _ssl DLL load failed error)
 datas_ssl, binaries_ssl, hiddenimports_ssl = collect_all('ssl')
 
@@ -113,32 +110,30 @@ added_files = [
     ('adapters', 'adapters'),
     ('config', 'config'),
     ('data', 'data'),
-] + datas_dns + datas_ssl
+] + datas_ssl
 
 a = Analysis(
     ['web/app.py'],
     pathex=[project_root],
-    binaries=binaries_dns + binaries_ssl + openssl_binaries + runtime_binaries,
+    binaries=binaries_ssl + openssl_binaries + runtime_binaries,
     datas=added_files,
     hiddenimports=[
         # SSL modules (critical for Windows)
         'ssl',
         '_ssl',
-        # Eventlet modules
-        'eventlet.hubs.epolls',
-        'eventlet.hubs.kqueue',
-        'eventlet.hubs.selects',
-        'engineio.async_drivers.eventlet',
+        # Flask-SocketIO threading mode dependencies
         'flask_socketio',
+        'simple_websocket',
+        'engineio.async_drivers.threading',
         'webview',
         'webview.platforms.winforms',  # Windows WebView backend
         'pkg_resources.py2_warn',
-    ] + hiddenimports_dns + hiddenimports_ssl,
+    ] + hiddenimports_ssl,
     hookspath=['hooks'],  # Load custom hooks (including SSL hook)
     hooksconfig={},
     runtime_hooks=['hooks/pyi_rth_ssl_path.py'],
     excludes=[
-        # Heavy packages not used in production
+        'eventlet', 'engineio.async_drivers.eventlet',
         'scipy', 'sklearn', 'matplotlib', 'PIL', 'scrapy',
         'twisted', 'numpy.testing', 'pandas.tests',
         'pytest', 'unittest', 'doctest',
@@ -172,7 +167,7 @@ exe = EXE(
     ],
     exclude_binaries=True,  # Build one-folder for more reliable DLL loading
     runtime_tmpdir=None,
-    console=False,  # Hide console in release
+    console=True,  # Show console for debug
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

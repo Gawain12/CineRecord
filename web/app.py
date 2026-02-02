@@ -1,16 +1,28 @@
-# Try to use eventlet for async support, fall back to threading if not available
-try:
-    import eventlet
-    eventlet.monkey_patch()
-    ASYNC_MODE = 'eventlet'
-except (ImportError, NotImplementedError) as e:
-    # eventlet not available or has platform issues, use threading
-    ASYNC_MODE = 'threading'
-    print(f"Note: eventlet not available ({e}), using threading mode")
-
 import os
 import io
 import sys
+
+# Redirection for PyInstaller windowed mode (where sys.stdout/stderr are None)
+# When running with console=True, these are not None.
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
+# Determine async mode
+is_windows_frozen = getattr(sys, 'frozen', False) and sys.platform == 'win32'
+
+if is_windows_frozen:
+    ASYNC_MODE = 'threading'
+else:
+    try:
+        # Only try eventlet if NOT on Windows frozen
+        import eventlet
+        eventlet.monkey_patch()
+        ASYNC_MODE = 'eventlet'
+    except (ImportError, NotImplementedError):
+        ASYNC_MODE = 'threading'
+
 
 # Ensure project root is in path for imports
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,9 +74,7 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 
 # Logger setup - write to current user directory if APP_ROOT is restricted
 LOG_FILE = os.path.join(APP_ROOT, 'cinerecord.log')
-_stdout_stream = sys.stdout or getattr(sys, "__stdout__", None)
-if _stdout_stream is None:
-    _stdout_stream = open(os.devnull, "w")
+_stdout_stream = sys.stdout
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -79,6 +89,7 @@ logger = logging.getLogger(__name__)
 template_dir = get_resource_path('web/templates')
 static_dir = get_resource_path('web/static')
 
+logger.info(f"Initializing SocketIO with ASYNC_MODE={ASYNC_MODE}")
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(
@@ -6089,10 +6100,10 @@ if __name__ == '__main__':
         port = _select_available_port(host, preferred_port, max_tries=20)
 
         if port != preferred_port:
-            print(f"⚠️  Port {preferred_port} is in use, switching to {port}")
-        print(f"🔄 Attempting to bind to {host}:{port} (Debug={debug})...")
+            logger.info(f"⚠️  Port {preferred_port} is in use, switching to {port}")
+        logger.info(f"🔄 Attempting to bind to {host}:{port} (Debug={debug})...")
         if host == '0.0.0.0':
-             print(f"🌍 Server should be accessible from external IPs at http://YOUR_SERVER_IP:{port}")
+            logger.info(f"🌍 Server should be accessible from external IPs at http://YOUR_SERVER_IP:{port}")
         
         # Disable reloader to avoid crash:
         # "FATAL: changelist must be an iterable of select.kevent objects"
