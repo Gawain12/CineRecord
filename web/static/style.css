@@ -418,7 +418,7 @@ body {
     display: block;
 }
 
-.tab-content.active + .tab-content.active {
+.tab-content.active+.tab-content.active {
     margin-top: 24px;
 }
 
@@ -4332,4 +4332,355 @@ body {
 
 .wishlist-grid-view .movie-card.compact {
     max-width: 110px;
+}
+
+/* ==========================================================================
+   V3 Library Grid View (Poster Wall)
+   ========================================================================== */
+.library-grid-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1.5rem;
+    padding: 1rem 0;
+}
+
+.library-grid-view .movie-item {
+    flex-direction: column;
+    padding: 0;
+    background: transparent;
+    border: none;
+    align-items: flex-start;
+}
+
+.library-grid-view .movie-cover-wrapper {
+    width: 100%;
+    height: 220px;
+    margin-right: 0;
+    margin-bottom: 0.5rem;
+    position: relative;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.library-grid-view .movie-cover-wrapper:hover {
+    transform: scale(1.03);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.library-grid-view .movie-cover-large {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.library-grid-view .movie-info {
+    width: 100%;
+    text-align: center;
+    padding: 0 4px;
+}
+
+.library-grid-view .movie-title-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.library-grid-view .movie-title {
+    font-size: 0.95rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+}
+
+.library-grid-view .movie-year {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Hide heavy metadata in Grid View */
+.library-grid-view .movie-metadata-grid,
+.library-grid-view .movie-bottom {
+    display: none;
+}
+
+/* Position primary rating badge floating on poster in Grid View */
+.library-grid-view .platform-badges-inline {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.library-grid-view .badge-v3 {
+    padding: 3px 6px;
+    font-size: 0.75rem;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+
+.library-grid-view .badge-logo {
+    display: none;
+    /* Hide text label */
+}
+
+.library-grid-view .badge-extra {
+    display: none;
+    /* Hide vote count */
+}
+
+/* ==========================================================================
+   V3 Library List View (Progressive Disclosure)
+   ========================================================================== */
+.library-list-view .movie-item {
+    padding: var(--spacing-sm) var(--spacing-md);
+    min-height: 130px;
+    transition: all 0.2s ease;
+}
+
+.library-list-view .movie-cover-wrapper {
+    width: 85px;
+    height: 125px;
+}
+
+/* Hide verbose metadata rows by default */
+.library-list-view .movie-metadata-grid .meta-item:nth-child(n+2) {
+    display: none;
+    /* Show only director by default */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.library-list-view .badge-extra {
+    display: none;
+    /* Hide vote counts by default */
+}
+
+/* Reveal on hover */
+.library-list-view .movie-item:hover .movie-metadata-grid .meta-item:nth-child(n+2) {
+    display: flex;
+    opacity: 1;
+}
+
+.library-list-view .movie-item:hover .badge-extra {
+    display: inline;
+}
+
+/* ==========================================================================
+   Mobile Bottom Navigation & Overlay (Hidden on Desktop)
+   ========================================================================== */
+.bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-color);
+    z-index: 999;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.bottom-nav .nav-tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.75rem;
+    padding: 4px 0;
+}
+
+.bottom-nav .nav-tab .icon {
+    font-size: 1.2rem;
+    margin-bottom: 2px;
+}
+
+.bottom-nav .nav-tab.active {
+    color: var(--accent);
+}
+
+.mobile-sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.mobile-sidebar-overlay.visible {
+    opacity: 1;
+}
+
+/* ==========================================================================
+   Mobile Responsiveness & PWA Layout Settings (< 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+
+    /* 1. Toggle Navigation Bars */
+    .top-nav .nav-tabs {
+        display: none !important;
+        /* Hide desktop tabs */
+    }
+
+    #mobile-menu-btn {
+        display: flex !important;
+        /* Show Hamburger menu */
+    }
+
+    .bottom-nav {
+        display: flex !important;
+        /* Show bottom navigation */
+    }
+
+    /* 2. Main Content Area Adjustments */
+    .content-main {
+        padding: 16px 16px 80px 16px !important;
+        /* Adjust padding, add bottom clearance for nav */
+    }
+
+    /* 3. Off-Canvas Sidebar Drawer */
+    .mobile-sidebar-overlay {
+        display: block;
+        /* Make it exist in DOM structure */
+        pointer-events: none;
+        /* Ignore clicks when invisible */
+    }
+
+    .mobile-sidebar-overlay.visible {
+        pointer-events: auto;
+        /* Catch clicks when visible */
+    }
+
+    .main-layout-sidebar {
+        position: fixed;
+        left: 0;
+        top: 60px;
+        /* Below top-nav */
+        bottom: 0;
+        height: calc(100vh - 60px);
+        width: 280px;
+        max-width: 80vw;
+        z-index: 999;
+        background: var(--bg-secondary);
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .main-layout-sidebar.open {
+        transform: translateX(0);
+    }
+
+    /* 4. Grid Collapses (Force single column for main grids) */
+    .dashboard-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .platform-cards-stack {
+        gap: 16px;
+    }
+
+    .movie-item {
+        flex-direction: column;
+        padding: 16px;
+    }
+
+    .movie-item .movie-poster {
+        width: 100%;
+        max-width: 160px;
+        margin: 0 auto 16px auto;
+    }
+
+    .library-container {
+        padding: 16px;
+    }
+
+    /* Settings layout */
+    .settings-sub-tabs {
+        flex-wrap: wrap;
+    }
+
+    .settings-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .auth-config-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .download-sites-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Account platform card fixes for narrow width */
+    .profile-state.connected {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .profile-info {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        width: 100%;
+    }
+
+    .profile-stats {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .connect-buttons {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .connect-buttons .btn {
+        width: 100%;
+    }
+}
+
+/* Smart Cover Art Fallback (CSS Gradient) */
+.poster-fallback {
+    width: 100%;
+    height: 100%;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 3rem;
+    font-weight: 700;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    user-select: none;
+}
+
+.wishlist-cover .poster-fallback {
+    min-height: 160px;
+    font-size: 2.5rem;
 }

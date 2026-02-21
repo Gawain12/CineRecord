@@ -16,6 +16,8 @@
         <!-- ============================================= -->
         <header class="top-nav">
             <div class="nav-brand">
+                <button class="icon-btn" id="mobile-menu-btn" title="Toggle Sidebar"
+                    style="display: none; font-size: 1.2rem; margin-right: 8px;">☰</button>
                 <img src="/static/images/logo.svg" alt="Logo" class="nav-logo">
                 <span class="nav-title">CineRecord Hub</span>
             </div>
@@ -38,9 +40,10 @@
         <!-- ============================================= -->
         <!-- |              Main Layout with Sidebar      | -->
         <!-- ============================================= -->
+        <div class="mobile-sidebar-overlay" id="mobile-sidebar-overlay"></div>
         <div class="main-layout-v2">
             <!-- Left Sidebar: Account Summary + Logs -->
-            <aside class="main-layout-sidebar">
+            <aside class="main-layout-sidebar" id="main-layout-sidebar">
                 <div class="sidebar-section">
                     <h4 class="sidebar-title" data-i18n="sidebar.platform_status">平台状态</h4>
 
@@ -99,6 +102,17 @@
                         </div>
                         <span class="status-dot disconnected" id="tmdb-status-dot"></span>
                     </div>
+
+                    <!-- Compact CinePersona Card -->
+                    <div class="account-summary-card cinepersona" id="cinepersona-summary-card" style="cursor:pointer;"
+                        onclick="openSettingsSection('tab-settings');">
+                        <div class="summary-icon" style="font-size:18px;">🧬</div>
+                        <div class="summary-info">
+                            <span class="summary-name">CinePersona</span>
+                            <span class="summary-stats" id="cinepersona-summary-stats">--</span>
+                        </div>
+                        <span class="status-dot disconnected" id="cinepersona-status-dot"></span>
+                    </div>
                 </div>
 
                 <!-- Log Console -->
@@ -122,7 +136,8 @@
                             <div class="dashboard-actions">
                                 <button class="btn btn-primary" onclick="refreshLibrary(1)">🔄 刷新影片库</button>
                                 <button class="btn btn-secondary" onclick="triggerFetchWish('douban')">✨ 刷新想看</button>
-                                <button class="btn btn-outline" onclick="openSettingsSection('tab-settings')">⚙️ 设置与备份</button>
+                                <button class="btn btn-outline" onclick="openSettingsSection('tab-settings')">⚙️
+                                    设置与备份</button>
                             </div>
                         </div>
                         <div class="dashboard-card">
@@ -130,12 +145,12 @@
                             <div class="dashboard-hints">
                                 <p>🧬 生成你的电影 DNA 与长期趋势分析</p>
                                 <p>☁️ 多用户在线服务，登录后可在任何设备查看</p>
-                                <p>✅ 同意后再同步数据，隐私控制在你手里</p>
-                                <p>📤 先在 CineRecord 导出数据，再去 CinePersona 导入</p>
+                                <p>✅ 隐私控制在你手里，无需任何账户密码</p>
+                                <p>📤 点击下方获取数据包，再到导入页上传即可</p>
                             </div>
                             <div class="dashboard-actions">
                                 <a class="btn btn-primary" id="cinepersona-link" target="_blank">打开 CinePersona</a>
-                                <a class="btn btn-secondary" id="cinepersona-import-link" target="_blank">上传导入</a>
+                                <button class="btn btn-success" id="cinepersona-export-import-btn">📦 获取数据包并去导入</button>
                             </div>
                         </div>
                         <div class="dashboard-card">
@@ -552,6 +567,71 @@
                             </div>
                         </div>
 
+                        <!-- ===== CinePersona Complete Card ===== -->
+                        <div class="platform-full-card cinepersona" id="cinepersona-card">
+                            <!-- Card Header -->
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon" style="font-size:22px;line-height:1;">🧬</span>
+                                    <h3>CinePersona</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="cinepersona-status-badge">● 未连接</span>
+                            </div>
+
+                            <!-- Not Connected State -->
+                            <div class="profile-state not-connected" id="cinepersona-not-connected">
+                                <div class="connect-prompt">
+                                    <p class="prompt-text">填写 API Key 连接 CinePersona，实现双向同步</p>
+                                    <div
+                                        style="text-align:left; margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <span style="font-size:0.8rem;color:#888;width:80px;flex-shrink:0;">API
+                                                Key</span>
+                                            <input type="password" id="cp-card-api-key"
+                                                placeholder="cp_xxxxxxxxxxxxxxxxxxxx"
+                                                style="flex:1; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); border-radius:6px; padding:6px 10px; color:var(--text-primary); font-size:0.85rem;">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Connected State (hidden by default) -->
+                            <div class="profile-state connected" id="cinepersona-connected" style="display:none">
+                                <div class="profile-info-row">
+                                    <div
+                                        style="width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:32px;background:rgba(255,255,255,0.05);border-radius:50%;">
+                                        🧬</div>
+                                    <div class="profile-details">
+                                        <h4 id="cp-display-name">CinePersona User</h4>
+                                        <p class="profile-id" id="cp-email-display">--</p>
+                                    </div>
+                                    <a id="cp-profile-link" class="btn-link" target="_blank"
+                                        href="https://film.133339.xyz">CinePersona 主页 →</a>
+                                </div>
+                                <div class="stats-row compact">
+                                    <div class="stat-item">
+                                        <span class="stat-value" id="cp-local-count">--</span>
+                                        <span class="stat-name">本地已有</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" id="cp-library-count">--</span>
+                                        <span class="stat-name">云端库</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Card Actions -->
+                            <div class="card-actions">
+                                <button class="btn btn-outline" id="test-cp-btn">✅ 测试连接</button>
+                                <button class="btn btn-primary" id="push-cp-btn" style="display:none;">🚀 推送数据库</button>
+                                <button class="btn btn-outline" id="pull-cp-watchlist-btn" style="display:none;">📥
+                                    拉取想看</button>
+                                <button class="btn btn-outline" id="cp-trakt-connect-btn2" style="display:none;">🔗 连接
+                                    Trakt</button>
+                                <button class="btn btn-secondary" id="logout-cp-btn" style="display:none;">退出</button>
+                            </div>
+                        </div>
+
                     </div>
 
                     <!-- Save Button -->
@@ -592,6 +672,12 @@
                                 TMDB</button>
                         </div>
                         <div class="export-controls">
+                            <div class="library-view-toggle" role="group">
+                                <button class="btn btn-secondary btn-sm active" id="library-view-grid" data-view="grid"
+                                    title="海报网格视图">🔳 网格</button>
+                                <button class="btn btn-secondary btn-sm" id="library-view-list" data-view="list"
+                                    title="详细列表视图">📋 列表</button>
+                            </div>
                             <select id="export-source" class="export-select">
                                 <option value="merged" selected>合并数据</option>
                                 <option value="douban">豆瓣</option>
@@ -737,12 +823,18 @@
                     </div>
                     <div class="wishlist-source-filters" id="wishlist-source-filters">
                         <span class="filter-label">来源：</span>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="douban" checked> 豆瓣</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked> Trakt</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="imdb" checked> IMDb</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="cinepersona" checked> CinePersona</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="douban" checked>
+                            豆瓣</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked>
+                            Trakt</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked>
+                            TMDB</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="imdb" checked>
+                            IMDb</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked>
+                            Letterboxd</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="cinepersona" checked>
+                            CinePersona</label>
                     </div>
                     <div class="unified-library" id="wishlist-library">
                         <div class="library-empty" id="wishlist-empty">
@@ -906,127 +998,175 @@
                     <div
                         style="display: grid; grid-template-columns: 0.7fr 1.3fr; gap: 24px; margin-bottom: 24px; align-items: start;">
 
-                        <!-- Left Column: Manual Sync Section (Big Card) -->
-                        <div class="data-card sync-main-card"
-                            style="border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden;">
-                            <div class="data-card-header"
-                                style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
-                                <h3 data-i18n="sync.header" style="font-size: 1.1rem; margin: 0;">🔄 数据同步</h3>
-                            </div>
-                            <div class="data-card-body"
-                                style="padding: 24px; display: flex; flex-direction: column; gap: 24px;">
+                        <!-- Left Column Wrapper -->
+                        <div style="display: flex; flex-direction: column; gap: 24px;">
+                            <!-- Left Column: Manual Sync Section (Big Card) -->
+                            <div class="data-card sync-main-card"
+                                style="border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden;">
+                                <div class="data-card-header"
+                                    style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
+                                    <h3 data-i18n="sync.header" style="font-size: 1.1rem; margin: 0;">🔄 数据同步</h3>
+                                </div>
+                                <div class="data-card-body"
+                                    style="padding: 24px; display: flex; flex-direction: column; gap: 24px;">
 
-                                <!-- 1. Sync Direction (Horizontal) -->
-                                <div>
-                                    <label
-                                        style="font-size: 0.85rem; color: #888; font-weight: 600; margin-bottom: 12px; display: block;"
-                                        data-i18n="sync.direction_header">
-                                        同步流向
-                                    </label>
-                                    <div
-                                        style="display: flex; align-items: center; gap: 12px; background: var(--bg-secondary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
-                                        <div style="flex: 1;">
-                                            <div style="font-size: 0.75rem; color: #666; margin-bottom: 4px;">FROM</div>
-                                            <select id="sync-source" class="form-select"
-                                                style="width: 100%; border: none; background: transparent; padding: 4px 0; font-weight: 500; font-size: 1rem; color: var(--text-primary);">
-                                                <option value="douban">🎬 豆瓣</option>
-                                                <option value="imdb">⭐ IMDB</option>
-                                                <option value="trakt">🎯 Trakt</option>
-                                                <option value="tmdb">🎬 TMDB</option>
-                                                <option value="letterboxd">🎞️ Letterboxd</option>
-                                            </select>
-                                        </div>
+                                    <!-- 1. Sync Direction (Horizontal) -->
+                                    <div>
+                                        <label
+                                            style="font-size: 0.85rem; color: #888; font-weight: 600; margin-bottom: 12px; display: block;"
+                                            data-i18n="sync.direction_header">
+                                            同步流向
+                                        </label>
+                                        <div
+                                            style="display: flex; align-items: center; gap: 12px; background: var(--bg-secondary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+                                            <div style="flex: 1;">
+                                                <div style="font-size: 0.75rem; color: #666; margin-bottom: 4px;">FROM
+                                                </div>
+                                                <select id="sync-source" class="form-select"
+                                                    style="width: 100%; border: none; background: transparent; padding: 4px 0; font-weight: 500; font-size: 1rem; color: var(--text-primary);">
+                                                    <option value="douban">🎬 豆瓣</option>
+                                                    <option value="imdb">⭐ IMDB</option>
+                                                    <option value="trakt">🎯 Trakt</option>
+                                                    <option value="tmdb">🎬 TMDB</option>
+                                                    <option value="letterboxd">🎞️ Letterboxd</option>
+                                                </select>
+                                            </div>
 
-                                        <div style="color: var(--accent); font-size: 20px; padding: 0 8px;">
-                                            ➔
-                                        </div>
+                                            <div style="color: var(--accent); font-size: 20px; padding: 0 8px;">
+                                                ➔
+                                            </div>
 
-                                        <div style="flex: 1; text-align: right;">
-                                            <div style="font-size: 0.75rem; color: #666; margin-bottom: 4px;">TO</div>
-                                            <select id="sync-target" class="form-select"
-                                                style="width: 100%; border: none; background: transparent; padding: 4px 0; font-weight: 500; font-size: 1rem; color: var(--text-primary); text-align: right; direction: rtl;">
-                                                <option value="imdb">⭐ IMDB</option>
-                                                <option value="douban">🎬 豆瓣</option>
-                                                <option value="trakt">🎯 Trakt</option>
-                                                <option value="tmdb">🎬 TMDB</option>
-                                            </select>
+                                            <div style="flex: 1; text-align: right;">
+                                                <div style="font-size: 0.75rem; color: #666; margin-bottom: 4px;">TO
+                                                </div>
+                                                <select id="sync-target" class="form-select"
+                                                    style="width: 100%; border: none; background: transparent; padding: 4px 0; font-weight: 500; font-size: 1rem; color: var(--text-primary); text-align: right; direction: rtl;">
+                                                    <option value="imdb">⭐ IMDB</option>
+                                                    <option value="douban">🎬 豆瓣</option>
+                                                    <option value="trakt">🎯 Trakt</option>
+                                                    <option value="tmdb">🎬 TMDB</option>
+                                                </select>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                <!-- 2. Sync Options (Updated) -->
-                                <div>
-                                    <label
-                                        style="font-size: 0.85rem; color: #888; font-weight: 600; margin-bottom: 12px; display: block;"
-                                        data-i18n="sync.options_header">
-                                        同步选项
-                                    </label>
-                                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                                        <!-- Sync Mode Row -->
-                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                                            <label class="checkbox-card"
-                                                style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02);">
-                                                <input type="radio" id="opt-sync-mode-new" name="sync-mode" value="new"
-                                                    checked style="accent-color: var(--accent);">
-                                                <span style="font-size: 0.85rem;" data-i18n="sync.mode.only_new">🆕
-                                                    仅新增</span>
-                                            </label>
-                                            <label class="checkbox-card"
-                                                style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02);">
-                                                <input type="radio" id="opt-sync-mode-overwrite" name="sync-mode"
-                                                    value="overwrite" style="accent-color: var(--accent);">
-                                                <span style="font-size: 0.85rem;" data-i18n="sync.mode.overwrite">✏️
-                                                    覆盖已有</span>
-                                            </label>
-                                        </div>
-                                        <div style="font-size: 0.7rem; color: #555; padding: 0 4px;"
-                                            data-i18n="sync.mode_help">
-                                            💡 仅新增: 只同步目标没有的电影 | 覆盖已有: 更新目标已有的评分
-                                        </div>
+                                    <!-- 2. Sync Options (Progressive Disclosure) -->
+                                    <div>
+                                        <!-- Toggle Button -->
+                                        <button id="toggle-advanced-sync" class="btn btn-ghost"
+                                            style="padding: 0; font-size: 0.85rem; color: #888; display: flex; align-items: center; gap: 6px; margin-bottom: 12px; transition: color 0.2s;">
+                                            <span id="advanced-sync-icon" style="transition: transform 0.2s;">▶</span>
+                                            <span data-i18n="sync.advanced_options">⚙️ 高级同步选项</span>
+                                        </button>
 
-                                        <!-- Default Rating Input -->
-                                        <div class="checkbox-card"
-                                            style="display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.02);">
+                                        <!-- Collapsible Content -->
+                                        <div id="advanced-sync-options"
+                                            style="display: none; flex-direction: column; gap: 12px; padding-left: 8px; border-left: 2px solid var(--border-color); margin-bottom: 16px;">
                                             <label
-                                                style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                                <input type="checkbox" id="opt-default-rating-enable"
-                                                    style="accent-color: var(--accent);">
-                                                <span style="font-size: 0.85rem;"
-                                                    data-i18n="sync.default_rating">无评分时使用默认值:</span>
+                                                style="font-size: 0.8rem; color: #888; font-weight: 500; margin-bottom: 4px; display: block;"
+                                                data-i18n="sync.options_header">
+                                                同步规则
                                             </label>
-                                            <input type="number" id="opt-default-rating-value" min="1" max="10"
-                                                value="7"
-                                                style="width: 60px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 8px; color: var(--text-primary); text-align: center;"
-                                                disabled>
-                                            <span style="font-size: 0.8rem; color: #666;"
-                                                data-i18n="sync.default_rating_range">(1-10)</span>
+                                            <!-- Sync Mode Row -->
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                                <label class="checkbox-card"
+                                                    style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02);">
+                                                    <input type="radio" id="opt-sync-mode-new" name="sync-mode"
+                                                        value="new" checked style="accent-color: var(--accent);">
+                                                    <span style="font-size: 0.85rem;" data-i18n="sync.mode.only_new">🆕
+                                                        仅新增</span>
+                                                </label>
+                                                <label class="checkbox-card"
+                                                    style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02);">
+                                                    <input type="radio" id="opt-sync-mode-overwrite" name="sync-mode"
+                                                        value="overwrite" style="accent-color: var(--accent);">
+                                                    <span style="font-size: 0.85rem;" data-i18n="sync.mode.overwrite">✏️
+                                                        覆盖已有</span>
+                                                </label>
+                                            </div>
+                                            <div style="font-size: 0.7rem; color: #555; padding: 0 4px;"
+                                                data-i18n="sync.mode_help">
+                                                💡 仅新增: 只同步目标没有的电影 | 覆盖已有: 更新目标已有的评分
+                                            </div>
+
+                                            <!-- Default Rating Input -->
+                                            <div class="checkbox-card"
+                                                style="display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(255,255,255,0.02);">
+                                                <label
+                                                    style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                    <input type="checkbox" id="opt-default-rating-enable"
+                                                        style="accent-color: var(--accent);">
+                                                    <span style="font-size: 0.85rem;"
+                                                        data-i18n="sync.default_rating">无评分时使用默认值:</span>
+                                                </label>
+                                                <input type="number" id="opt-default-rating-value" min="1" max="10"
+                                                    value="7"
+                                                    style="width: 60px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 8px; color: var(--text-primary); text-align: center;"
+                                                    disabled>
+                                                <span style="font-size: 0.8rem; color: #666;"
+                                                    data-i18n="sync.default_rating_range">(1-10)</span>
+                                            </div>
+
+                                            <script>
+                                                // Handle default rating toggle
+                                                document.getElementById('opt-default-rating-enable').addEventListener('change', function (e) {
+                                                    const input = document.getElementById('opt-default-rating-value');
+                                                    input.disabled = !e.target.checked;
+                                                    input.style.opacity = e.target.checked ? '1' : '0.5';
+                                                });
+
+                                                // Handle advanced options toggle
+                                                document.getElementById('toggle-advanced-sync').addEventListener('click', function () {
+                                                    const content = document.getElementById('advanced-sync-options');
+                                                    const icon = document.getElementById('advanced-sync-icon');
+                                                    const isHidden = content.style.display === 'none';
+
+                                                    if (isHidden) {
+                                                        content.style.display = 'flex';
+                                                        icon.style.transform = 'rotate(90deg)';
+                                                        this.style.color = 'var(--text-primary)';
+                                                    } else {
+                                                        content.style.display = 'none';
+                                                        icon.style.transform = 'rotate(0deg)';
+                                                        this.style.color = '#888';
+                                                    }
+                                                });
+                                            </script>
                                         </div>
-
-                                        <script>
-                                            // Simple script to toggle input status
-                                            document.getElementById('opt-default-rating-enable').addEventListener('change', function (e) {
-                                                const input = document.getElementById('opt-default-rating-value');
-                                                input.disabled = !e.target.checked;
-                                                input.style.opacity = e.target.checked ? '1' : '0.5';
-                                            });
-                                        </script>
                                     </div>
-                                </div>
 
-                                <!-- 3. Actions -->
-                                <div style="margin-top: auto;">
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                                        <button id="preview-btn" class="btn btn-secondary" data-i18n="sync.preview_btn"
-                                            style="height: 44px; font-weight: 600;">
-                                            🔍 预览
-                                        </button>
-                                        <button id="sync-btn" class="btn btn-primary" disabled
-                                            data-i18n="sync.execute_btn" style="height: 44px; font-weight: 600;">
-                                            ✨ 开始同步
-                                        </button>
+                                    <!-- 3. Actions -->
+                                    <div style="margin-top: auto;">
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                            <button id="preview-btn" class="btn btn-secondary"
+                                                data-i18n="sync.preview_btn" style="height: 44px; font-weight: 600;">
+                                                🔍 预览
+                                            </button>
+                                            <button id="sync-btn" class="btn btn-primary" disabled
+                                                data-i18n="sync.execute_btn" style="height: 44px; font-weight: 600;">
+                                                ✨ 开始同步
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
 
+                                </div>
+                            </div>
+
+                            <!-- CinePersona Sync Card -->
+                            <div class="data-card"
+                                style="border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden;">
+                                <div class="data-card-header"
+                                    style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); padding: 14px 20px; display: flex; align-items: center; gap: 12px;">
+                                    <h3 style="font-size: 1.05rem; margin: 0;">🧬 同步到 CinePersona（Open API）</h3>
+                                    <span style="font-size: 0.8rem; color: #888;">将全平台合并数据推送至 CinePersona 做长期分析</span>
+                                </div>
+                                <div class="data-card-body"
+                                    style="padding: 16px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                                    <button id="cp-sync-btn" class="btn btn-primary" style="min-width: 160px;">
+                                        🚀 同步到 CinePersona
+                                    </button>
+                                    <div id="cp-sync-status" style="font-size: 0.85rem; color: #aaa;"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -1248,10 +1388,23 @@
                         <button class="settings-sub-tab active" data-settings-target="tab-config">⚙️ 系统</button>
                     </div>
 
-                    <!-- Authentication Section -->
+                    <!-- Authentication Section (Restored for Headless Deployments) -->
                     <div class="settings-section">
-                        <h3 data-i18n="settings.auth_header">🔐 账户认证</h3>
-                        <p class="section-desc" data-i18n="settings.auth_desc">Cookie 配置用于 API 认证，请在浏览器开发者工具中获取</p>
+                        <h3 data-i18n="settings.auth_header">🔐 账户认证 (手动配置)</h3>
+                        <p class="section-desc">若应用部署在无桌面环境的 Linux 服务器等设备上，自动获取功能将无法使用，请在此手动填入 Cookie。</p>
+
+                        <div
+                            style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 0.85rem; border-left: 3px solid var(--accent);">
+                            <strong style="display:block; margin-bottom: 4px;">💡 桌面端外无法唤起登录窗口？请按照以下步骤获取：</strong>
+                            <ol style="margin: 0; padding-left: 20px; color: #888;">
+                                <li>在电脑浏览器中新建无痕窗口，打开目标网站并<b>手动登录</b>账号。</li>
+                                <li>按 <kbd>F12</kbd> 打开开发者工具，切换到 <b>Network (网络)</b> 标签并刷新。</li>
+                                <li>点击列表中第一项（主域），在右侧找到 <b>Request Headers (请求标头)</b>。</li>
+                                <li>找到 <code
+                                        style="padding: 2px 4px; background: rgba(0,0,0,0.3); border-radius: 4px;">cookie:</code>
+                                    字段，复制其后的<b>所有内容</b>，粘贴至下方对应的输入框即可。</li>
+                            </ol>
+                        </div>
 
                         <div class="auth-config-grid">
                             <!-- Douban Cookie -->
@@ -1372,53 +1525,45 @@
                     <!-- CinePersona Integration -->
                     <div class="settings-section">
                         <h3>🧬 CinePersona 集成</h3>
-                        <p class="section-desc">把本地数据同步到 CinePersona 做长期分析，也可拉取在线想看。需要用户授权与明确同意。</p>
+                        <p class="section-desc">通过 Open API Key 把本地数据同步到 CinePersona 做长期分析。无需 Cookie，无需登录。</p>
                         <div class="settings-row">
                             <div class="settings-label">
                                 <span>CinePersona 地址</span>
-                                <small>例如 https://cinepersona.yourdomain.com</small>
+                                <small>例如 https://film.133339.xyz</small>
                             </div>
                             <div class="settings-input-group" style="flex: 1; max-width: 520px;">
-                                <input type="text" id="cinepersona-url" placeholder="https://cinepersona.example.com">
+                                <input type="text" id="cinepersona-base-url" placeholder="https://film.133339.xyz">
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-label">
-                                <span>会话 Cookie（可选）</span>
-                                <small>用于一键同步/拉取，缺省则仅显示导入引导</small>
+                                <span>API Key</span>
+                                <small>在 CinePersona 账户设置中生成</small>
                             </div>
-                            <div class="settings-input-group" style="flex: 1; max-width: 520px;">
-                                <input type="password" id="cinepersona-session-cookie" placeholder="粘贴 CinePersona 登录 Cookie">
+                            <div class="settings-input-group"
+                                style="flex: 1; max-width: 520px; display: flex; gap: 8px;">
+                                <input type="password" id="cinepersona-api-key" placeholder="cp_xxxxxxxxxxxxxxxxxxxx"
+                                    style="flex:1;">
+                                <button class="btn btn-secondary btn-sm" id="cinepersona-test-btn">测试连接</button>
                             </div>
                         </div>
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <span>我同意同步我的观影数据</span>
-                                <small>仅在勾选后才允许同步到 CinePersona</small>
+                        <div class="settings-row" id="cinepersona-test-result-row" style="display:none;">
+                            <div class="settings-label"><span>连接状态</span></div>
+                            <div id="cinepersona-test-result"
+                                style="font-size:0.85rem; padding: 6px 10px; border-radius: 6px;">
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="cinepersona-consent">
-                                <span class="toggle-slider"></span>
-                            </label>
                         </div>
+
                         <div class="settings-row">
                             <div class="settings-label">
-                                <span>自动同步（可选）</span>
-                                <small>每次获取数据后自动推送到 CinePersona</small>
+                                <span>Trakt Bridge</span>
+                                <small>在 CinePersona 侧连接/同步 Trakt 账号</small>
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="cinepersona-auto-sync">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <span>快速入口</span>
-                                <small>打开 CinePersona 或导入页面</small>
-                            </div>
-                            <div class="settings-input-group" style="flex: 1; gap: 8px; display: flex;">
-                                <a class="btn btn-secondary btn-sm" id="cinepersona-link-settings" target="_blank">打开 CinePersona</a>
-                                <a class="btn btn-outline btn-sm" id="cinepersona-import-link-settings" target="_blank">上传导入</a>
+                            <div class="settings-input-group"
+                                style="flex: 1; gap: 8px; display: flex; flex-wrap: wrap;">
+                                <button class="btn btn-outline btn-sm" id="cp-trakt-connect-btn">🔗 连接 Trakt</button>
+                                <button class="btn btn-outline btn-sm" id="cp-trakt-status-btn">🔍 检查状态</button>
+                                <button class="btn btn-outline btn-sm" id="cp-trakt-sync-btn">⬇️ 从 Trakt 拉取</button>
                             </div>
                         </div>
                     </div>
@@ -1456,12 +1601,19 @@
                                 style="width: 100%; max-width: 300px;">
                         </div>
                         <div class="download-sites-grid" id="download-sites-default"></div>
-                        <div class="download-sites-custom">
-                            <div class="download-sites-custom-header">
-                                <span>自定义站点</span>
-                                <button class="btn btn-secondary btn-sm" id="add-custom-site-btn">＋ 添加站点</button>
+                        <!-- Add Custom Site Form -->
+                        <div class="download-sites-custom"
+                            style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                            <h4
+                                style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px; font-weight: 500;">
+                                添加自定义站点</h4>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                <input type="text" id="new-custom-site-name" placeholder="站点名称 (如: MyPT)"
+                                    class="form-input" style="flex: 1; min-width: 120px; background: rgba(0,0,0,0.3);">
+                                <input type="text" id="new-custom-site-template" placeholder="链接模板 (支持变量 {imdbid} 等)"
+                                    class="form-input" style="flex: 2; min-width: 200px; background: rgba(0,0,0,0.3);">
+                                <button class="btn btn-secondary btn-sm" id="add-custom-site-btn">＋ 添加</button>
                             </div>
-                            <div class="download-sites-custom-list" id="download-sites-custom-list"></div>
                         </div>
                     </div>
 
@@ -1483,6 +1635,32 @@
                 <!-- End Settings Tab -->
             </main>
         </div>
+
+        <!-- ============================================= -->
+        <!-- |           Bottom Navigation (Mobile)       | -->
+        <!-- ============================================= -->
+        <nav class="bottom-nav">
+            <button class="nav-tab active" data-tab="dashboard">
+                <span class="icon">🏠</span>
+                <span class="label" data-i18n="nav.dashboard">总览</span>
+            </button>
+            <button class="nav-tab" data-tab="data">
+                <span class="icon">📊</span>
+                <span class="label" data-i18n="nav.data">数据</span>
+            </button>
+            <button class="nav-tab" data-tab="sync">
+                <span class="icon">🔄</span>
+                <span class="label" data-i18n="nav.sync">同步</span>
+            </button>
+            <button class="nav-tab" data-tab="wishlist">
+                <span class="icon">✨</span>
+                <span class="label" data-i18n="nav.wishlist">想看</span>
+            </button>
+            <button class="nav-tab" data-tab="settings">
+                <span class="icon">⚙️</span>
+                <span class="label" data-i18n="nav.settings">设置</span>
+            </button>
+        </nav>
 
         <!-- Modal for Help Popups -->
         <div id="help-modal" class="modal-overlay" style="display: none;">

@@ -100,47 +100,75 @@ function buildDownloadSiteLinks(movie) {
     }).filter(Boolean);
 }
 
-function addCustomSiteRow(site = {}) {
-    const listEl = document.getElementById('download-sites-custom-list');
-    if (!listEl) return;
-
-    const isEnabled = site.enabled !== false;
-    const row = document.createElement('div');
-    row.className = 'custom-site-row';
-    row.innerHTML = `
-        <input type="checkbox" class="custom-site-enabled" ${isEnabled ? 'checked' : ''}>
-        <input type="text" class="custom-site-label" placeholder="站点名" value="${site.label || ''}">
-        <input type="text" class="custom-site-template" placeholder="链接模板，例如 https://example.com?q={imdbid}" value="${site.template || ''}">
-        <button class="btn btn-secondary btn-sm custom-site-remove">移除</button>
-    `;
-    row.querySelector('.custom-site-remove').addEventListener('click', () => {
-        row.remove();
-        syncDownloadSiteStateFromUI({ persist: true });
-    });
-    listEl.appendChild(row);
-}
-
 function renderDownloadSiteSettings() {
-    const defaultContainer = document.getElementById('download-sites-default');
-    if (defaultContainer) {
-        defaultContainer.innerHTML = DEFAULT_DOWNLOAD_SITES.map(site => `
-            <label class="download-site-item">
-                <input type="checkbox" data-site-id="${site.id}" ${downloadSiteState.enabledIds.has(site.id) ? 'checked' : ''}>
+    const grid = document.getElementById('download-sites-default');
+    if (!grid) return;
+
+    let html = '';
+
+    // Render Default Sites
+    const activeDefaults = DEFAULT_DOWNLOAD_SITES.filter(site => !downloadSiteState.deletedDefaults?.has(site.id));
+    activeDefaults.forEach(site => {
+        html += `
+            <label class="download-site-item" style="position: relative; padding-right: 32px;">
+                <input type="checkbox" class="site-checkbox" data-type="default" data-site-id="${site.id}" ${downloadSiteState.enabledIds.has(site.id) ? 'checked' : ''}>
                 <div class="download-site-info">
                     <span class="download-site-name">${site.label}</span>
                     <span class="download-site-template" title="${site.template}">${site.template}</span>
                 </div>
+                <button type="button" class="delete-site-btn btn-ghost" data-type="default" data-id="${site.id}" style="position: absolute; top: 8px; right: 8px; border: none; font-size: 16px; padding: 0 4px; line-height: 1;" title="删除">✕</button>
             </label>
-        `).join('');
+        `;
+    });
+
+    // Render Custom Sites
+    if (Array.isArray(downloadSiteState.customSites)) {
+        downloadSiteState.customSites.forEach((site, index) => {
+            html += `
+                <label class="download-site-item custom" style="position: relative; padding-right: 32px; border-color: rgba(var(--accent-rgb), 0.5); background: rgba(var(--accent-rgb), 0.05);">
+                    <input type="checkbox" class="site-checkbox" data-type="custom" data-index="${index}" ${site.enabled !== false ? 'checked' : ''}>
+                    <div class="download-site-info">
+                        <span class="download-site-name">${site.label}</span>
+                        <span class="download-site-template" title="${site.template}">${site.template}</span>
+                    </div>
+                    <button type="button" class="delete-site-btn btn-ghost" data-type="custom" data-index="${index}" style="position: absolute; top: 8px; right: 8px; border: none; font-size: 16px; padding: 0 4px; line-height: 1;" title="删除">✕</button>
+                </label>
+            `;
+        });
     }
 
-    const customList = document.getElementById('download-sites-custom-list');
-    if (customList) {
-        customList.innerHTML = '';
-        if (Array.isArray(downloadSiteState.customSites)) {
-            downloadSiteState.customSites.forEach(site => addCustomSiteRow(site));
-        }
-    }
+    grid.innerHTML = html;
+
+    // Attach listeners for delete buttons
+    grid.querySelectorAll('.delete-site-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault(); // Stop checkbox toggle
+            e.stopPropagation();
+            if (!confirm('确定要删除此站点吗？')) return;
+
+            const type = btn.getAttribute('data-type');
+            if (type === 'default') {
+                const id = btn.getAttribute('data-id');
+                if (!downloadSiteState.deletedDefaults) {
+                    downloadSiteState.deletedDefaults = new Set();
+                }
+                downloadSiteState.deletedDefaults.add(id);
+                downloadSiteState.enabledIds.delete(id);
+            } else if (type === 'custom') {
+                const index = parseInt(btn.getAttribute('data-index'), 10);
+                downloadSiteState.customSites.splice(index, 1);
+            }
+            syncDownloadSiteStateFromUI({ persist: true });
+            renderDownloadSiteSettings();
+        });
+    });
+
+    // Attach listeners for checkboxes validation update
+    grid.querySelectorAll('.site-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+            syncDownloadSiteStateFromUI({ persist: true });
+        });
+    });
 }
 
 function filterDownloadSites(query) {
@@ -164,27 +192,27 @@ function initDownloadSiteSettings(config) {
     const enabled = Array.isArray(config.download_sites_enabled) ? config.download_sites_enabled : [];
     downloadSiteState.enabledIds = new Set(enabled);
     downloadSiteState.customSites = Array.isArray(config.download_sites_custom) ? config.download_sites_custom : [];
+    downloadSiteState.deletedDefaults = new Set(Array.isArray(config.download_sites_deleted) ? config.download_sites_deleted : []);
 
     renderDownloadSiteSettings();
 
     if (!downloadSitesInitialized) {
         const addBtn = document.getElementById('add-custom-site-btn');
-        const customList = document.getElementById('download-sites-custom-list');
         if (addBtn) {
             addBtn.addEventListener('click', () => {
-                addCustomSiteRow({ enabled: true });
-                syncDownloadSiteStateFromUI({ persist: true });
-            });
-        }
-        defaultContainer.addEventListener('change', () => {
-            syncDownloadSiteStateFromUI({ persist: true });
-        });
-        if (customList) {
-            customList.addEventListener('input', () => {
-                syncDownloadSiteStateFromUI({ persist: true });
-            });
-            customList.addEventListener('change', () => {
-                syncDownloadSiteStateFromUI({ persist: true });
+                const nameInput = document.getElementById('new-custom-site-name');
+                const templateInput = document.getElementById('new-custom-site-template');
+                const label = nameInput?.value.trim() || '';
+                const template = templateInput?.value.trim() || '';
+                if (label && template) {
+                    downloadSiteState.customSites.push({ label, template, enabled: true });
+                    if (nameInput) nameInput.value = '';
+                    if (templateInput) templateInput.value = '';
+                    syncDownloadSiteStateFromUI({ persist: true });
+                    renderDownloadSiteSettings();
+                } else {
+                    log('⚠️ 请填写站点名称和链接模板', 'warning');
+                }
             });
         }
 
@@ -202,24 +230,35 @@ function initDownloadSiteSettings(config) {
 
 function collectDownloadSiteConfig() {
     const enabledIds = Array.from(
-        document.querySelectorAll('#download-sites-default input[type="checkbox"]:checked')
-    ).map(checkbox => checkbox.dataset.siteId);
+        document.querySelectorAll('#download-sites-default .site-checkbox[data-type="default"]:checked')
+    ).map(cb => cb.dataset.siteId);
 
+    // Update custom sites enabled status based on DOM, but keep label/template from state
     const customSites = [];
-    document.querySelectorAll('#download-sites-custom-list .custom-site-row').forEach(row => {
-        const label = row.querySelector('.custom-site-label')?.value.trim();
-        const template = row.querySelector('.custom-site-template')?.value.trim();
-        const enabled = !!row.querySelector('.custom-site-enabled')?.checked;
-        if (label && template) customSites.push({ label, template, enabled });
+    document.querySelectorAll('#download-sites-default .site-checkbox[data-type="custom"]').forEach(cb => {
+        const index = parseInt(cb.dataset.index, 10);
+        const site = downloadSiteState.customSites[index];
+        if (site) {
+            customSites.push({
+                label: site.label,
+                template: site.template,
+                enabled: cb.checked
+            });
+        }
     });
 
-    return { enabledIds, customSites };
+    return {
+        enabledIds,
+        customSites,
+        deletedDefaults: Array.from(downloadSiteState.deletedDefaults || [])
+    };
 }
 
 function syncDownloadSiteStateFromUI({ persist = false } = {}) {
     const config = collectDownloadSiteConfig();
     downloadSiteState.enabledIds = new Set(config.enabledIds);
     downloadSiteState.customSites = config.customSites;
+    // deletedDefaults does not change from UI checkboxes so no need to redefine here
 
     if (typeof wishlistState !== 'undefined' && wishlistState.items.length > 0) {
         renderWishlistPage(wishlistState.currentPage);
@@ -228,13 +267,15 @@ function syncDownloadSiteStateFromUI({ persist = false } = {}) {
     if (persist) {
         if (downloadSiteSaveTimer) clearTimeout(downloadSiteSaveTimer);
         downloadSiteSaveTimer = setTimeout(() => {
-            function setupWishlistSocketListeners() {
-                if (!window.socket) { setTimeout(setupWishlistSocketListeners, 100); return; }
+            const saveConfig = () => {
+                if (!window.socket) { setTimeout(saveConfig, 100); return; }
                 window.socket.emit('save_config', {
                     download_sites_enabled: config.enabledIds,
-                    download_sites_custom: config.customSites
+                    download_sites_custom: config.customSites,
+                    download_sites_deleted: config.deletedDefaults
                 });
-            }
+            };
+            saveConfig();
         }, 400);
     }
 }
@@ -466,6 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return TAB_ALIASES[normalized] || normalized;
     }
 
+    // Navigation Tabs Logic (Shared. Handles both top-nav and bottom-nav)
     ui.navTabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const tabId = tab.dataset.tab;
@@ -496,6 +538,34 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('settings');
     }
 
+    // Mobile Hamburger Menu Logic
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const mobileOverlay = document.getElementById('mobile-sidebar-overlay');
+    const mainSidebar = document.getElementById('main-layout-sidebar');
+
+    function closeMobileSidebar() {
+        if (mainSidebar && mainSidebar.classList.contains('open')) {
+            mainSidebar.classList.remove('open');
+            if (mobileOverlay) mobileOverlay.classList.remove('visible');
+        }
+    }
+
+    if (mobileMenuBtn && mobileOverlay && mainSidebar) {
+        mobileMenuBtn.addEventListener('click', () => {
+            const isOpen = mainSidebar.classList.contains('open');
+            if (isOpen) {
+                closeMobileSidebar();
+            } else {
+                mainSidebar.classList.add('open');
+                mobileOverlay.classList.add('visible');
+            }
+        });
+
+        mobileOverlay.addEventListener('click', () => {
+            closeMobileSidebar();
+        });
+    }
+
     function switchTab(tabId) {
         const rawTab = String(tabId || '').toLowerCase().trim();
         if (rawTab === 'backups') currentSettingsSection = 'tab-backups';
@@ -510,11 +580,16 @@ document.addEventListener('DOMContentLoaded', () => {
             targets = TAB_GROUPS[normalized];
         }
 
-        // Update nav tabs
-        ui.navTabs.forEach(t => t.classList.remove('active'));
-        document.querySelector(`[data-tab="${normalized}"]`)?.classList.add('active');
+        // Update ALL nav tabs (both top and bottom nav)
+        ui.navTabs.forEach(t => {
+            if (t.dataset.tab === normalized) {
+                t.classList.add('active');
+            } else {
+                t.classList.remove('active');
+            }
+        });
 
-        // Update content
+        // Update content panes
         ui.tabContents.forEach(content => content.classList.remove('active'));
 
         if (normalized === 'settings') {
@@ -524,6 +599,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(targetId)?.classList.add('active');
             });
         }
+
+        // Close mobile sidebar if open when switching tabs
+        closeMobileSidebar();
 
         // Load data for dynamic tabs
         if (normalized === 'wishlist') {
@@ -589,30 +667,54 @@ document.addEventListener('DOMContentLoaded', () => {
         if (serverUsername) serverUsername.value = config.server_username || 'cinerecord';
         if (serverPassword && config.server_password) serverPassword.value = config.server_password;
         const cinepersonaUrl = document.getElementById('cinepersona-url');
+        const cinepersonaBaseUrl = document.getElementById('cinepersona-base-url');
+        const cinepersonaApiKey = document.getElementById('cinepersona-api-key');
         const cinepersonaCookie = document.getElementById('cinepersona-session-cookie');
         const cinepersonaConsent = document.getElementById('cinepersona-consent');
         const cinepersonaAutoSync = document.getElementById('cinepersona-auto-sync');
+        // Legacy field still present for backward compat
         if (cinepersonaUrl) cinepersonaUrl.value = config.cinepersona_url || '';
+        // New API-key-based fields
+        if (cinepersonaBaseUrl) cinepersonaBaseUrl.value = config.cinepersona_base_url || 'https://film.133339.xyz';
+        if (cinepersonaApiKey && config.cinepersona_api_key) cinepersonaApiKey.value = config.cinepersona_api_key;
         if (cinepersonaCookie && config.cinepersona_session_cookie) cinepersonaCookie.value = config.cinepersona_session_cookie;
         if (cinepersonaConsent) cinepersonaConsent.checked = !!config.cinepersona_consent;
         if (cinepersonaAutoSync) cinepersonaAutoSync.checked = !!config.cinepersona_auto_sync;
 
+        const cpBase = (config.cinepersona_base_url || config.cinepersona_url || 'https://film.133339.xyz').replace(/\/+$/, '');
         const cinepersonaLink = document.getElementById('cinepersona-link');
         const cinepersonaImportLink = document.getElementById('cinepersona-import-link');
         const cinepersonaLinkSettings = document.getElementById('cinepersona-link-settings');
         const cinepersonaImportLinkSettings = document.getElementById('cinepersona-import-link-settings');
-        if (cinepersonaUrl && cinepersonaUrl.value) {
-            const base = cinepersonaUrl.value.replace(/\/+$/, '');
-            if (cinepersonaLink) cinepersonaLink.href = base;
-            if (cinepersonaImportLink) cinepersonaImportLink.href = `${base}/import`;
-            if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = base;
-            if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = `${base}/import`;
-        } else {
-            if (cinepersonaLink) cinepersonaLink.href = '#';
-            if (cinepersonaImportLink) cinepersonaImportLink.href = '#';
-            if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = '#';
-            if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = '#';
+        if (cinepersonaLink) cinepersonaLink.href = cpBase;
+        if (cinepersonaImportLink) cinepersonaImportLink.href = `${cpBase}/import`;
+        if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = cpBase;
+        if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = `${cpBase}/import`;
+
+        // Populate platform card inputs
+        const cpCardBase = document.getElementById('cp-card-base-url');
+        const cpCardKey = document.getElementById('cp-card-api-key');
+        if (cpCardBase) cpCardBase.value = cpBase;
+        if (cpCardKey && config.cinepersona_api_key) cpCardKey.value = config.cinepersona_api_key;
+
+        // If API key already configured, show connected state with stored info
+        if (config.cinepersona_api_key) {
+            _setCpConnected({
+                username: config.cinepersona_username || '',
+                email: config.cinepersona_email || ''
+            });
         }
+
+        // Sidebar stats: count local merged data
+        const cpStatEl = document.getElementById('cinepersona-summary-stats');
+        if (cpStatEl) {
+            const localCount = (appState.merged_count || 0);
+            cpStatEl.textContent = localCount ? `${localCount} 部` : '--';
+        }
+
+        // Profile link
+        const cpProfileLink = document.getElementById('cp-profile-link');
+        if (cpProfileLink) cpProfileLink.href = cpBase;
 
         // Check for existing data files
         socket.emit('check_local_data', config);
@@ -642,6 +744,225 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Restore session state from localStorage
         restoreSessionState();
+    });
+
+    // CinePersona Export & Import Logic
+    const cinepersonaExportBtn = document.getElementById('cinepersona-export-import-btn');
+    if (cinepersonaExportBtn) {
+        cinepersonaExportBtn.addEventListener('click', () => {
+            const cpUrl = document.getElementById('cinepersona-url')?.value || 'https://film.133339.xyz';
+            const cpBase = cpUrl.replace(/\/+$/, '');
+
+            // Trigger download
+            const exportUrl = `/download/merged?format=cinepersona`;
+            const a = document.createElement('a');
+            a.href = exportUrl;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            log('✅ 已为您生成并下载合并数据包，即将前往导入页', 'success');
+
+            // Open import page after 1.5 seconds to ensure download starts
+            setTimeout(() => {
+                window.open(`${cpBase}/import`, '_blank');
+            }, 1500);
+        });
+    }
+
+    // ============================================================
+    // CinePersona Platform Card Controls
+    // ============================================================
+
+    // Read API key from card input (primary) or settings input (fallback)
+    function getCinepersonaApiKey() {
+        return document.getElementById('cp-card-api-key')?.value
+            || document.getElementById('cinepersona-api-key')?.value
+            || '';
+    }
+    function getCinepersonaBaseUrl() {
+        return (document.getElementById('cp-card-base-url')?.value
+            || document.getElementById('cinepersona-base-url')?.value
+            || 'https://film.133339.xyz').replace(/\/+$/, '');
+    }
+
+    function _setCpConnected(info) {
+        const badge = document.getElementById('cinepersona-status-badge');
+        const dot = document.getElementById('cinepersona-status-dot');
+        const notConn = document.getElementById('cinepersona-not-connected');
+        const conn = document.getElementById('cinepersona-connected');
+        if (badge) { badge.className = 'status-badge connected'; badge.textContent = '● 已连接'; }
+        if (dot) { dot.className = 'status-dot connected'; }
+        if (notConn) notConn.style.display = 'none';
+        if (conn) conn.style.display = '';
+        if (info?.username) {
+            const el = document.getElementById('cp-display-name');
+            if (el) el.textContent = info.username;
+        }
+        if (info?.email) {
+            const el = document.getElementById('cp-email-display');
+            if (el) el.textContent = info.email;
+        }
+        ['push-cp-btn', 'pull-cp-watchlist-btn', 'cp-trakt-connect-btn2', 'logout-cp-btn'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = '';
+        });
+        // Sync card description update
+        const syncDesc = document.querySelector('#cp-sync-btn')?.parentElement?.previousElementSibling?.querySelector('span');
+        if (syncDesc) syncDesc.textContent = `已连接 CinePersona，点击推送本地全部数据`;
+    }
+
+    function _setCpDisconnected() {
+        const badge = document.getElementById('cinepersona-status-badge');
+        const dot = document.getElementById('cinepersona-status-dot');
+        const notConn = document.getElementById('cinepersona-not-connected');
+        const conn = document.getElementById('cinepersona-connected');
+        if (badge) { badge.className = 'status-badge disconnected'; badge.textContent = '● 未连接'; }
+        if (dot) { dot.className = 'status-dot disconnected'; }
+        if (notConn) notConn.style.display = '';
+        if (conn) conn.style.display = 'none';
+        ['push-cp-btn', 'pull-cp-watchlist-btn', 'cp-trakt-connect-btn2', 'logout-cp-btn'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+    }
+
+    // test-cp-btn: test connection + auto-save on success
+    document.getElementById('test-cp-btn')?.addEventListener('click', () => {
+        const apiKey = getCinepersonaApiKey();
+        const baseUrl = getCinepersonaBaseUrl();
+        if (!apiKey) { log('⚠️ 请先填入 API Key', 'warning'); return; }
+        const btn = document.getElementById('test-cp-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
+        socket.emit('test_cinepersona', { base_url: baseUrl, api_key: apiKey });
+    });
+
+    // Old settings test button (still in settings system tab)
+    const cpTestBtn = document.getElementById('cinepersona-test-btn');
+    if (cpTestBtn) {
+        cpTestBtn.addEventListener('click', () => {
+            const apiKey = document.getElementById('cinepersona-api-key')?.value || '';
+            const baseUrl = (document.getElementById('cinepersona-base-url')?.value || 'https://film.133339.xyz').replace(/\/+$/, '');
+            if (!apiKey) { log('⚠️ 请先填入 CinePersona API Key', 'warning'); return; }
+            cpTestBtn.disabled = true; cpTestBtn.textContent = '测试中…';
+            socket.emit('test_cinepersona', { base_url: baseUrl, api_key: apiKey });
+        });
+    }
+
+    socket.on('cinepersona_test_result', (data) => {
+        // Restore test buttons
+        const btn = document.getElementById('test-cp-btn');
+        if (btn) { btn.disabled = false; btn.textContent = '✅ 测试连接'; }
+        if (cpTestBtn) { cpTestBtn.disabled = false; cpTestBtn.textContent = '测试连接'; }
+
+        // Old settings result row
+        const row = document.getElementById('cinepersona-test-result-row');
+        const el = document.getElementById('cinepersona-test-result');
+        if (el && row) {
+            row.style.display = '';
+            el.style.background = data.ok ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+            el.style.color = data.ok ? '#4ade80' : '#f87171';
+            el.textContent = data.ok
+                ? `✅ 已连接：${data.username || ''} ${data.email ? '(' + data.email + ')' : ''}`
+                : `❌ 连接失败：${data.error || '未知错误'}`;
+        }
+
+        if (data.ok) {
+            _setCpConnected(data);
+            log(`✅ CinePersona 连接成功：${data.username || ''}`, 'success');
+            // Also sync inputs to settings fields
+            const apiKey = getCinepersonaApiKey();
+            const baseUrl = getCinepersonaBaseUrl();
+            const settingsKey = document.getElementById('cinepersona-api-key');
+            const settingsBase = document.getElementById('cinepersona-base-url');
+            if (settingsKey && apiKey) settingsKey.value = apiKey;
+            if (settingsBase && baseUrl) settingsBase.value = baseUrl;
+        } else {
+            log(`❌ CinePersona 连接失败：${data.error || ''}`, 'error');
+        }
+    });
+
+    // logout-cp-btn
+    document.getElementById('logout-cp-btn')?.addEventListener('click', () => {
+        _setCpDisconnected();
+        const cpCardKey = document.getElementById('cp-card-api-key');
+        if (cpCardKey) cpCardKey.value = '';
+        log('🔌 已断开 CinePersona 连接', 'info');
+    });
+
+    // Sync to CinePersona button (sync page)
+    const cpSyncBtn = document.getElementById('cp-sync-btn');
+    if (cpSyncBtn) {
+        cpSyncBtn.addEventListener('click', () => {
+            const apiKey = getCinepersonaApiKey();
+            const baseUrl = getCinepersonaBaseUrl();
+            if (!apiKey) {
+                log('⚠️ 请先在账户页配置 CinePersona API Key 并测试连接', 'warning');
+                openSettingsSection('tab-settings'); return;
+            }
+            cpSyncBtn.disabled = true;
+            const statusEl = document.getElementById('cp-sync-status');
+            if (statusEl) statusEl.textContent = '⏳ 正在准备数据…';
+            socket.emit('sync_to_cinepersona', { base_url: baseUrl, api_key: apiKey });
+        });
+    }
+    socket.on('cinepersona_sync_done', (data) => {
+        if (cpSyncBtn) cpSyncBtn.disabled = false;
+        const statusEl = document.getElementById('cp-sync-status');
+        if (statusEl) statusEl.textContent = data.message || '';
+        const cpLocalCount = document.getElementById('cp-local-count');
+        if (cpLocalCount && data.synced) cpLocalCount.textContent = data.synced;
+    });
+
+    // push-cp-btn (accounts card)
+    document.getElementById('push-cp-btn')?.addEventListener('click', () => {
+        const apiKey = getCinepersonaApiKey();
+        const baseUrl = getCinepersonaBaseUrl();
+        if (!apiKey) { log('⚠️ 未配置 API Key', 'warning'); return; }
+        const btn = document.getElementById('push-cp-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '推送中…'; }
+        log('🚀 开始推送数据库到 CinePersona…', 'info');
+        socket.emit('sync_to_cinepersona', { base_url: baseUrl, api_key: apiKey });
+        socket.once('cinepersona_sync_done', () => {
+            if (btn) { btn.disabled = false; btn.textContent = '🚀 推送数据库'; }
+        });
+    });
+
+    // Trakt Bridge buttons
+    document.getElementById('cp-trakt-connect-btn')?.addEventListener('click', () => {
+        const apiKey = getCinepersonaApiKey();
+        const baseUrl = getCinepersonaBaseUrl();
+        if (!apiKey) { log('⚠️ 请先配置 CinePersona API Key', 'warning'); return; }
+        socket.emit('cinepersona_trakt_connect', { base_url: baseUrl, api_key: apiKey });
+    });
+    document.getElementById('cp-trakt-connect-btn2')?.addEventListener('click', () => {
+        const apiKey = getCinepersonaApiKey();
+        const baseUrl = getCinepersonaBaseUrl();
+        if (!apiKey) { log('⚠️ 请先配置 CinePersona API Key', 'warning'); return; }
+        socket.emit('cinepersona_trakt_connect', { base_url: baseUrl, api_key: apiKey });
+    });
+    socket.on('cinepersona_trakt_url', (data) => {
+        if (data.url) window.open(data.url, '_blank');
+        else log(`❌ 获取 Trakt 授权链接失败：${data.error || ''}`, 'error');
+    });
+
+    document.getElementById('cp-trakt-status-btn')?.addEventListener('click', () => {
+        const apiKey = getCinepersonaApiKey();
+        const baseUrl = getCinepersonaBaseUrl();
+        if (!apiKey) { log('⚠️ 请先配置 CinePersona API Key', 'warning'); return; }
+        socket.emit('cinepersona_trakt_status', { base_url: baseUrl, api_key: apiKey });
+    });
+    socket.on('cinepersona_trakt_status_result', (data) => {
+        if (data.connected) log(`✅ CinePersona Trakt 已连接：${data.username || ''}`, 'success');
+        else log(`ℹ️ Trakt 尚未连接到 CinePersona：${data.message || ''}`, 'info');
+    });
+
+    document.getElementById('cp-trakt-sync-btn')?.addEventListener('click', () => {
+        const apiKey = getCinepersonaApiKey();
+        const baseUrl = getCinepersonaBaseUrl();
+        if (!apiKey) { log('⚠️ 请先配置 CinePersona API Key', 'warning'); return; }
+        socket.emit('cinepersona_trakt_sync', { base_url: baseUrl, api_key: apiKey });
     });
 
     socket.on('log', (data) => log(data.message, data.type));
@@ -2253,6 +2574,8 @@ document.addEventListener('DOMContentLoaded', () => {
             server_username: document.getElementById('server-username')?.value?.trim() || 'cinerecord',
             server_password: document.getElementById('server-password')?.value || '',
             cinepersona_url: document.getElementById('cinepersona-url')?.value?.trim() || '',
+            cinepersona_base_url: document.getElementById('cinepersona-base-url')?.value?.trim() || 'https://film.133339.xyz',
+            cinepersona_api_key: document.getElementById('cinepersona-api-key')?.value || '',
             cinepersona_session_cookie: document.getElementById('cinepersona-session-cookie')?.value || '',
             cinepersona_consent: !!document.getElementById('cinepersona-consent')?.checked,
             cinepersona_auto_sync: !!document.getElementById('cinepersona-auto-sync')?.checked,
@@ -2270,6 +2593,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (configData.cinepersona_url) {
             const base = configData.cinepersona_url.replace(/\/+$/, '');
+            const cinepersonaLink = document.getElementById('cinepersona-link');
+            const cinepersonaImportLink = document.getElementById('cinepersona-import-link');
+            const cinepersonaLinkSettings = document.getElementById('cinepersona-link-settings');
+            const cinepersonaImportLinkSettings = document.getElementById('cinepersona-import-link-settings');
+            if (cinepersonaLink) cinepersonaLink.href = base;
+            if (cinepersonaImportLink) cinepersonaImportLink.href = `${base}/import`;
+            if (cinepersonaLinkSettings) cinepersonaLinkSettings.href = base;
+            if (cinepersonaImportLinkSettings) cinepersonaImportLinkSettings.href = `${base}/import`;
+        } else {
+            const base = 'https://film.133339.xyz';
             const cinepersonaLink = document.getElementById('cinepersona-link');
             const cinepersonaImportLink = document.getElementById('cinepersona-import-link');
             const cinepersonaLinkSettings = document.getElementById('cinepersona-link-settings');
@@ -3557,12 +3890,32 @@ const PLATFORMS = {
     tmdb: { emoji: '🎬', name: 'TMDB', color: '#01b4e4' }
 };
 
+// =============== UNIFIED LIBRARY LOGIC ===============
 let libraryState = {
     currentPage: 1,
+    totalPages: 1,
     pageSize: 20,
-    filter: 'all',
-    totalPages: 0
+    filter: 'all',  // 'all', 'douban', 'imdb', 'trakt', etc.
+    viewMode: 'grid' // 'grid' or 'list'
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Setup View Toggles
+    const gridBtn = document.getElementById('library-view-grid');
+    const listBtn = document.getElementById('library-view-list');
+
+    if (gridBtn && listBtn) {
+        gridBtn.addEventListener('click', () => {
+            libraryState.viewMode = 'grid';
+            renderUnifiedLibrary(window.lastLibraryData || { movies: [], total_pages: 1, page: 1, platform_counts: {} });
+        });
+
+        listBtn.addEventListener('click', () => {
+            libraryState.viewMode = 'list';
+            renderUnifiedLibrary(window.lastLibraryData || { movies: [], total_pages: 1, page: 1, platform_counts: {} });
+        });
+    }
+});
 
 function getSelectedPlatforms() {
     const checked = document.querySelectorAll('.filter-checkbox input[type="checkbox"]:checked');
@@ -3604,6 +3957,9 @@ function refreshLibrary(page = 1) {
 }
 
 function renderUnifiedLibrary(data) {
+    if (!data || !data.movies) return;
+    window.lastLibraryData = data; // Cache for view toggling
+
     console.log('[Library] renderUnifiedLibrary called, filter:', data.filter, 'movies:', data.movies?.length);
     const { movies, total_count, page, page_size, total_pages, platform_counts, filter } = data;
 
@@ -3638,8 +3994,23 @@ function renderUnifiedLibrary(data) {
     }
 
     if (libraryEmpty) libraryEmpty.style.display = 'none';
-    if (libraryList) libraryList.style.display = 'block';
+    if (libraryList) {
+        libraryList.style.display = '';
+        // Apply view mode classes
+        libraryList.classList.toggle('library-grid-view', libraryState.viewMode === 'grid');
+        libraryList.classList.toggle('library-list-view', libraryState.viewMode === 'list');
+        // Legacy cleanup just in case
+        libraryList.classList.remove('library-list');
+    }
     if (libraryPagination) libraryPagination.style.display = total_pages > 1 ? 'flex' : 'none';
+
+    // Update view toggle button states
+    const gridBtn = document.getElementById('library-view-grid');
+    const listBtn = document.getElementById('library-view-list');
+    if (gridBtn && listBtn) {
+        gridBtn.classList.toggle('active', libraryState.viewMode === 'grid');
+        listBtn.classList.toggle('active', libraryState.viewMode === 'list');
+    }
 
     // Render movie list with rich metadata
     let html = '';
@@ -3650,6 +4021,15 @@ function renderUnifiedLibrary(data) {
         const sourceCount = movie.sources ? movie.sources.length : 0;
         const isShared = sourceCount >= 2;
 
+        const PLATFORM_ICONS = {
+            'douban': '<img src="/static/images/platforms/douban.png" alt="Douban" style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">',
+            'imdb': '<img src="/static/images/platforms/imdb.svg" alt="IMDb" style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">',
+            'trakt': '<img src="/static/images/platforms/trakt.png" alt="Trakt" style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">',
+            'tmdb': '<img src="/static/images/platforms/tmdb.png" alt="TMDB" style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">',
+            'letterboxd': '<img src="/static/images/platforms/letterboxd.png" alt="Letterboxd" style="width:14px;height:14px;vertical-align:middle;border-radius:2px;">',
+            'cinepersona': '🧬 '
+        };
+
         const buildBadge = (platform, url, rating, votes, label, forceShow = false) => {
             // For shared movies: show all available platform links
             // For exclusive movies: only show the source platform
@@ -3658,9 +4038,11 @@ function renderUnifiedLibrary(data) {
             if (isShared && !forceShow && !movie.sources.includes(platform)) return '';
 
             const voteText = votes ? formatVotes(votes) : '';
+            const iconHtml = PLATFORM_ICONS[platform] || label;
+
             return `
                 <a href="${url}" target="_blank" class="badge-v3 ${platform}" title="${label}">
-                    <span class="badge-logo">${label}</span>
+                    <span class="badge-logo">${iconHtml}</span>
                     <span class="badge-score">${rating || '↗'}</span>
                     ${voteText ? `<span class="badge-extra">${voteText}</span>` : ''}
                 </a>`;
@@ -4182,6 +4564,47 @@ function getSafeImageUrl(url) {
     return url;
 }
 
+// Smart Cover Art Fallback (CSS Gradients)
+function escapeQuotes(str) {
+    if (!str) return '';
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function handlePosterError(imgEl, title) {
+    if (imgEl.dataset.failed) return;
+    imgEl.dataset.failed = "true";
+    imgEl.style.display = 'none';
+
+    const safeTitle = title || '?';
+    // Use first character, ignoring common prefixes roughly if we want, or just first char
+    const firstChar = safeTitle.replace(/^[^\w\u4e00-\u9fa5]+/, '').charAt(0).toUpperCase() || '?';
+
+    const fallbackDiv = document.createElement('div');
+    fallbackDiv.className = 'poster-fallback';
+    fallbackDiv.innerHTML = `<span>${firstChar}</span>`;
+
+    const colors = [
+        'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        'linear-gradient(135deg, #434343 0%, #000000 100%)',
+        'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+        'linear-gradient(135deg, #d53369 0%, #cbad6d 100%)',
+        'linear-gradient(135deg, #ff0844 0%, #ffb199 100%)',
+        'linear-gradient(135deg, #09203f 0%, #537895 100%)',
+        'linear-gradient(135deg, #b06ab3 0%, #4568dc 100%)'
+    ];
+    let sum = 0;
+    for (let i = 0; i < safeTitle.length; i++) {
+        sum += safeTitle.charCodeAt(i);
+    }
+    fallbackDiv.style.background = colors[sum % colors.length];
+
+    // Check if the previous element is already a fallback (defensive coding)
+    if (!imgEl.nextElementSibling || !imgEl.nextElementSibling.classList.contains('poster-fallback')) {
+        imgEl.parentNode.insertBefore(fallbackDiv, imgEl.nextSibling);
+    }
+}
+
+
 function renderWishlistPage(page) {
     const listEl = document.getElementById('wishlist-list');
     const paginationEl = document.getElementById('wishlist-pagination');
@@ -4257,7 +4680,7 @@ function renderWishlistPage(page) {
             <div class="wishlist-row">
                 <div class="wishlist-cover">
                     <img src="${poster}" alt="${title}" loading="lazy" referrerpolicy="no-referrer"
-                        onerror="this.src='/static/images/default_poster.png'">
+                        onerror="handlePosterError(this, '${escapeQuotes(title)}')">
                 </div>
                 <div class="wishlist-main">
                     <div class="wishlist-title-row">
@@ -4291,7 +4714,7 @@ function renderWishlistPage(page) {
                 <a href="${link}" target="_blank" style="text-decoration:none;color:inherit;">
                     <div class="movie-poster-wrapper">
                         <img src="${poster}" alt="${title}" class="movie-poster" loading="lazy" referrerpolicy="no-referrer"
-                             onerror="this.src='/static/images/default_poster.png'">
+                             onerror="handlePosterError(this, '${escapeQuotes(title)}')">
                         ${rating ? `<div class="movie-rating-badge douban">${rating}</div>` : ''}
                     </div>
                     <div class="movie-info">
