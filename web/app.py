@@ -2433,10 +2433,26 @@ def handle_check_session(data):
     threading.Thread(target=validate_all_platforms, daemon=True).start()
 
 
+# Cache validation results to avoid redundant HTTP requests on page refresh
+# Key: (platform, cookie_hash, user_id), Value: (timestamp, result_dict)
+PLATFORM_VALIDATION_CACHE = {}
+VALIDATION_CACHE_TTL = 600  # 10 minutes
+
 def validate_cookie_platform(platform, cookie, user_id):
-    """Validate cookie by making a test request"""
+    """Validate cookie by making a test request (with cache)"""
     import requests
     import re
+    import hashlib
+    
+    # Check cache first
+    cache_key = (platform, hashlib.md5(cookie.encode()).hexdigest()[:8], user_id)
+    cached = PLATFORM_VALIDATION_CACHE.get(cache_key)
+    if cached:
+        cache_ts, cache_result = cached
+        if time.time() - cache_ts < VALIDATION_CACHE_TTL:
+            logger.debug(f"{platform} validation cached (age: {int(time.time() - cache_ts)}s)")
+            socketio.emit('platform_validated', cache_result)
+            return
     
     headers = {
         'Cookie': cookie,
@@ -2489,17 +2505,21 @@ def validate_cookie_platform(platform, cookie, user_id):
                     logger.debug(f"Douban validation successful (Content match): {found_id}")
 
             if valid and found_id:
-                socketio.emit('platform_validated', {
+                result = {
                     'platform': platform,
                     'valid': True,
                     'user_id': found_id
-                })
+                }
+                PLATFORM_VALIDATION_CACHE[cache_key] = (time.time(), result)
+                socketio.emit('platform_validated', result)
             else:
-                socketio.emit('platform_validated', {
+                result = {
                     'platform': platform,
                     'valid': False,
                     'error': '验证失败: 未检测到登录状态'
-                })
+                }
+                PLATFORM_VALIDATION_CACHE[cache_key] = (time.time(), result)
+                socketio.emit('platform_validated', result)
                 logger.warning(f"Douban validation failed - all methods tried")
                 
         elif platform == 'imdb':
@@ -2507,18 +2527,22 @@ def validate_cookie_platform(platform, cookie, user_id):
             resp = requests.get('https://www.imdb.com/list/watchlist/',
                               headers=headers, timeout=10, allow_redirects=True)
             if 'signin' in resp.url.lower() or resp.status_code == 401:
-                socketio.emit('platform_validated', {
+                result = {
                     'platform': platform,
                     'valid': False,
                     'error': 'Cookie 已过期或无效'
-                })
+                }
+                PLATFORM_VALIDATION_CACHE[cache_key] = (time.time(), result)
+                socketio.emit('platform_validated', result)
                 logger.warning(f"IMDB validation failed - need login")
             else:
-                socketio.emit('platform_validated', {
+                result = {
                     'platform': platform,
                     'valid': True,
                     'user_id': user_id
-                })
+                }
+                PLATFORM_VALIDATION_CACHE[cache_key] = (time.time(), result)
+                socketio.emit('platform_validated', result)
                 logger.debug(f"IMDB validation successful: {user_id}")
                 
     except requests.RequestException as e:
