@@ -606,7 +606,7 @@ def fetch_media_server_library(config):
 
 def normalize_cinepersona_url(url):
     if not url:
-        return ''
+        return 'https://film.133339.xyz'
     return str(url).strip().rstrip('/')
 
 def extract_wishlist_imdb_id(record):
@@ -3031,9 +3031,6 @@ def handle_fetch_wish(data):
 @socketio.on('fetch_cinepersona_watchlist')
 def handle_fetch_cinepersona_watchlist(data):
     config = read_config()
-    if not config.get('cinepersona_consent'):
-        emit('log', {'message': '⚠️ 请先在设置中同意 CinePersona 数据同步', 'type': 'warning'})
-        return
 
     base_url = normalize_cinepersona_url(config.get('cinepersona_url', ''))
     if not base_url:
@@ -3114,6 +3111,277 @@ def handle_fetch_cinepersona_watchlist(data):
         'path': os.path.join(DATA_DIR, 'cinepersona_watchlist.csv'),
         'sample': safe_df_to_records(pd.DataFrame(records).head(5)) if records else []
     })
+
+
+# ─── CinePersona Open API Handlers ────────────────────────────────────────────
+
+def _cp_headers(api_key):
+    """Build auth headers for CinePersona Open API."""
+    return {
+        'Authorization': f'Bearer {api_key}',
+        'x-api-key': api_key,
+        'Content-Type': 'application/json',
+        'User-Agent': 'CineRecord/2.0'
+    }
+
+@socketio.on('test_cinepersona')
+def handle_test_cinepersona(data=None):
+    """GET /api/open/v1/me – verify API key."""
+    import requests as _req
+    data = data or {}
+    base_url = (data.get('base_url') or read_config().get('cinepersona_base_url', 'https://film.133339.xyz')).rstrip('/')
+    api_key  = data.get('api_key')  or read_config().get('cinepersona_api_key', '')
+    if not api_key:
+        emit('cinepersona_test_result', {'ok': False, 'error': '未填写 API Key'})
+        return
+    try:
+        resp = _req.get(f'{base_url}/api/open/v1/me', headers=_cp_headers(api_key), timeout=10)
+        if resp.status_code == 200:
+            me = resp.json()
+            username = me.get('name') or me.get('username') or me.get('displayName', '')
+            email = me.get('email', '')
+            
+            # Auto-save config on success
+            cfg = read_config()
+            cfg['cinepersona_base_url'] = base_url
+            cfg['cinepersona_api_key'] = api_key
+            cfg['cinepersona_username'] = username
+            cfg['cinepersona_email'] = email
+            write_config(cfg)
+            
+            emit('cinepersona_test_result', {
+                'ok': True,
+                'username': username,
+                'email': email
+            })
+        else:
+            emit('cinepersona_test_result', {'ok': False, 'error': f'HTTP {resp.status_code}: {resp.text[:200]}'})
+    except Exception as e:
+        emit('cinepersona_test_result', {'ok': False, 'error': str(e)})
+
+
+@socketio.on('sync_to_cinepersona')
+def handle_sync_to_cinepersona(data=None):
+    """Batch POST /api/open/v1/sync with all local movie data."""
+    import requests as _req
+    import threading, math
+
+    data = data or {}
+    cfg = read_config()
+    base_url = (data.get('base_url') or cfg.get('cinepersona_base_url', 'https://film.133339.xyz')).rstrip('/')
+    api_key  = data.get('api_key')  or cfg.get('cinepersona_api_key', '')
+    if not api_key:
+        emit('log', {'message': '⚠️ 请先设置 CinePersona API Key', 'type': 'warning'})
+        return
+
+    def _source_label(row):
+        for k in ('sources', 'source_platform'):
+            v = row.get(k, '')
+            if v:
+                s = str(v).split(',')[0].strip().lower()
+                MAP = {'douban': 'DOUBAN', 'imdb': 'IMDB', 'trakt': 'TRAKT', 'letterboxd': 'LETTERBOXD', 'tmdb': 'TMDB'}
+                return MAP.get(s, 'IMDB')
+        return 'IMDB'
+
+    def _status_label(row):
+        s = str(row.get('status', 'watched')).lower()
+        if 'wish' in s or 'want' in s or 'plan' in s:
+            return 'PLAN_TO_WATCH'
+        if 'drop' in s:
+            return 'DROPPED'
+        if 'watching' in s:
+            return 'WATCHING'
+        return 'WATCHED'
+
+    def _rating(row):
+        for k in ('YourRating_douban', 'YourRating_imdb', 'Your Rating', 'rating'):
+            try:
+                v = float(row.get(k, 0) or 0)
+                if v > 0:
+                    return v
+            except (TypeError, ValueError):
+                pass
+        return None
+
+    def _date(row):
+        for k in ('DateRated_douban', 'DateRated_imdb', 'Date Rated', 'date_rated', 'date'):
+            v = row.get(k)
+            if v and str(v).strip() not in ('', 'nan', 'NaT', 'None'):
+                d = str(v).strip()
+                if 'T' not in d:
+                    d = d[:10] + 'T00:00:00Z'
+                return d
+        return None
+
+    def worker():
+        try:
+            socketio.emit('log', {'message': '⏳ 正在合并所有平台数据……', 'type': 'info'})
+            all_movies = {}
+
+            def _key(m):
+                iid = m.get('Const') or m.get('imdb_id') or m.get('IMDb ID') or ''
+                if iid and str(iid).startswith('tt'):
+                    return str(iid)
+                t = m.get('Title') or m.get('Name') or ''
+                y = str(m.get('Year', ''))[:4]
+                return f'{t}|{y}'.lower()
+
+            for plat in ['douban', 'imdb', 'trakt', 'letterboxd', 'tmdb']:
+                df = APP_DATA.get(f'{plat}_df')
+                if df is None or df.empty:
+                    continue
+                for _, row in df.iterrows():
+                    m = row.to_dict()
+                    k = _key(m)
+                    if k and k not in all_movies:
+                        all_movies[k] = m
+                    elif k:
+                        all_movies[k].update({kk: vv for kk, vv in m.items() if vv and vv == vv})
+
+            if not all_movies:
+                socketio.emit('log', {'message': '❌ 暂无合并数据，请先抓取各平台数据', 'type': 'error'})
+                socketio.emit('cinepersona_sync_done', {'message': '❌ 无数据'})
+                return
+
+            items = []
+            for row in all_movies.values():
+                tmdb_id = row.get('tmdb_id') or row.get('TMDB ID')
+                try: tmdb_id = int(tmdb_id) if tmdb_id and str(tmdb_id) not in ('', 'nan') else None
+                except (TypeError, ValueError): tmdb_id = None
+
+                item = {
+                    'ids': {
+                        'imdb': row.get('Const') or row.get('imdb_id') or row.get('IMDb ID') or None,
+                        'tmdb': tmdb_id,
+                        'douban': str(row.get('douban_id', '') or row.get('Douban ID', '') or '') or None,
+                        'letterboxd': row.get('letterboxd_id') or None,
+                        'trakt': str(row.get('trakt_id', '') or '') or None,
+                    },
+                    'activity': {
+                        'source': _source_label(row),
+                        'status': _status_label(row),
+                        'rating': _rating(row),
+                        'date':   _date(row),
+                        'logDate': _date(row),
+                    },
+                    'fallback': {
+                        'title': str(row.get('Title') or row.get('Name') or ''),
+                        'year':  int(str(row.get('Year', ''))[:4]) if str(row.get('Year', ''))[:4].isdigit() else None,
+                    }
+                }
+                # Clean None IDs
+                item['ids'] = {k: v for k, v in item['ids'].items() if v}
+                items.append(item)
+
+            total      = len(items)
+            batch_size = 500
+            batches    = math.ceil(total / batch_size)
+            synced = 0
+            errors = 0
+
+            socketio.emit('log', {'message': f'📦 共 {total} 条记录，分 {batches} 批推送……', 'type': 'info'})
+
+            for i in range(batches):
+                batch = items[i * batch_size:(i + 1) * batch_size]
+                payload = {'items': batch, 'options': {'strict': False}}
+                try:
+                    resp = _req.post(f'{base_url}/api/open/v1/sync',
+                                     json=payload, headers=_cp_headers(api_key), timeout=60)
+                    if resp.status_code == 200:
+                        result = resp.json()
+                        s = result.get('synced', len(batch))
+                        e = result.get('errors', 0)
+                        synced += s
+                        errors += e
+                        socketio.emit('log', {'message': f'✅ 第 {i+1}/{batches} 批完成：synced={s}, errors={e}', 'type': 'info'})
+                    else:
+                        errors += len(batch)
+                        socketio.emit('log', {'message': f'❌ 第 {i+1} 批失败 HTTP {resp.status_code}: {resp.text[:200]}', 'type': 'error'})
+                except Exception as ex:
+                    errors += len(batch)
+                    socketio.emit('log', {'message': f'❌ 第 {i+1} 批异常: {ex}', 'type': 'error'})
+
+            summary = f'🎉 同步完成！共推送 {total} 条，synced={synced}, errors={errors}'
+            socketio.emit('log', {'message': summary, 'type': 'success'})
+            socketio.emit('cinepersona_sync_done', {'message': f'✅ synced={synced}, errors={errors}'})
+
+        except Exception as e:
+            logger.exception('sync_to_cinepersona failed')
+            socketio.emit('log', {'message': f'❌ 同步异常: {e}', 'type': 'error'})
+            socketio.emit('cinepersona_sync_done', {'message': f'❌ {e}'})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+@socketio.on('cinepersona_trakt_connect')
+def handle_cp_trakt_connect(data=None):
+    """GET /api/open/v1/trakt/connect-url and emit the authorizeUrl."""
+    import requests as _req
+    data = data or {}
+    cfg = read_config()
+    base_url = (data.get('base_url') or cfg.get('cinepersona_base_url', 'https://film.133339.xyz')).rstrip('/')
+    api_key  = data.get('api_key') or cfg.get('cinepersona_api_key', '')
+    if not api_key:
+        emit('log', {'message': '⚠️ 未配置 CinePersona API Key', 'type': 'warning'})
+        return
+    try:
+        resp = _req.get(f'{base_url}/api/open/v1/trakt/connect-url', headers=_cp_headers(api_key), timeout=10)
+        if resp.status_code == 200:
+            url = resp.json().get('authorizeUrl') or resp.json().get('url', '')
+            emit('cinepersona_trakt_url', {'url': url})
+            emit('log', {'message': f'🔗 已获取 Trakt 授权链接，正在跳转……', 'type': 'info'})
+        else:
+            emit('cinepersona_trakt_url', {'url': None, 'error': f'HTTP {resp.status_code}'})
+    except Exception as e:
+        emit('cinepersona_trakt_url', {'url': None, 'error': str(e)})
+
+
+@socketio.on('cinepersona_trakt_status')
+def handle_cp_trakt_status(data=None):
+    """GET /api/open/v1/trakt/status."""
+    import requests as _req
+    data = data or {}
+    cfg = read_config()
+    base_url = (data.get('base_url') or cfg.get('cinepersona_base_url', 'https://film.133339.xyz')).rstrip('/')
+    api_key  = data.get('api_key') or cfg.get('cinepersona_api_key', '')
+    try:
+        resp = _req.get(f'{base_url}/api/open/v1/trakt/status', headers=_cp_headers(api_key), timeout=10)
+        if resp.status_code == 200:
+            j = resp.json()
+            emit('cinepersona_trakt_status_result', {
+                'connected': j.get('connected', False),
+                'username': j.get('username', ''),
+                'message': j.get('message', '')
+            })
+        else:
+            emit('cinepersona_trakt_status_result', {'connected': False, 'message': f'HTTP {resp.status_code}'})
+    except Exception as e:
+        emit('cinepersona_trakt_status_result', {'connected': False, 'message': str(e)})
+
+
+@socketio.on('cinepersona_trakt_sync')
+def handle_cp_trakt_sync(data=None):
+    """POST /api/open/v1/trakt/sync."""
+    import requests as _req
+    data = data or {}
+    cfg = read_config()
+    base_url = (data.get('base_url') or cfg.get('cinepersona_base_url', 'https://film.133339.xyz')).rstrip('/')
+    api_key  = data.get('api_key') or cfg.get('cinepersona_api_key', '')
+    if not api_key:
+        emit('log', {'message': '⚠️ 未配置 CinePersona API Key', 'type': 'warning'})
+        return
+    try:
+        emit('log', {'message': '⏳ 从 Trakt 拉取数据到 CinePersona……', 'type': 'info'})
+        resp = _req.post(f'{base_url}/api/open/v1/trakt/sync', headers=_cp_headers(api_key), timeout=60)
+        if resp.status_code == 200:
+            j = resp.json()
+            emit('log', {'message': f'✅ Trakt 同步完成：{j}', 'type': 'success'})
+        else:
+            emit('log', {'message': f'❌ Trakt 同步失败 HTTP {resp.status_code}: {resp.text[:200]}', 'type': 'error'})
+    except Exception as e:
+        emit('log', {'message': f'❌ Trakt 同步异常: {e}', 'type': 'error'})
+
+# ──────────────────────────────────────────────────────────────────────────────
 
 @socketio.on('get_wishlist_library')
 def handle_get_wishlist_library(data=None):
@@ -4474,6 +4742,7 @@ def handle_fetch_trakt_data(data):
     client_secret = config.get('trakt_client_secret', '')
     access_token = config.get('trakt_access_token', '')
     refresh_token = config.get('trakt_refresh_token', '')
+    token_expires = config.get('trakt_token_expires')
     
     if not client_id or not access_token:
         emit('log', {'message': '❌ 请先授权 Trakt 账号', 'type': 'error'})
@@ -4483,14 +4752,21 @@ def handle_fetch_trakt_data(data):
     
     def fetch_data():
         try:
-            client = TraktClient(client_id, client_secret, access_token, refresh_token)
+            client = TraktClient(client_id, client_secret, access_token, refresh_token, token_expires=token_expires)
             
             # Refresh token if needed
             if client.is_token_expired():
+                logger.info("Trakt token expired in fetch_trakt_data, attempting refresh...")
                 if client.refresh_access_token():
                     config['trakt_access_token'] = client.access_token
                     config['trakt_refresh_token'] = client.refresh_token
+                    if client.token_expires:
+                        config['trakt_token_expires'] = client.token_expires.isoformat()
                     write_config(config)
+                    logger.info("Trakt token refreshed and saved in fetch_trakt_data.")
+                else:
+                    socketio.emit('log', {'message': '⚠️ Trakt Token 刷新失败，尝试使用现有凭证...', 'type': 'warning'})
+            
             
             # Check for existing cached data
             trakt_user_id = config.get('trakt_user_id', 'unknown')
@@ -6085,8 +6361,6 @@ if __name__ == '__main__':
     scheduler.start()
     logger.info("✅ Task scheduler started")
     
-    if getattr(sys, 'frozen', False):
-        Timer(1.5, lambda: open_browser(port)).start()
     try:
         # Enable debug in dev, but allow override for production/Docker
         debug_env = os.environ.get('CINERECORD_DEBUG')
@@ -6105,8 +6379,28 @@ if __name__ == '__main__':
         if host == '0.0.0.0':
             logger.info(f"🌍 Server should be accessible from external IPs at http://YOUR_SERVER_IP:{port}")
         
-        # Disable reloader to avoid crash:
-        # "FATAL: changelist must be an iterable of select.kevent objects"
+        if getattr(sys, 'frozen', False):
+            # Try to use webview for a native window experience
+            try:
+                import webview
+                from threading import Thread
+                
+                # Start Flask in a background thread
+                def run_flask():
+                    socketio.run(app, host=host, port=port, allow_unsafe_werkzeug=True, debug=False, use_reloader=False)
+                
+                flask_thread = Thread(target=run_flask, daemon=True)
+                flask_thread.start()
+                
+                logger.info(f"🎨 Opening native window for http://127.0.0.1:{port}")
+                webview.create_window('CineRecord Hub', f'http://127.0.0.1:{port}', width=1280, height=850)
+                webview.start()
+                sys.exit(0)
+            except Exception as wv_err:
+                logger.warning(f"Failed to start webview, falling back to browser: {wv_err}")
+                Timer(1.5, lambda: open_browser(port)).start()
+        
+        # Fallback to standard server run if webview fails or not frozen
         socketio.run(app, host=host, port=port, allow_unsafe_werkzeug=True, debug=debug, use_reloader=False)
     except Exception as e:
         logger.critical(f"FATAL: {e}")

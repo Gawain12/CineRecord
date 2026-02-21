@@ -4338,35 +4338,34 @@ body {
    V3 Library Grid View (Poster Wall)
    ========================================================================== */
 .library-grid-view {
-    display: grid;
+    display: grid !important;
+    flex-direction: unset !important;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 1.5rem;
+    gap: 16px;
     padding: 1rem 0;
 }
 
 .library-grid-view .movie-item {
     flex-direction: column;
     padding: 0;
-    background: transparent;
-    border: none;
-    align-items: flex-start;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    align-items: stretch;
+    overflow: hidden;
+    gap: 0;
 }
 
 .library-grid-view .movie-cover-wrapper {
     width: 100%;
-    height: 220px;
+    height: 210px;
     margin-right: 0;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0;
     position: relative;
-    border-radius: var(--radius-md);
+    border-radius: 0;
     overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.library-grid-view .movie-cover-wrapper:hover {
-    transform: scale(1.03);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    box-shadow: none;
+    transition: transform 0.3s ease;
 }
 
 .library-grid-view .movie-cover-large {
@@ -4378,7 +4377,7 @@ body {
 .library-grid-view .movie-info {
     width: 100%;
     text-align: center;
-    padding: 0 4px;
+    padding: 8px 8px 10px;
 }
 
 .library-grid-view .movie-title-row {
@@ -4388,7 +4387,7 @@ body {
 }
 
 .library-grid-view .movie-title {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
@@ -4410,12 +4409,17 @@ body {
 /* Position primary rating badge floating on poster in Grid View */
 .library-grid-view .platform-badges-inline {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 6px;
+    right: 6px;
     z-index: 10;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
+}
+
+/* Only show the first 2 badges in Grid View */
+.library-grid-view .platform-badges-inline .badge-v3:nth-child(n+3) {
+    display: none;
 }
 
 .library-grid-view .badge-v3 {
@@ -4443,13 +4447,44 @@ body {
    ========================================================================== */
 .library-list-view .movie-item {
     padding: var(--spacing-sm) var(--spacing-md);
-    min-height: 130px;
+    min-height: 110px;
     transition: all 0.2s ease;
 }
 
 .library-list-view .movie-cover-wrapper {
-    width: 85px;
-    height: 125px;
+    width: 75px;
+    height: 112px;
+}
+
+/* Condense the bottom rating/date row */
+.library-list-view .movie-bottom {
+    margin-top: auto;
+}
+
+.library-list-view .score-display {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.library-list-view .rating-main,
+.library-list-view .rating-date {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.library-list-view .rating-value {
+    font-size: 1.1rem;
+}
+
+.library-list-view .date-value {
+    font-size: 0.8rem;
+}
+
+.library-list-view .rating-label,
+.library-list-view .date-label {
+    font-size: 0.7rem;
 }
 
 /* Hide verbose metadata rows by default */
@@ -4473,6 +4508,29 @@ body {
 
 .library-list-view .movie-item:hover .badge-extra {
     display: inline;
+}
+
+/* ==========================================================================
+   Wishlist Rating Platform Colors
+   ========================================================================== */
+.wishlist-rating.rating-douban {
+    color: #00b51d;
+    font-weight: 600;
+}
+
+.wishlist-rating.rating-imdb {
+    color: #f5c518;
+    font-weight: 600;
+}
+
+.wishlist-rating.rating-trakt {
+    color: #ed1c1c;
+    font-weight: 600;
+}
+
+.wishlist-rating.rating-tmdb {
+    color: #01b4e4;
+    font-weight: 600;
 }
 
 /* ==========================================================================

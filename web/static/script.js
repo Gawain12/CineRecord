@@ -4659,8 +4659,9 @@ function renderWishlistPage(page) {
             const metaText = metaParts.filter(Boolean).join(' · ');
 
             let ratingText = '';
-            if (movie['Douban Rating']) ratingText = `豆瓣 ${movie['Douban Rating']}`;
-            if (!ratingText && movie['IMDb Rating']) ratingText = `IMDb ${movie['IMDb Rating']}`;
+            let ratingClass = '';
+            if (movie['Douban Rating']) { ratingText = `豆瓣 ${movie['Douban Rating']}`; ratingClass = 'rating-douban'; }
+            else if (movie['IMDb Rating']) { ratingText = `IMDb ${movie['IMDb Rating']}`; ratingClass = 'rating-imdb'; }
 
             const votesText = formatWishlistVotes(votes);
             const mainLink = movie.URL || movie.douban_url || movie.imdb_url || '#';
@@ -4694,7 +4695,7 @@ function renderWishlistPage(page) {
                     <div class="wishlist-submeta">
                         ${libraryLinkHtml}
                         ${libraryFileHtml}
-                        ${ratingText ? `<span class="wishlist-rating">${ratingText}</span>` : ''}
+                        ${ratingText ? `<span class="wishlist-rating ${ratingClass}">${ratingText}</span>` : ''}
                         ${votesText ? `<span class="wishlist-votes">${votesText}人评价</span>` : ''}
                         ${dateAdded ? `<span class="wishlist-date">想看于 ${String(dateAdded).substring(0, 10)}</span>` : ''}
                     </div>
