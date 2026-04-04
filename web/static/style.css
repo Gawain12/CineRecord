@@ -4277,7 +4277,18 @@ body {
 
 /* Auth status success color */
 .auth-status.success {
+    background: var(--success-bg) !important;
     color: var(--success) !important;
+}
+
+.auth-status.error {
+    background: var(--error-bg) !important;
+    color: var(--error) !important;
+}
+
+.auth-status.info {
+    background: var(--info-bg) !important;
+    color: var(--info) !important;
 }
 
 /* Button & Element Highlight Feedback */

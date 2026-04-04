@@ -106,6 +106,7 @@ from web.config_helper import read_config, write_config
 from web.logic import perform_sync_logic
 from utils.merge_data import merge_movie_data
 from web.auth_helper import run_login_in_thread
+from web.cookiecloud_helper import CookieCloudError, import_platform_cookies, validate_platform_cookie
 
 # Plugin Architecture - Import adapter registry
 from adapters.registry import AdapterRegistry
@@ -5636,6 +5637,96 @@ def handle_save_config(data):
     if write_config(data): emit('log', {'message': '✅ 配置已保存。', 'type': 'success'})
     else: emit('log', {'message': '❌ 保存失败。', 'type': 'error'})
 
+@socketio.on('sync_cookiecloud')
+def handle_sync_cookiecloud(data):
+    host = str(data.get('cookiecloud_host') or '').strip()
+    uuid = str(data.get('cookiecloud_uuid') or '').strip()
+    password = str(data.get('cookiecloud_password') or '')
+    existing_config = read_config()
+
+    try:
+        result = import_platform_cookies(host, uuid, password)
+    except CookieCloudError as exc:
+        emit('cookiecloud_sync_result', {'success': False, 'error': str(exc)})
+        emit('log', {'message': f'❌ CookieCloud 同步失败：{exc}', 'type': 'error'})
+        return
+    except Exception as exc:
+        logging.exception("Unexpected CookieCloud sync error")
+        emit('cookiecloud_sync_result', {'success': False, 'error': str(exc)})
+        emit('log', {'message': f'❌ CookieCloud 同步失败：{exc}', 'type': 'error'})
+        return
+
+    config_updates = {
+        'cookiecloud_host': host,
+        'cookiecloud_uuid': uuid,
+        'cookiecloud_password': password,
+    }
+
+    imported_platforms = []
+    missing_platforms = []
+    rejected_platforms = []
+
+    for platform in ('douban', 'imdb'):
+        cookie_value = result.get(f'{platform}_cookie', '')
+        cookie_count = int(result.get(f'{platform}_count') or 0)
+        missing_required = result.get(f'{platform}_missing_required') or []
+        if not cookie_value:
+            missing_platforms.append(platform)
+            continue
+
+        if missing_required:
+            rejected_platforms.append({
+                'platform': platform,
+                'reason': f"missing required cookies: {', '.join(missing_required)}",
+                'count': cookie_count,
+            })
+            continue
+
+        validation = validate_platform_cookie(
+            platform,
+            cookie_value,
+            str(existing_config.get(f'{platform}_user_id') or '').strip()
+        )
+        if validation.get('success'):
+            config_updates[f'{platform}_cookie'] = cookie_value
+            imported_platforms.append({
+                'platform': platform,
+                'count': cookie_count,
+                'ratings_total': validation.get('ratings_total'),
+            })
+        else:
+            rejected_platforms.append({
+                'platform': platform,
+                'reason': validation.get('reason') or 'validation failed',
+                'count': cookie_count,
+            })
+
+    write_config(config_updates)
+
+    success_message = '、'.join(
+        f"{item['platform'].upper()} ({item['count']} 项)"
+        for item in imported_platforms
+    ) or '未找到可导入的目标平台 Cookie'
+    emit('log', {'message': f'✅ CookieCloud 同步完成：{success_message}', 'type': 'success'})
+
+    if missing_platforms:
+        missing_text = '、'.join(p.upper() for p in missing_platforms)
+        emit('log', {'message': f'ℹ️ CookieCloud 未发现 {missing_text} 相关 Cookie', 'type': 'info'})
+
+    for item in rejected_platforms:
+        emit('log', {
+            'message': f"⚠️ 已跳过 {item['platform'].upper()} CookieCloud 导入：{item['reason']}，未覆盖本地现有 Cookie",
+            'type': 'info'
+        })
+
+    emit('cookiecloud_sync_result', {
+        'success': True,
+        'config': config_updates,
+        'imported': imported_platforms,
+        'missing_platforms': missing_platforms,
+        'rejected': rejected_platforms,
+    })
+
 @socketio.on('test_connection')
 def handle_test_connection(data):
     """Test connection with stored cookie and fetch profile if successful"""
@@ -5644,6 +5735,7 @@ def handle_test_connection(data):
     
     platform = data.get('platform')
     cookie = data.get('cookie', '')
+    requested_user_id = str(data.get('user_id') or '').strip()
     
     if not cookie:
         emit('test_result', {'platform': platform, 'success': False, 'error': 'No cookie provided'})
@@ -5700,24 +5792,46 @@ def handle_test_connection(data):
                 return
                 
         elif platform == 'imdb':
-            # First try to get user ID from IMDB home page
-            home_resp = requests.get('https://www.imdb.com/', headers=headers, timeout=10)
-            user_id = None
-            if home_resp.status_code == 200:
-                # Look for user profile link or user ID patterns in page
-                patterns = [
-                    r'href="/user/(ur\d+)"',
-                    r'/user/(ur\d+)',
-                    r'"userId":"(ur\d+)"',
-                ]
-                for pattern in patterns:
-                    m = re.search(pattern, home_resp.text)
-                    if m:
-                        user_id = m.group(1)
-                        break
+            config = read_config()
+            user_id = requested_user_id or str(config.get('imdb_user_id') or '').strip() or None
+
+            # Validate the cookie first using IMDb GraphQL. This is more stable than
+            # trying to infer the current account from the homepage HTML.
+            api_url = "https://api.graphql.imdb.com/"
+            payload = {
+                "operationName": "userRatings",
+                "variables": {"first": 1, "after": None},
+                "extensions": {"persistedQuery": {"version": 1, "sha256Hash": "ebf2387fd2ba45d62fc54ed2ffe3940086af52e700a1b3929a099d5fce23330a"}}
+            }
+            api_resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
+            if api_resp.status_code == 200:
+                data = api_resp.json()
+                total = data.get('data', {}).get('userRatings', {}).get('total', 0)
+                profile['watched'] = total
+                profile['ratings'] = total
+            else:
+                api_resp = None
+
+            # Only try to discover user_id from HTML as a fallback when it is not
+            # already configured, because IMDb home/watchlist pages often return a
+            # minimal 202 shell that is unreliable for account detection.
+            if not user_id:
+                home_resp = requests.get('https://www.imdb.com/', headers=headers, timeout=10)
+                if home_resp.status_code == 200:
+                    patterns = [
+                        r'href="/user/(ur\d+)"',
+                        r'/user/(ur\d+)',
+                        r'"userId":"(ur\d+)"',
+                    ]
+                    for pattern in patterns:
+                        m = re.search(pattern, home_resp.text)
+                        if m:
+                            user_id = m.group(1)
+                            break
             
             if user_id:
                 profile['user_id'] = user_id
+                profile['display_name'] = user_id
                 profile['profile_link'] = f'https://www.imdb.com/user/{user_id}/'
                 
                 # Fetch user profile page for display name, avatar, and join date
@@ -5767,21 +5881,6 @@ def handle_test_connection(data):
                 except Exception as e:
                     logging.error(f"IMDB profile page error: {e}")
                 
-                # Fallback: get rating count from GraphQL API
-                if 'watched' not in profile:
-                    api_url = "https://api.graphql.imdb.com/"
-                    payload = {
-                        "operationName": "userRatings",
-                        "variables": {"first": 1, "after": None},
-                        "extensions": {"persistedQuery": {"version": 1, "sha256Hash": "ebf2387fd2ba45d62fc54ed2ffe3940086af52e700a1b3929a099d5fce23330a"}}
-                    }
-                    api_resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
-                    if api_resp.status_code == 200:
-                        data = api_resp.json()
-                        total = data.get('data', {}).get('userRatings', {}).get('total', 0)
-                        profile['watched'] = total
-                        profile['ratings'] = total
-                
                 # Fetch IMDB watchlist count
                 try:
                     watchlist_url = f'https://www.imdb.com/user/{user_id}/watchlist/'
@@ -5797,6 +5896,16 @@ def handle_test_connection(data):
                 emit('test_result', {'platform': platform, 'success': True, 'profile': profile})
                 total_str = f"共 {profile.get('watched', 0)} 条评分" if 'watched' in profile else ""
                 emit('log', {'message': f'✅ {platform.upper()} 连接成功！{total_str}', 'type': 'success'})
+                return
+
+            if api_resp is not None and api_resp.status_code == 200 and profile.get('ratings', 0) >= 0:
+                if requested_user_id:
+                    profile['user_id'] = requested_user_id
+                    profile['display_name'] = requested_user_id
+                    profile['profile_link'] = f'https://www.imdb.com/user/{requested_user_id}/'
+                emit('test_result', {'platform': platform, 'success': True, 'profile': profile})
+                total_str = f"共 {profile.get('watched', 0)} 条评分" if 'watched' in profile else ""
+                emit('log', {'message': f'✅ {platform.upper()} Cookie 有效。{total_str}', 'type': 'success'})
                 return
                     
         emit('test_result', {'platform': platform, 'success': False, 'error': 'Invalid cookie or not logged in'})

@@ -1405,6 +1405,50 @@
                             </ol>
                         </div>
 
+                        <div class="auth-config-card" style="margin-bottom: 16px;">
+                            <div class="auth-config-header">
+                                <span class="auth-icon">☁️</span>
+                                <span class="auth-name" data-i18n="settings.cookiecloud_header">CookieCloud</span>
+                                <span class="auth-status" id="cookiecloud-sync-status"
+                                    data-i18n="settings.cookiecloud_idle">未同步</span>
+                            </div>
+                            <p class="section-desc" style="margin: 0 0 12px 0;" data-i18n="settings.cookiecloud_desc">
+                                从 CookieCloud 手动同步浏览器里的登录态到本地配置，不会覆盖用户 ID。
+                            </p>
+                            <p class="section-desc" style="margin: -4px 0 12px 0;">
+                                教程与项目：
+                                <a href="https://github.com/easychen/CookieCloud" target="_blank" rel="noopener noreferrer">GitHub</a>
+                                /
+                                <a href="https://juejin.cn/post/7190963442017108027" target="_blank" rel="noopener noreferrer">Juejin 教程</a>
+                                。建议优先使用自建 CookieCloud 服务。
+                            </p>
+                            <div class="auth-config-grid">
+                                <div class="form-group">
+                                    <label for="cookiecloud-host" data-i18n="settings.cookiecloud_host">服务地址</label>
+                                    <input type="text" id="cookiecloud-host"
+                                        data-i18n-placeholder="settings.cookiecloud_host_placeholder"
+                                        placeholder="例如 https://cookie.example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="cookiecloud-uuid" data-i18n="settings.cookiecloud_uuid">UUID</label>
+                                    <input type="text" id="cookiecloud-uuid"
+                                        data-i18n-placeholder="settings.cookiecloud_uuid_placeholder"
+                                        placeholder="CookieCloud UUID">
+                                </div>
+                                <div class="form-group">
+                                    <label for="cookiecloud-password"
+                                        data-i18n="settings.cookiecloud_password">密码</label>
+                                    <input type="password" id="cookiecloud-password"
+                                        data-i18n-placeholder="settings.cookiecloud_password_placeholder"
+                                        placeholder="CookieCloud Password">
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-primary btn-sm" id="sync-cookiecloud-btn"
+                                    data-i18n="btn.sync_cookiecloud">☁️ 同步 CookieCloud</button>
+                            </div>
+                        </div>
+
                         <div class="auth-config-grid">
                             <!-- Douban Cookie -->
                             <div class="auth-config-card">

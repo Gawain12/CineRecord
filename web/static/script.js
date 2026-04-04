@@ -653,10 +653,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const imdbCookieConfig = document.getElementById('imdb-cookie-config');
         const doubanUserIdConfig = document.getElementById('douban-user-id-config');
         const imdbUserIdConfig = document.getElementById('imdb-user-id-config');
+        const cookieCloudHost = document.getElementById('cookiecloud-host');
+        const cookieCloudUuid = document.getElementById('cookiecloud-uuid');
+        const cookieCloudPassword = document.getElementById('cookiecloud-password');
         if (doubanCookieConfig && config.douban_cookie) doubanCookieConfig.value = config.douban_cookie;
         if (imdbCookieConfig && config.imdb_cookie) imdbCookieConfig.value = config.imdb_cookie;
         if (doubanUserIdConfig && config.douban_user_id) doubanUserIdConfig.value = config.douban_user_id;
         if (imdbUserIdConfig && config.imdb_user_id) imdbUserIdConfig.value = config.imdb_user_id;
+        if (cookieCloudHost) cookieCloudHost.value = config.cookiecloud_host || '';
+        if (cookieCloudUuid) cookieCloudUuid.value = config.cookiecloud_uuid || '';
+        if (cookieCloudPassword && config.cookiecloud_password) cookieCloudPassword.value = config.cookiecloud_password;
 
         const mediaServerUrl = document.getElementById('media-server-url');
         const mediaServerApiKey = document.getElementById('media-server-api-key');
@@ -726,6 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateButtonsBasedOnConnection();
 
         initDownloadSiteSettings(config);
+        setCookieCloudSyncStatus(config.cookiecloud_host ? '已配置' : '未同步', config.cookiecloud_host ? 'info' : '');
 
         // Populate Trakt credentials if saved
         const traktClientIdInput = document.getElementById('trakt-client-id');
@@ -1734,6 +1741,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    socket.on('cookiecloud_sync_result', (data) => {
+        const btn = document.getElementById('sync-cookiecloud-btn');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '☁️ 同步 CookieCloud';
+        }
+
+        if (!data.success) {
+            setCookieCloudSyncStatus(data.error || '同步失败', 'error');
+            return;
+        }
+
+        if (data.config?.douban_cookie) {
+            appState.douban_cookie = data.config.douban_cookie;
+            const doubanCookieInput = document.getElementById('douban-cookie-config');
+            if (doubanCookieInput) doubanCookieInput.value = data.config.douban_cookie;
+        }
+
+        if (data.config?.imdb_cookie) {
+            appState.imdb_cookie = data.config.imdb_cookie;
+            const imdbCookieInput = document.getElementById('imdb-cookie-config');
+            if (imdbCookieInput) imdbCookieInput.value = data.config.imdb_cookie;
+        }
+
+        const imported = Array.isArray(data.imported) ? data.imported : [];
+        const importedText = imported.length
+            ? imported.map(item => `${item.platform.toUpperCase()} (${item.count})`).join(' / ')
+            : '未找到目标平台 Cookie';
+        setCookieCloudSyncStatus(importedText, imported.length ? 'success' : 'info');
+
+        updateSettingsAuthStatus();
+    });
+
     // Update sidebar summary card status
     function updateSidebarSummary(platform, connected, profile) {
         const statusDot = document.getElementById(`${platform}-status-dot`);
@@ -1790,8 +1830,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Settings page test buttons
     const testDoubanSettingsBtn = document.getElementById('test-douban-settings-btn');
     const testImdbSettingsBtn = document.getElementById('test-imdb-settings-btn');
+    const syncCookieCloudBtn = document.getElementById('sync-cookiecloud-btn');
     if (testDoubanSettingsBtn) testDoubanSettingsBtn.addEventListener('click', () => testConnection('douban'));
     if (testImdbSettingsBtn) testImdbSettingsBtn.addEventListener('click', () => testConnection('imdb'));
+    if (syncCookieCloudBtn) syncCookieCloudBtn.addEventListener('click', syncCookieCloud);
 
     // Data fetch
     if (ui.fetchDoubanBtn) ui.fetchDoubanBtn.addEventListener('click', () => triggerFetch('douban'));
@@ -2147,6 +2189,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // appState.tmdb_api_key might not be populated, let's check input primarily + stats
         // Actually script.js doesn't seem to store tmdb_api_key in appState explicitly on load?
         // Let's rely on basic Douban/IMDb for now as requested.
+        const cookieCloudStatus = document.getElementById('cookiecloud-sync-status');
+        const cookieCloudHost = document.getElementById('cookiecloud-host')?.value?.trim();
+        const cookieCloudUuid = document.getElementById('cookiecloud-uuid')?.value?.trim();
+        if (cookieCloudStatus && !cookieCloudStatus.textContent.trim() && cookieCloudHost && cookieCloudUuid) {
+            setCookieCloudSyncStatus('已配置', 'info');
+        }
     }
 
     // Hook into existing events to trigger this update
@@ -2546,6 +2594,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = platform === 'douban' ? ui.testDoubanBtn : ui.testImdbBtn;
         const cookie = appState[`${platform}_cookie`] ||
             document.getElementById(`${platform}-cookie-config`)?.value || '';
+        const userId = appState[`${platform}_user_id`] ||
+            document.getElementById(`${platform}-user-id-config`)?.value || '';
 
         if (!cookie) {
             log(`❌ 请先在设置中配置 ${platform.toUpperCase()} Cookie`, 'error');
@@ -2559,7 +2609,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         log(`🔍 测试 ${platform.toUpperCase()} 连接...`, 'info');
-        socket.emit('test_connection', { platform, cookie });
+        socket.emit('test_connection', { platform, cookie, user_id: userId });
+    }
+
+    function setCookieCloudSyncStatus(message, type = '') {
+        const statusEl = document.getElementById('cookiecloud-sync-status');
+        if (!statusEl) return;
+        statusEl.textContent = message;
+        statusEl.className = type ? `auth-status ${type}` : 'auth-status';
+    }
+
+    function syncCookieCloud() {
+        const btn = document.getElementById('sync-cookiecloud-btn');
+        const host = document.getElementById('cookiecloud-host')?.value?.trim() || '';
+        const uuid = document.getElementById('cookiecloud-uuid')?.value?.trim() || '';
+        const password = document.getElementById('cookiecloud-password')?.value || '';
+
+        if (!host || !uuid || !password) {
+            setCookieCloudSyncStatus('请先填写地址 / UUID / 密码', 'error');
+            log('❌ 请先填写 CookieCloud 地址、UUID 和密码', 'error');
+            return;
+        }
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner"></span>同步中...';
+        }
+
+        setCookieCloudSyncStatus('同步中...', 'info');
+        log('☁️ 正在从 CookieCloud 同步 Cookie...', 'info');
+        socket.emit('sync_cookiecloud', {
+            cookiecloud_host: host,
+            cookiecloud_uuid: uuid,
+            cookiecloud_password: password
+        });
     }
 
     function saveConfig() {
@@ -2569,6 +2652,9 @@ document.addEventListener('DOMContentLoaded', () => {
             douban_cookie: document.getElementById('douban-cookie-config')?.value || appState.douban_cookie || '',
             imdb_user_id: document.getElementById('imdb-user-id-config')?.value || appState.imdb_user_id || '',
             imdb_cookie: document.getElementById('imdb-cookie-config')?.value || appState.imdb_cookie || '',
+            cookiecloud_host: document.getElementById('cookiecloud-host')?.value?.trim() || '',
+            cookiecloud_uuid: document.getElementById('cookiecloud-uuid')?.value?.trim() || '',
+            cookiecloud_password: document.getElementById('cookiecloud-password')?.value || '',
             media_server_url: document.getElementById('media-server-url')?.value?.trim() || '',
             media_server_api_key: document.getElementById('media-server-api-key')?.value?.trim() || '',
             server_username: document.getElementById('server-username')?.value?.trim() || 'cinerecord',

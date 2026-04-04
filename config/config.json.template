@@ -2,5 +2,8 @@
   "douban_user_id": "",
   "douban_cookie": "",
   "imdb_user_id": "",
-  "imdb_cookie": ""
+  "imdb_cookie": "",
+  "cookiecloud_host": "",
+  "cookiecloud_uuid": "",
+  "cookiecloud_password": ""
 }
