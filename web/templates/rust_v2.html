@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>CineRecord</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .rust-shell {
+            min-height: calc(100vh - 74px);
+        }
+
+        .main-layout-v2 {
+            align-items: start;
+        }
+
+        .tab-content {
+            width: 100%;
+            max-width: none;
+        }
+
+        .rust-badge-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(34, 197, 94, 0.12);
+            color: #4ade80;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .rust-hero {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .rust-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: var(--shadow-sm);
+            width: 100%;
+            max-width: none;
+        }
+
+        .rust-panel h3,
+        .rust-panel h4 {
+            margin: 0 0 10px 0;
+        }
+
+        .rust-panel p {
+            color: var(--text-secondary);
+        }
+
+        .rust-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .rust-metric {
+            border-radius: 14px;
+            padding: 16px;
+            border: 1px solid var(--border-color);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+        }
+
+        .rust-metric-label {
+            display: block;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .rust-metric-value {
+            display: block;
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .rust-secondary-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+            gap: 20px;
+        }
+
+        .rust-card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .rust-movie-card {
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 164px;
+        }
+
+        .rust-movie-card.list {
+            min-height: unset;
+        }
+
+        .rust-movie-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .rust-movie-meta {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .rust-tag-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .rust-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            font-size: 0.78rem;
+            color: var(--text-primary);
+        }
+
+        .rust-card-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .rust-placeholder-note {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px dashed rgba(245, 158, 11, 0.35);
+            background: rgba(245, 158, 11, 0.08);
+            color: #fbbf24;
+            font-size: 0.84rem;
+        }
+
+        .rust-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .rust-list-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .rust-empty {
+            text-align: center;
+            padding: 36px 18px;
+            color: var(--text-secondary);
+            border: 1px dashed var(--border-color);
+            border-radius: 14px;
+        }
+
+        .rust-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 14px;
+            margin-top: 16px;
+        }
+
+        .rust-settings-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+            gap: 20px;
+        }
+
+        .full-span {
+            grid-column: 1 / -1;
+        }
+
+        .rust-form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .rust-form-grid .full {
+            grid-column: 1 / -1;
+        }
+
+        .rust-form-grid label {
+            display: block;
+            font-size: 0.86rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .rust-form-grid input,
+        .rust-form-grid textarea,
+        .rust-form-grid select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .rust-form-grid textarea {
+            min-height: 88px;
+            resize: vertical;
+        }
+
+        .rust-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .rust-toolbar-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .rust-log-stream {
+            min-height: 260px;
+            max-height: calc(100vh - 260px);
+            overflow: auto;
+            display: grid;
+            gap: 10px;
+        }
+
+        .rust-log-entry {
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 12px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.16);
+        }
+
+        .rust-log-entry strong {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+        }
+
+        .rust-log-entry pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: var(--text-secondary);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.78rem;
+        }
+
+        .rust-status-inline {
+            font-size: 0.84rem;
+            color: var(--text-secondary);
+        }
+
+        .rust-top-note {
+            margin-bottom: 10px;
+        }
+
+        .rust-link {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .sidebar-mini-metrics {
+            display: grid;
+            gap: 10px;
+        }
+
+        .sidebar-mini-metric {
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .sidebar-mini-metric-label {
+            display: block;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .sidebar-mini-metric-value {
+            display: block;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .rust-hero-copy {
+            max-width: 680px;
+        }
+
+        .rust-compact-note {
+            font-size: 0.84rem;
+            color: var(--text-secondary);
+        }
+
+        .scheduled-stack {
+            display: grid;
+            gap: 16px;
+        }
+
+        .scheduled-task-card {
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            display: grid;
+            gap: 10px;
+        }
+
+        .scheduled-task-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .scheduled-task-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .scheduled-task-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .action-status-bar {
+            margin-bottom: 18px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .action-status-bar.loading {
+            border-color: rgba(59, 130, 246, 0.35);
+            background: rgba(59, 130, 246, 0.10);
+            color: #93c5fd;
+        }
+
+        .action-status-bar.success {
+            border-color: rgba(16, 185, 129, 0.35);
+            background: rgba(16, 185, 129, 0.10);
+            color: #6ee7b7;
+        }
+
+        .action-status-bar.error {
+            border-color: rgba(239, 68, 68, 0.35);
+            background: rgba(239, 68, 68, 0.10);
+            color: #fca5a5;
+        }
+
+        .action-status-bar.warning {
+            border-color: rgba(245, 158, 11, 0.35);
+            background: rgba(245, 158, 11, 0.10);
+            color: #fbbf24;
+        }
+
+        .action-status-bar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        .btn.is-busy {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.78;
+        }
+
+        .btn.is-busy::after {
+            content: "";
+            width: 12px;
+            height: 12px;
+            margin-left: 8px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            display: inline-block;
+            vertical-align: -2px;
+            animation: rust-spin 0.7s linear infinite;
+        }
+
+        @keyframes rust-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        body.app-loading .rust-metric-value,
+        body.app-loading .sidebar-mini-metric-value,
+        body.app-loading .summary-stats,
+        body.app-loading .account-stat-value {
+            color: transparent;
+            border-radius: 8px;
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+            background-size: 220% 100%;
+            animation: rust-loading-shimmer 1.2s ease-in-out infinite;
+        }
+
+        @keyframes rust-loading-shimmer {
+            from {
+                background-position: 100% 0;
+            }
+
+            to {
+                background-position: -100% 0;
+            }
+        }
+
+        .content-header,
+        .data-controls-row,
+        .library-filter-header,
+        .unified-library,
+        .wishlist-controls-row,
+        .wishlist-source-filters,
+        .platform-cards-stack,
+        #tab-sync>.rust-secondary-grid,
+        #tab-sync>section.rust-panel,
+        #tab-dashboard>.rust-hero,
+        #tab-dashboard>.rust-secondary-grid,
+        #tab-settings>.rust-panel {
+            width: 100%;
+            max-width: none;
+            margin-left: 0;
+            margin-right: 0;
+        }
+
+        .account-profile-panel {
+            margin-top: 14px;
+            padding: 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            display: grid;
+            gap: 12px;
+        }
+
+        .account-profile-row {
+            display: grid;
+            grid-template-columns: 56px minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: center;
+        }
+
+        .account-profile-avatar {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            object-fit: cover;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .account-profile-name {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .account-profile-id,
+        .account-profile-meta {
+            margin: 4px 0 0 0;
+            color: var(--text-secondary);
+            font-size: 0.84rem;
+        }
+
+        .account-profile-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.86rem;
+            white-space: nowrap;
+        }
+
+        .account-stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .account-stat {
+            display: grid;
+            gap: 4px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            text-decoration: none;
+        }
+
+        .account-stat-value {
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .account-stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .account-profile-panel.compact .account-stats-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .platform-full-card .prompt-text {
+            margin: 0 0 12px 0;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .auth-helper-panel {
+            display: grid;
+            gap: 10px;
+            margin: 0 18px 18px 18px;
+            padding: 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(59, 130, 246, 0.18);
+            background: rgba(59, 130, 246, 0.06);
+        }
+
+        .auth-helper-panel[hidden] {
+            display: none;
+        }
+
+        .auth-helper-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .auth-helper-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .auth-helper-copy {
+            font-size: 0.83rem;
+            color: var(--text-secondary);
+        }
+
+        .auth-helper-code {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 132px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(59, 130, 246, 0.26);
+            background: rgba(15, 23, 42, 0.32);
+            color: #dbeafe;
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+        }
+
+        .auth-helper-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .auth-helper-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.84rem;
+        }
+
+        .unified-media-card {
+            display: grid;
+            grid-template-columns: 96px minmax(0, 1fr);
+            gap: 14px;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            background: var(--bg-card);
+            min-height: 148px;
+        }
+
+        .unified-media-card.grid {
+            grid-template-columns: 1fr;
+            gap: 0;
+            padding: 0;
+            overflow: hidden;
+            min-height: auto;
+        }
+
+        .unified-media-poster {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.05);
+            min-height: 144px;
+        }
+
+        .unified-media-card.grid .unified-media-poster {
+            border-radius: 0;
+            min-height: 232px;
+        }
+
+        .unified-media-poster img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .unified-media-fallback {
+            width: 100%;
+            height: 100%;
+            min-height: inherit;
+            display: grid;
+            place-items: center;
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.88);
+            background: linear-gradient(135deg, #1e3a8a, #0f766e);
+        }
+
+        .unified-media-body {
+            display: grid;
+            gap: 8px;
+            min-width: 0;
+            align-content: start;
+        }
+
+        .unified-media-card.grid .unified-media-body {
+            padding: 12px;
+        }
+
+        .unified-media-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .unified-media-title-group {
+            min-width: 0;
+            display: grid;
+            gap: 4px;
+        }
+
+        .unified-media-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .unified-media-subtitle {
+            font-size: 0.84rem;
+            color: var(--text-secondary);
+        }
+
+        .unified-media-meta,
+        .unified-media-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .unified-media-links a,
+        .unified-media-links span {
+            font-size: 0.82rem;
+        }
+
+        .library-insight-bar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin: 12px 0 16px 0;
+            color: var(--text-secondary);
+            font-size: 0.86rem;
+        }
+
+        .source-ledger {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+            gap: 6px;
+            margin-top: 2px;
+        }
+
+        .source-ledger-item {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 7px 8px;
+            background: rgba(255, 255, 255, 0.035);
+            min-width: 0;
+        }
+
+        .source-ledger-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--text-primary);
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .source-ledger-meta {
+            margin-top: 2px;
+            color: var(--text-secondary);
+            font-size: 0.74rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .difference-pill {
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.3);
+            background: rgba(245, 158, 11, 0.09);
+        }
+
+        .source-pill,
+        .download-pill,
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .status-pill.matched {
+            color: #6ee7b7;
+            border-color: rgba(16, 185, 129, 0.28);
+            background: rgba(16, 185, 129, 0.10);
+        }
+
+        .download-site-item {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 10px 12px;
+            align-items: start;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            min-width: 0;
+        }
+
+        .download-site-info {
+            min-width: 0;
+            display: grid;
+            gap: 4px;
+        }
+
+        .download-site-name {
+            color: var(--text-primary);
+            font-weight: 700;
+        }
+
+        .download-site-template {
+            color: var(--text-secondary);
+            font-size: 0.78rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .download-sites-shell {
+            display: grid;
+            gap: 14px;
+        }
+
+        .download-sites-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .download-sites-summary {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .download-site-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+            max-height: 420px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .download-site-item-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .download-site-toggle {
+            margin-top: 2px;
+        }
+
+        .download-site-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .download-site-kind {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 0.74rem;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+        }
+
+        .download-site-delete-btn {
+            justify-self: start;
+        }
+
+        .download-sites-details {
+            margin-top: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.025);
+            overflow: hidden;
+        }
+
+        .download-sites-details summary {
+            cursor: pointer;
+            padding: 14px 16px;
+            color: var(--text-primary);
+            font-weight: 700;
+            list-style: none;
+        }
+
+        .download-sites-details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .download-sites-details summary::after {
+            content: "展开";
+            float: right;
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.84rem;
+        }
+
+        .download-sites-details[open] summary::after {
+            content: "收起";
+        }
+
+        .download-sites-details-body {
+            padding: 0 16px 16px 16px;
+        }
+
+        @media (max-width: 1180px) {
+            .rust-hero,
+            .rust-secondary-grid,
+            .rust-settings-grid,
+            .rust-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .rust-metrics {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .rust-list-row {
+                grid-template-columns: 1fr;
+            }
+
+            .account-profile-row,
+            .account-stats-row {
+                grid-template-columns: 1fr;
+            }
+
+            .download-site-grid {
+                grid-template-columns: 1fr;
+                max-height: none;
+                overflow: visible;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+        <header class="top-nav">
+            <div class="nav-brand">
+                <img src="/static/images/logo.svg" alt="Logo" class="nav-logo">
+                <span class="nav-title">CineRecord</span>
+            </div>
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-tab="dashboard">总览</button>
+                <button class="nav-tab" data-tab="data">数据</button>
+                <button class="nav-tab" data-tab="sync">同步</button>
+                <button class="nav-tab" data-tab="wishlist">想看</button>
+                <button class="nav-tab" data-tab="settings">设置</button>
+            </nav>
+            <div class="nav-actions">
+                <button class="icon-btn" id="mobile-menu-btn" title="平台状态" style="display:none;">☰</button>
+                <button class="icon-btn" id="theme-btn" title="切换主题">🌙</button>
+            </div>
+        </header>
+
+        <div class="mobile-sidebar-overlay" id="mobile-sidebar-overlay"></div>
+
+        <div class="main-layout-v2 rust-shell">
+            <aside class="main-layout-sidebar">
+                <div class="sidebar-section">
+                    <div class="rust-top-note">
+                        <span class="rust-badge-inline">CineRecord</span>
+                    </div>
+                    <h4 class="sidebar-title">平台状态</h4>
+
+                    <div class="account-summary-card douban" id="summary-douban">
+                        <div class="summary-icon"><img src="/static/images/platforms/douban.png" alt="Douban"
+                                style="width:20px;height:20px;border-radius:3px;"></div>
+                        <div class="summary-info">
+                            <span class="summary-name">豆瓣 <span class="summary-id" id="summary-id-douban"></span></span>
+                            <span class="summary-stats" id="summary-stats-douban">加载中</span>
+                        </div>
+                        <span class="status-dot disconnected" id="summary-dot-douban"></span>
+                    </div>
+
+                    <div class="account-summary-card imdb" id="summary-imdb">
+                        <div class="summary-icon"><img src="/static/images/platforms/imdb.svg" alt="IMDb"
+                                style="width:20px;height:20px;"></div>
+                        <div class="summary-info">
+                            <span class="summary-name">IMDb <span class="summary-id" id="summary-id-imdb"></span></span>
+                            <span class="summary-stats" id="summary-stats-imdb">加载中</span>
+                        </div>
+                        <span class="status-dot disconnected" id="summary-dot-imdb"></span>
+                    </div>
+
+                    <div class="account-summary-card trakt" id="summary-trakt">
+                        <div class="summary-icon"><img src="/static/images/platforms/trakt.png" alt="Trakt"
+                                style="width:20px;height:20px;border-radius:3px;"></div>
+                        <div class="summary-info">
+                            <span class="summary-name">Trakt <span class="summary-id" id="summary-id-trakt"></span></span>
+                            <span class="summary-stats" id="summary-stats-trakt">加载中</span>
+                        </div>
+                        <span class="status-dot disconnected" id="summary-dot-trakt"></span>
+                    </div>
+
+                    <div class="account-summary-card letterboxd" id="summary-letterboxd">
+                        <div class="summary-icon"><img src="/static/images/platforms/letterboxd.png" alt="Letterboxd"
+                                style="width:20px;height:20px;border-radius:3px;"></div>
+                        <div class="summary-info">
+                            <span class="summary-name">Letterboxd</span>
+                            <span class="summary-stats" id="summary-stats-letterboxd">导入入口保留</span>
+                        </div>
+                        <span class="status-dot info" id="summary-dot-letterboxd"></span>
+                    </div>
+
+                    <div class="account-summary-card tmdb" id="summary-tmdb">
+                        <div class="summary-icon"><img src="/static/images/platforms/tmdb.png" alt="TMDB"
+                                style="width:20px;height:20px;border-radius:3px;"></div>
+                        <div class="summary-info">
+                            <span class="summary-name">TMDB <span class="summary-id" id="summary-id-tmdb"></span></span>
+                            <span class="summary-stats" id="summary-stats-tmdb">加载中</span>
+                        </div>
+                        <span class="status-dot disconnected" id="summary-dot-tmdb"></span>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h4 class="sidebar-title">进度概览</h4>
+                    <div class="sidebar-mini-metrics">
+                        <div class="sidebar-mini-metric">
+                            <span class="sidebar-mini-metric-label">看过库</span>
+                            <span class="sidebar-mini-metric-value" id="sidebar-library-total">--</span>
+                        </div>
+                        <div class="sidebar-mini-metric">
+                            <span class="sidebar-mini-metric-label">想看库</span>
+                            <span class="sidebar-mini-metric-value" id="sidebar-wishlist-total">--</span>
+                        </div>
+                        <div class="sidebar-mini-metric">
+                            <span class="sidebar-mini-metric-label">最近任务</span>
+                            <span class="sidebar-mini-metric-value" id="sidebar-task-total">--</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="content-main">
+                <div class="action-status-bar loading" id="action-status">正在加载账号、片库和任务...</div>
+
+                <div class="tab-content active" id="tab-dashboard">
+                    <div class="content-header">
+                        <h2>总览</h2>
+                    </div>
+
+                    <div class="rust-hero">
+                        <section class="rust-panel">
+                            <h3>当前状态</h3>
+                            <div class="rust-metrics">
+                                <div class="rust-metric">
+                                    <span class="rust-metric-label">看过总条目</span>
+                                    <span class="rust-metric-value" id="metric-library-total">--</span>
+                                </div>
+                                <div class="rust-metric">
+                                    <span class="rust-metric-label">想看总条目</span>
+                                    <span class="rust-metric-value" id="metric-wishlist-total">--</span>
+                                </div>
+                                <div class="rust-metric">
+                                    <span class="rust-metric-label">已配置平台</span>
+                                    <span class="rust-metric-value" id="metric-platform-configured">--</span>
+                                </div>
+                                <div class="rust-metric">
+                                    <span class="rust-metric-label">最近任务</span>
+                                    <span class="rust-metric-value" id="metric-task-total">--</span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="rust-panel">
+                            <h3>工作区</h3>
+                            <div class="rust-list">
+                                <div class="rust-list-row">
+                                    <div>
+                                        <div class="rust-movie-title">数据页</div>
+                                    </div>
+                                    <div class="rust-status-inline" id="health-status">检测中...</div>
+                                </div>
+                                <div class="rust-list-row">
+                                    <div>
+                                        <div class="rust-movie-title">想看页</div>
+                                    </div>
+                                    <div class="rust-status-inline">本地持久化</div>
+                                </div>
+                                <div class="rust-list-row">
+                                    <div>
+                                        <div class="rust-movie-title">同步页</div>
+                                    </div>
+                                    <div class="rust-status-inline">可用</div>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <div class="rust-secondary-grid">
+                        <section class="rust-panel">
+                            <div class="rust-toolbar">
+                                <h3>平台账户</h3>
+                            </div>
+                            <div id="dashboard-platform-grid" class="rust-card-grid"></div>
+                        </section>
+
+                        <section class="rust-panel">
+                            <div class="rust-toolbar">
+                                <h3>最近任务</h3>
+                                <button class="btn btn-outline btn-sm" id="dashboard-refresh-tasks-btn">刷新任务</button>
+                            </div>
+                            <div id="dashboard-task-list" class="rust-list"></div>
+                        </section>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="tab-data">
+                    <div class="content-header">
+                        <h2>我的影片库</h2>
+                        <p>“看过”主列表和平台筛选都在这里，当前由本地影片库驱动。</p>
+                    </div>
+
+                    <div class="data-controls-row">
+                        <div class="data-controls">
+                            <button class="btn btn-primary btn-sm rust-fetch-btn" data-platform="douban"><img
+                                    src="/static/images/platforms/douban.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 豆瓣</button>
+                            <button class="btn btn-primary btn-sm rust-fetch-btn" data-platform="imdb"><img
+                                    src="/static/images/platforms/imdb.svg"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> IMDb</button>
+                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="trakt"><img
+                                    src="/static/images/platforms/trakt.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Trakt</button>
+                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="letterboxd"><img
+                                    src="/static/images/platforms/letterboxd.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Letterboxd</button>
+                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="tmdb"><img
+                                    src="/static/images/platforms/tmdb.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB</button>
+                        </div>
+                        <div class="export-controls">
+                            <div class="library-view-toggle" role="group">
+                                <button class="btn btn-secondary btn-sm active" id="library-view-grid" data-view="grid">🔳 网格</button>
+                                <button class="btn btn-secondary btn-sm" id="library-view-list" data-view="list">📋 列表</button>
+                            </div>
+                            <button class="btn btn-outline btn-sm" id="import-legacy-btn">导入 CSV</button>
+                            <button class="btn btn-primary btn-sm" id="refresh-library-btn">刷新</button>
+                        </div>
+                    </div>
+
+                    <div class="library-filter-header">
+                        <div class="library-filter-tabs" id="library-filter-tabs">
+                            <button class="filter-tab active" data-filter="all">全部 <span class="filter-count"
+                                    id="count-all">0</span></button>
+                            <button class="filter-tab" data-filter="douban">豆瓣 <span class="filter-count"
+                                    id="count-douban">0</span></button>
+                            <button class="filter-tab" data-filter="imdb">IMDb <span class="filter-count"
+                                    id="count-imdb">0</span></button>
+                            <button class="filter-tab" data-filter="trakt">Trakt <span class="filter-count"
+                                    id="count-trakt">0</span></button>
+                            <button class="filter-tab" data-filter="letterboxd">Letterboxd <span class="filter-count"
+                                    id="count-letterboxd">0</span></button>
+                            <button class="filter-tab" data-filter="tmdb">TMDB <span class="filter-count"
+                                    id="count-tmdb">0</span></button>
+                        </div>
+                    </div>
+                    <div class="library-insight-bar" id="library-insight-bar">
+                        正在整理整合片库与平台差异...
+                    </div>
+
+                    <div class="unified-library">
+                        <div class="library-empty" id="library-empty">
+                            <p>📚 暂无看过数据</p>
+                            <p class="help-text">先导入 CSV，或直接从已支持的平台抓取。</p>
+                        </div>
+                        <div id="library-list" class="rust-card-grid" style="display:none;"></div>
+                        <div class="rust-pagination" id="library-pagination" style="display:none;">
+                            <button class="btn btn-secondary btn-sm" id="lib-prev-btn">← 上一页</button>
+                            <span class="pagination-info" id="lib-page-info">1 / 1</span>
+                            <button class="btn btn-secondary btn-sm" id="lib-next-btn">下一页 →</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="tab-sync">
+                    <div class="content-header">
+                        <h2>数据同步</h2>
+                    </div>
+
+                    <div class="rust-secondary-grid">
+                        <section class="rust-panel">
+                            <div class="rust-toolbar">
+                                <h3>同步方向</h3>
+                                <span class="rust-status-inline">预览后只执行勾选项</span>
+                            </div>
+                            <div class="rust-form-grid">
+                                <div>
+                                    <label for="sync-source-select">源平台</label>
+                                    <select id="sync-source-select">
+                                        <option value="tmdb">TMDB</option>
+                                        <option value="trakt">Trakt</option>
+                                        <option value="imdb">IMDb</option>
+                                        <option value="douban">Douban</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="sync-target-select">目标平台</label>
+                                    <select id="sync-target-select">
+                                        <option value="trakt">Trakt</option>
+                                        <option value="tmdb">TMDB</option>
+                                        <option value="imdb">IMDb</option>
+                                        <option value="douban">Douban</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="sync-recent-limit">最近条目数</label>
+                                    <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
+                                </div>
+                                <div>
+                                    <label for="sync-default-rating">未评分时使用</label>
+                                    <input type="number" id="sync-default-rating" min="0" max="10" step="0.5" value="0">
+                                </div>
+                            </div>
+                            <div class="rust-card-actions" style="margin-top: 16px;">
+                                <button class="btn btn-outline" id="preview-sync-btn">同步预览</button>
+                                <button class="btn btn-primary" id="execute-sync-btn">执行已选</button>
+                                <button class="btn btn-secondary rust-placeholder-btn" data-feature="scheduled-sync">跳到定时任务</button>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="rust-panel" style="margin-top: 20px;">
+                        <div class="rust-toolbar">
+                            <h3>同步预览 / 执行结果</h3>
+                            <div class="rust-toolbar-group">
+                                <span class="rust-status-inline" id="sync-summary-text">尚未生成同步预览</span>
+                                <span class="rust-status-inline" id="sync-selection-summary">待预览</span>
+                                <button class="btn btn-outline btn-sm" id="select-all-sync-btn" type="button">全选可评分</button>
+                                <button class="btn btn-outline btn-sm" id="clear-sync-selection-btn" type="button">清空</button>
+                            </div>
+                        </div>
+                        <div id="sync-preview-empty" class="rust-empty">先点击“同步预览”，这里会显示待同步列表、跳过原因和执行结果。</div>
+                        <div id="sync-preview-list" class="rust-list" style="display:none;"></div>
+                    </section>
+
+                    <section class="rust-panel" style="margin-top: 20px;">
+                        <div class="rust-toolbar">
+                            <h3>运行日志</h3>
+                            <span class="rust-status-inline">只显示关键阶段：刷新、预览、执行和错误</span>
+                        </div>
+                        <div id="events-log" class="rust-log-stream">
+                            <div class="rust-empty">等待任务事件...</div>
+                        </div>
+                    </section>
+
+                    <section class="rust-panel" style="margin-top: 20px;">
+                        <div class="rust-toolbar">
+                            <h3>定时同步任务</h3>
+                            <div class="rust-toolbar-group">
+                                <button class="btn btn-outline btn-sm" id="refresh-scheduled-tasks-btn">刷新任务</button>
+                                <button class="btn btn-primary btn-sm" id="show-scheduled-task-form-btn">新建任务</button>
+                            </div>
+                        </div>
+                        <p class="rust-compact-note">这里保留任务本身，执行细节不再占满页面；每个任务卡片直接显示最近一次结果和下一次时间。</p>
+                        <div class="scheduled-stack">
+                            <div id="scheduled-tasks-empty" class="rust-empty">还没有定时任务，点“新建任务”开始。</div>
+                            <div id="scheduled-tasks-list" class="rust-list" style="display:none;"></div>
+                            <div class="rust-panel" id="scheduled-task-form-panel" style="display:none; padding: 16px; background: var(--bg-secondary);">
+                                <div class="rust-toolbar">
+                                    <h4>任务表单</h4>
+                                    <button class="btn btn-outline btn-sm" id="hide-scheduled-task-form-btn">收起</button>
+                                </div>
+                                <form id="scheduled-task-form">
+                                    <input type="hidden" id="scheduled-task-id">
+                                    <div class="rust-form-grid">
+                                        <div class="full">
+                                            <label for="scheduled-task-name">任务名称</label>
+                                            <input type="text" id="scheduled-task-name" placeholder="例如：每日 TMDB -> Trakt">
+                                        </div>
+                                        <div>
+                                            <label for="scheduled-task-source">源平台</label>
+                                            <select id="scheduled-task-source">
+                                                <option value="tmdb">TMDB</option>
+                                                <option value="trakt">Trakt</option>
+                                                <option value="imdb">IMDb</option>
+                                                <option value="douban">Douban</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="scheduled-task-target">目标平台</label>
+                                            <select id="scheduled-task-target">
+                                                <option value="trakt">Trakt</option>
+                                                <option value="tmdb">TMDB</option>
+                                                <option value="imdb">IMDb</option>
+                                                <option value="douban">Douban</option>
+                                            </select>
+                                        </div>
+                                        <div class="full">
+                                            <label for="scheduled-task-cron">Cron 表达式</label>
+                                            <input type="text" id="scheduled-task-cron" placeholder="例如 0 2 * * *">
+                                        </div>
+                                    </div>
+                                    <div class="rust-card-actions" style="margin-top: 12px;">
+                                        <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 2 * * *">每日 2 点</button>
+                                        <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 */6 * * *">每 6 小时</button>
+                                        <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 0 * * 0">每周日</button>
+                                    </div>
+                                    <div class="rust-card-actions" style="margin-top: 16px;">
+                                        <label class="rust-status-inline" style="display:flex;align-items:center;gap:8px;">
+                                            <input type="checkbox" id="scheduled-task-enabled" checked>
+                                            启用任务
+                                        </label>
+                                        <button type="submit" class="btn btn-primary">保存任务</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="rust-panel" style="margin-top: 20px;">
+                        <div class="rust-toolbar">
+                            <h3>任务列表</h3>
+                            <button class="btn btn-outline btn-sm" id="refresh-tasks-btn">刷新任务</button>
+                        </div>
+                        <div id="tasks-list" class="rust-list"></div>
+                    </section>
+                </div>
+
+                <div class="tab-content" id="tab-wishlist">
+                    <div class="content-header">
+                        <h2>想看清单</h2>
+                        <p>“想看”列表、来源筛选和平台刷新入口都在这里，当前由本地想看库驱动。</p>
+                    </div>
+
+                    <div class="wishlist-controls-row">
+                        <div class="wishlist-actions">
+                            <button class="btn btn-primary btn-sm rust-wishlist-btn" data-platform="douban"><img
+                                    src="/static/images/platforms/douban.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新豆瓣想看</button>
+                            <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="imdb"><img
+                                    src="/static/images/platforms/imdb.svg"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新 IMDb 想看</button>
+                            <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="trakt"><img
+                                    src="/static/images/platforms/trakt.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新 Trakt 想看</button>
+                            <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="tmdb"><img
+                                    src="/static/images/platforms/tmdb.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新 TMDB 想看</button>
+                            <button class="btn btn-outline btn-sm rust-placeholder-btn" data-feature="letterboxd-watchlist">导入 Letterboxd 想看</button>
+                        </div>
+                        <div class="wishlist-view-toggle" role="group" aria-label="Wishlist view mode">
+                            <button class="btn btn-secondary btn-sm active" id="wishlist-view-grid" data-view="grid">🔳 网格</button>
+                            <button class="btn btn-secondary btn-sm" id="wishlist-view-list" data-view="list">📋 列表</button>
+                        </div>
+                    </div>
+
+                    <div class="wishlist-source-filters" id="wishlist-source-filters">
+                        <span class="filter-label">来源：</span>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="douban" checked> 豆瓣</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="imdb" checked> IMDb</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked> Trakt</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
+                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
+                    </div>
+
+                    <div class="unified-library">
+                        <div class="library-empty" id="wishlist-empty">
+                            <p>✨ 暂无想看数据</p>
+                            <p class="help-text">点击上方按钮刷新想看列表。</p>
+                        </div>
+                        <div id="wishlist-list" class="rust-card-grid" style="display:none;"></div>
+                        <div class="rust-pagination" id="wishlist-pagination" style="display:none;">
+                            <button class="btn btn-secondary btn-sm" id="wishlist-prev-btn">← 上一页</button>
+                            <span class="pagination-info" id="wishlist-page-info">1 / 1</span>
+                            <button class="btn btn-secondary btn-sm" id="wishlist-next-btn">下一页 →</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="tab-settings">
+                    <div class="content-header">
+                        <h2>设置与账户</h2>
+                    </div>
+
+                    <section class="platform-cards-stack">
+                        <div class="platform-full-card douban">
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon"><img src="/static/images/platforms/douban.png"
+                                            style="width:24px;height:24px;border-radius:4px;"></span>
+                                    <h3>豆瓣电影</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="settings-badge-douban">● 未连接</span>
+                            </div>
+                            <div class="profile-state">
+                                <p class="prompt-text" id="browser-auth-status-douban">优先填写豆瓣 ID；需要写入豆瓣时再补 Cookie。</p>
+                                <div class="account-profile-panel" id="profile-panel-douban">
+                                    <div class="account-profile-row">
+                                        <img class="account-profile-avatar" id="douban-avatar"
+                                            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23233444'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23d1d5db' font-size='20'%3E豆%3C/text%3E%3C/svg%3E"
+                                            alt="豆瓣头像">
+                                        <div>
+                                            <h4 class="account-profile-name" id="douban-display-name">豆瓣账户</h4>
+                                            <p class="account-profile-id">@<span id="douban-user-id-display">--</span></p>
+                                            <p class="account-profile-meta" id="douban-join-date">等待验证</p>
+                                        </div>
+                                        <a href="https://movie.douban.com/" class="account-profile-link" id="douban-profile-link" target="_blank" rel="noopener noreferrer">豆瓣主页 ↗</a>
+                                    </div>
+                                    <div class="account-stats-row">
+                                        <a href="https://movie.douban.com/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-douban-watched">
+                                            <span class="account-stat-value" id="douban-watched-count">--</span>
+                                            <span class="account-stat-label">看过</span>
+                                        </a>
+                                        <a href="https://movie.douban.com/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-douban-wish">
+                                            <span class="account-stat-value" id="douban-wish-count">--</span>
+                                            <span class="account-stat-label">想看</span>
+                                        </a>
+                                        <div class="account-stat">
+                                            <span class="account-stat-value" id="douban-doing-count">--</span>
+                                            <span class="account-stat-label">在看</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-outline rust-test-btn" data-platform="douban">✅ 测试连接</button>
+                            </div>
+                        </div>
+
+                        <div class="platform-full-card imdb">
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon"><img src="/static/images/platforms/imdb.svg"
+                                            style="width:24px;height:24px;border-radius:4px;"></span>
+                                    <h3>IMDb</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="settings-badge-imdb">● 未连接</span>
+                            </div>
+                            <div class="profile-state">
+                                <p class="prompt-text" id="browser-auth-status-imdb">优先用 CookieCloud 或完整 Cookie，测试会直接验证是否能取到评分数据。</p>
+                                <div class="account-profile-panel" id="profile-panel-imdb">
+                                    <div class="account-profile-row">
+                                        <img class="account-profile-avatar" id="imdb-avatar"
+                                            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23f5c518'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23000' font-size='15' font-weight='bold'%3EIMDb%3C/text%3E%3C/svg%3E"
+                                            alt="IMDb 头像">
+                                        <div>
+                                            <h4 class="account-profile-name" id="imdb-display-name">IMDb 账户</h4>
+                                            <p class="account-profile-id">@<span id="imdb-user-id-display">--</span></p>
+                                            <p class="account-profile-meta" id="imdb-join-date">等待验证</p>
+                                        </div>
+                                        <a href="https://www.imdb.com/" class="account-profile-link" id="imdb-profile-link" target="_blank" rel="noopener noreferrer">IMDb 主页 ↗</a>
+                                    </div>
+                                    <div class="account-stats-row">
+                                        <a href="https://www.imdb.com/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-imdb-ratings">
+                                            <span class="account-stat-value" id="imdb-ratings-count">--</span>
+                                            <span class="account-stat-label">已评分</span>
+                                        </a>
+                                        <a href="https://www.imdb.com/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-imdb-watchlist">
+                                            <span class="account-stat-value" id="imdb-watchlist-count">--</span>
+                                            <span class="account-stat-label">想看</span>
+                                        </a>
+                                        <div class="account-stat">
+                                            <span class="account-stat-value" id="imdb-lists-count">--</span>
+                                            <span class="account-stat-label">列表</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-outline rust-test-btn" data-platform="imdb">✅ 测试连接</button>
+                            </div>
+                        </div>
+
+                        <div class="platform-full-card trakt">
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon"><img src="/static/images/platforms/trakt.png"
+                                            style="width:24px;height:24px;border-radius:4px;"></span>
+                                    <h3>Trakt</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="settings-badge-trakt">● 未连接</span>
+                            </div>
+                            <div class="profile-state">
+                                <p class="prompt-text" id="trakt-card-status">设备授权、抓取和同步已经可用。</p>
+                                <div class="account-profile-panel compact" id="profile-panel-trakt">
+                                    <div class="account-profile-row">
+                                        <img class="account-profile-avatar" id="trakt-avatar"
+                                            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23ed1c24'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23fff' font-size='12' font-weight='bold'%3ETrakt%3C/text%3E%3C/svg%3E"
+                                            alt="Trakt 头像">
+                                        <div>
+                                            <h4 class="account-profile-name" id="trakt-display-name">Trakt 账户</h4>
+                                            <p class="account-profile-id">@<span id="trakt-user-id-display">--</span></p>
+                                            <p class="account-profile-meta" id="trakt-join-date">等待验证</p>
+                                        </div>
+                                        <a href="https://trakt.tv/" class="account-profile-link" id="trakt-profile-link" target="_blank" rel="noopener noreferrer">Trakt ↗</a>
+                                    </div>
+                                    <div class="account-stats-row">
+                                        <a href="https://trakt.tv/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-trakt-watched">
+                                            <span class="account-stat-value" id="trakt-watched-count">--</span>
+                                            <span class="account-stat-label">看过</span>
+                                        </a>
+                                        <a href="https://trakt.tv/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-trakt-rated">
+                                            <span class="account-stat-value" id="trakt-rated-count">--</span>
+                                            <span class="account-stat-label">已评分</span>
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="auth-helper-panel" id="trakt-auth-panel" hidden>
+                                <div class="auth-helper-top">
+                                    <div>
+                                        <div class="auth-helper-title">Trakt 设备授权</div>
+                                        <div class="auth-helper-copy" id="trakt-auth-copy">点“开始 OAuth”后，这里会显示验证码。</div>
+                                    </div>
+                                    <div class="auth-helper-code" id="trakt-auth-code">--------</div>
+                                </div>
+                                <div class="auth-helper-actions">
+                                    <a class="auth-helper-link" id="trakt-auth-link" href="https://trakt.tv/activate" target="_blank" rel="noopener noreferrer">打开授权页 ↗</a>
+                                    <span class="rust-status-inline" id="trakt-auth-hint">在 Trakt 输入验证码后，再回来点“检查 OAuth”。</span>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-secondary rust-auth-action-btn" data-action="trakt-start">🔐 开始 OAuth</button>
+                                <button class="btn btn-outline rust-auth-action-btn" data-action="trakt-poll">🔄 立即检查</button>
+                                <button class="btn btn-outline rust-test-btn" data-platform="trakt">✅ 测试连接</button>
+                            </div>
+                        </div>
+
+                        <div class="platform-full-card tmdb">
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon"><img src="/static/images/platforms/tmdb.png"
+                                            style="width:24px;height:24px;border-radius:4px;"></span>
+                                    <h3>TMDB</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="settings-badge-tmdb">● 未连接</span>
+                            </div>
+                            <div class="profile-state">
+                                <p class="prompt-text" id="tmdb-card-status">浏览器授权、抓取评分和同步到 Trakt 已可用。</p>
+                                <div class="account-profile-panel compact" id="profile-panel-tmdb">
+                                    <div class="account-profile-row">
+                                        <img class="account-profile-avatar" id="tmdb-avatar"
+                                            src="/static/images/platforms/tmdb.png"
+                                            alt="TMDB 头像">
+                                        <div>
+                                            <h4 class="account-profile-name" id="tmdb-display-name">TMDB 账户</h4>
+                                            <p class="account-profile-id">@<span id="tmdb-user-id-display">--</span></p>
+                                            <p class="account-profile-meta" id="tmdb-join-date">等待验证</p>
+                                        </div>
+                                        <a href="https://www.themoviedb.org/" class="account-profile-link" id="tmdb-profile-link" target="_blank" rel="noopener noreferrer">TMDB ↗</a>
+                                    </div>
+                                    <div class="account-stats-row">
+                                        <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-tmdb-rated">
+                                            <span class="account-stat-value" id="tmdb-rated-count">--</span>
+                                            <span class="account-stat-label">已评分</span>
+                                        </a>
+                                        <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer" class="account-stat" id="link-tmdb-watchlist">
+                                            <span class="account-stat-value" id="tmdb-watchlist-count">--</span>
+                                            <span class="account-stat-label">想看</span>
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-secondary rust-auth-action-btn" data-action="tmdb-start">🌐 开始授权</button>
+                                <button class="btn btn-outline rust-auth-action-btn" data-action="tmdb-complete">✅ 完成授权</button>
+                                <button class="btn btn-outline rust-test-btn" data-platform="tmdb">✅ 测试连接</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="rust-settings-grid" style="margin-top: 24px;">
+                        <section class="rust-panel">
+                            <div class="rust-toolbar">
+                                <h3>CookieCloud</h3>
+                                <span class="rust-status-inline" id="cookiecloud-sync-status">未同步</span>
+                            </div>
+                            <p>现在会直接从 CookieCloud 拉取并筛选 Douban / IMDb 关键 Cookie，导入后会继续走账号识别和取数校验。</p>
+                            <p class="rust-status-inline">教程与项目：
+                                <a class="rust-link" href="https://github.com/easychen/CookieCloud" target="_blank" rel="noopener noreferrer">GitHub</a>
+                                /
+                                <a class="rust-link" href="https://juejin.cn/post/7190963442017108027" target="_blank" rel="noopener noreferrer">Juejin 教程</a>
+                            </p>
+                            <div class="rust-form-grid" style="margin-top: 14px;">
+                                <div class="full">
+                                    <label for="cookiecloud-host">服务地址</label>
+                                    <input type="text" id="cookiecloud-host" placeholder="例如 https://cookie.example.com">
+                                </div>
+                                <div>
+                                    <label for="cookiecloud-uuid">UUID</label>
+                                    <input type="text" id="cookiecloud-uuid" placeholder="CookieCloud UUID">
+                                </div>
+                                <div>
+                                    <label for="cookiecloud-password">密码</label>
+                                    <input type="password" id="cookiecloud-password" placeholder="CookieCloud Password">
+                                </div>
+                            </div>
+                            <div class="card-actions" style="margin-top: 16px;">
+                                <button class="btn btn-primary" id="sync-cookiecloud-btn">☁️ 同步 CookieCloud</button>
+                                <span class="rust-status-inline">建议先保证浏览器插件侧的登录态仍有效</span>
+                            </div>
+                        </section>
+
+                        <section class="rust-panel">
+                            <div class="rust-toolbar">
+                                <h3>高级密钥配置</h3>
+                                <button class="btn btn-outline btn-sm" id="load-config-btn">重新加载</button>
+                            </div>
+                            <details class="download-sites-details">
+                                <summary>编辑 API Key / Cookie / User ID</summary>
+                                <div class="download-sites-details-body">
+                                    <form id="config-form">
+                                        <div class="rust-form-grid">
+                                            <div>
+                                                <label for="tmdb-api-key">TMDB API Key</label>
+                                                <input type="text" id="tmdb-api-key" placeholder="仅写入本地配置">
+                                            </div>
+                                            <div>
+                                                <label for="tmdb-session-id">TMDB Session ID</label>
+                                                <input type="text" id="tmdb-session-id" placeholder="用于评分抓取">
+                                            </div>
+                                            <div>
+                                                <label for="trakt-client-id">Trakt Client ID</label>
+                                                <input type="text" id="trakt-client-id" placeholder="设备授权所需">
+                                            </div>
+                                            <div>
+                                                <label for="trakt-client-secret">Trakt Client Secret</label>
+                                                <input type="password" id="trakt-client-secret" placeholder="设备授权所需">
+                                            </div>
+                                            <div>
+                                                <label for="imdb-user-id">IMDb User ID</label>
+                                                <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
+                                            </div>
+                                            <div>
+                                                <label for="douban-user-id">Douban User ID</label>
+                                                <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
+                                            </div>
+                                            <div class="full">
+                                                <label for="imdb-cookie">IMDb Cookie</label>
+                                                <textarea id="imdb-cookie" placeholder="仅写入本地配置"></textarea>
+                                            </div>
+                                            <div class="full">
+                                                <label for="douban-cookie">Douban Cookie</label>
+                                                <textarea id="douban-cookie" placeholder="需要写入豆瓣时再填写"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="card-actions" style="margin-top: 16px;">
+                                            <button type="submit" class="btn btn-primary">保存配置</button>
+                                            <span class="rust-status-inline" id="config-save-status">保存后会自动验证账号和取数能力</span>
+                                        </div>
+                                    </form>
+                                    </div>
+                            </details>
+                        </section>
+
+                        <section class="rust-panel full-span">
+                            <div class="rust-toolbar">
+                                <h3>想看检索站点</h3>
+                                <span class="rust-status-inline">用于想看卡片的一键搜索</span>
+                            </div>
+                            <details class="download-sites-details">
+                                <summary>管理默认检索站点</summary>
+                                <div class="download-sites-details-body">
+                                    <div class="download-sites-shell">
+                                        <div class="download-sites-toolbar">
+                                            <div class="download-sites-summary">开启后会显示在想看卡片里；隐藏默认站点只影响本地展示。</div>
+                                            <div style="min-width: min(360px, 100%); flex: 1 1 320px;">
+                                            <label for="download-site-search">搜索站点</label>
+                                            <input type="text" id="download-site-search" placeholder="搜索站点名称或模板">
+                                            </div>
+                                        </div>
+                                        <div id="download-sites-default" class="download-site-grid"></div>
+                                    </div>
+                                </div>
+                            </details>
+                            <div class="rust-form-grid" style="margin-top: 16px;">
+                                <div>
+                                    <label for="new-custom-site-name">自定义站点名称</label>
+                                    <input type="text" id="new-custom-site-name" placeholder="例如 MyPT">
+                                </div>
+                                <div>
+                                    <label for="new-custom-site-template">链接模板</label>
+                                    <input type="text" id="new-custom-site-template" placeholder="支持 {imdbid} / {imdbno} / {search_name}">
+                                </div>
+                            </div>
+                            <div class="card-actions" style="margin-top: 14px;">
+                                <button class="btn btn-secondary" id="add-custom-site-btn" type="button">添加自定义站点</button>
+                                <span class="rust-status-inline">删除默认站点只会在本地隐藏，不影响预设模板。</span>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <nav class="bottom-nav" aria-label="主导航">
+            <button class="nav-tab active" data-tab="dashboard"><span class="icon">⌂</span><span>总览</span></button>
+            <button class="nav-tab" data-tab="data"><span class="icon">▦</span><span>数据</span></button>
+            <button class="nav-tab" data-tab="sync"><span class="icon">⇄</span><span>同步</span></button>
+            <button class="nav-tab" data-tab="wishlist"><span class="icon">☆</span><span>想看</span></button>
+            <button class="nav-tab" data-tab="settings"><span class="icon">⚙</span><span>设置</span></button>
+        </nav>
+    </div>
+
+    <script src="/static/rust-v2.js?v=20260518-sync2"></script>
+</body>
+
+</html>

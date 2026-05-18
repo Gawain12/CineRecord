@@ -49,6 +49,7 @@ dist/
 dist_temp*/
 *.pyz
 *.egg-info/
+target/
 
 # Archive folder (old/unused files)
 _archive/
@@ -59,3 +60,20 @@ diary.csv
 
 config/config.json
 AI_ROADMAP.md
+config/v2/*.toml
+!config/v2/.gitkeep
+data/v2/**
+!data/v2/.gitkeep
+!data/v2/platforms/
+!data/v2/platforms/.gitkeep
+!data/v2/exports/
+!data/v2/exports/.gitkeep
+logs/v2/*.log
+!logs/v2/.gitkeep
+logs/*.pid
+logs/*.out
+
+# Local browser and visual debug artifacts
+.playwright-cli/
+output/
+dist-rust/

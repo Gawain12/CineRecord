@@ -129,6 +129,20 @@
 
 > **提示**: 配置和数据持久化存储在 `config/` 和 `data/` 目录。
 
+### Rust Rewrite V1 预览
+
+仓库里现在也有一条独立的 Rust 重构线，和 Python 版并行存在，不共享运行态数据：
+
+```bash
+rtk cargo run -p cinerecord-server
+```
+
+- Rust v2 默认运行在 `http://127.0.0.1:18000`
+- 旧版 Python 仍然运行在 `http://127.0.0.1:8000`
+- Rust 版使用独立的 `config/v2`、`data/v2`、`logs/v2`
+
+重构说明见 [`docs/rust-rewrite-v1.md`](./docs/rust-rewrite-v1.md)。
+
 ---
 
 ## 📖 使用指南

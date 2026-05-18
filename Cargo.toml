@@ -1,0 +1,40 @@
+[workspace]
+members = [
+    "crates/cinerecord-core",
+    "crates/cinerecord-storage",
+    "crates/cinerecord-platforms",
+    "crates/cinerecord-jobs",
+    "crates/cinerecord-server",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["CineRecord Contributors"]
+
+[workspace.dependencies]
+aes = "0.8"
+anyhow = "1.0"
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+cbc = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+cron = "0.12"
+csv = "1.4"
+futures = "0.3"
+md5 = "0.7"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+scraper = "0.24"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
+tokio = { version = "1.48", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+toml = "0.8"
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }

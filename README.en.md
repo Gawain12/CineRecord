@@ -115,6 +115,20 @@ Recommended for server deployment:
 
 > **Note**: Config and data are persisted in `config/` and `data/` directories.
 
+### Rust Rewrite V1 Preview
+
+This repo now also contains a parallel Rust rewrite track that runs independently from the Python app:
+
+```bash
+rtk cargo run -p cinerecord-server
+```
+
+- Rust v2 runs on `http://127.0.0.1:18000`
+- The legacy Python app still runs on `http://127.0.0.1:8000`
+- Rust uses isolated `config/v2`, `data/v2`, and `logs/v2`
+
+See [`docs/rust-rewrite-v1.md`](./docs/rust-rewrite-v1.md) for the current scope and API surface.
+
 ---
 
 ## 📖 User Guide

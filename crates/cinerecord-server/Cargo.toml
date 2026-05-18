@@ -1,0 +1,27 @@
+[package]
+name = "cinerecord-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+cinerecord-core = { path = "../cinerecord-core" }
+cinerecord-jobs = { path = "../cinerecord-jobs" }
+cinerecord-platforms = { path = "../cinerecord-platforms" }
+cinerecord-storage = { path = "../cinerecord-storage" }
+cron.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

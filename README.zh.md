@@ -56,6 +56,20 @@ CineRecord 是一款基于Web的图形化工具，旨在帮助您轻松同步豆
     ```
     脚本会自动在您的默认浏览器中打开 `http://127.0.0.1:8000`。
 
+### Rust Rewrite V1 预览
+
+仓库里现在也有一条独立的 Rust 重构线，运行方式如下：
+
+```bash
+rtk cargo run -p cinerecord-server
+```
+
+- Rust v2 默认地址为 `http://127.0.0.1:18000`
+- 旧版 Python 仍使用 `http://127.0.0.1:8000`
+- Rust 版只读写 `config/v2`、`data/v2`、`logs/v2`
+
+更多说明见 [`docs/rust-rewrite-v1.md`](./docs/rust-rewrite-v1.md)。
+
 ## 使用步骤
 
 1.  **身份验证**：在左侧的“身份验证”区域填入您的豆瓣和IMDb的用户ID及Cookie。

@@ -222,13 +222,13 @@ body {
    -------------------------------------------------------------------------- */
 .main-layout {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
     flex: 1;
-    max-width: 1600px;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
     width: 100%;
-    padding: 24px;
-    gap: 24px;
+    padding: clamp(16px, 2vw, 28px);
+    gap: clamp(16px, 1.8vw, 26px);
 }
 
 /* --------------------------------------------------------------------------
@@ -407,6 +407,7 @@ body {
    -------------------------------------------------------------------------- */
 .content-area {
     flex: 1;
+    min-width: 0;
 }
 
 .tab-content {
@@ -434,9 +435,13 @@ body {
     }
 }
 
-.content-header {
-    padding: 40px 60px 24px 60px;
+.main-layout-v2 .content-header {
+    padding: 12px 0 18px 0;
     margin-bottom: 0px;
+}
+
+.content-main {
+    min-width: 0;
 }
 
 .content-header h2 {
@@ -1883,13 +1888,13 @@ a.profile-stat.clickable:hover .stat-label {
 /* Platform Cards Grid - 3 columns horizontal */
 .platform-cards-stack {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1200px) {
     .platform-cards-stack {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: 1fr;
     }
 }
 
@@ -2187,6 +2192,7 @@ a.profile-stat.clickable:hover .stat-label {
     padding: 12px 18px;
     background: transparent;
     border-top: 1px solid var(--border-color);
+    flex-wrap: wrap;
 }
 
 /* Save Section */
@@ -2483,7 +2489,7 @@ body {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    padding: 0 40px 40px 40px;
+    padding: 0 clamp(18px, 3vw, 40px) clamp(24px, 3vw, 40px) clamp(18px, 3vw, 40px);
     min-width: 0;
     background: var(--bg-primary);
 }
@@ -2492,10 +2498,10 @@ body {
    Unified Library - Movie Item V3
    ========================================================================== */
 .library-container {
-    padding: 40px 60px;
-    margin: 0 auto;
+    padding: 40px clamp(18px, 3vw, 60px);
+    margin: 0;
     width: 100%;
-    max-width: 1400px;
+    max-width: none;
 }
 
 .library-list {
@@ -3190,10 +3196,10 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px;
+    padding: 10px 12px;
     background: var(--bg-tertiary);
     border-radius: var(--radius);
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     cursor: pointer;
     transition: all 0.2s ease;
     border: 1px solid transparent;
@@ -3242,6 +3248,9 @@ body {
 .summary-stats {
     font-size: 0.75rem;
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Status Dot */

@@ -13,19 +13,15 @@ from PyInstaller.utils.hooks import collect_all
 
 # Collect all required files
 # Collect all required files
-added_files = [
-    ('web/templates', 'web/templates'),
-    ('web/static', 'web/static'),
-    ('web/tasks', 'web/tasks'),
-    ('adapters', 'adapters'),
-]
-
 a = Analysis(
     ['web/app.py'],
     pathex=[project_root],
     # Binaries and hiddenimports...
     binaries=[],
-    datas=added_files,
+    datas=[
+        ('web/tasks', 'web/tasks'),
+        ('adapters', 'adapters'),
+    ],
     hiddenimports=[
         'flask_socketio',
         'simple_websocket',
@@ -39,9 +35,9 @@ a = Analysis(
 
     excludes=[
         'eventlet', 'engineio.async_drivers.eventlet', 'dns',
-        'scipy', 'sklearn', 'matplotlib', 'PIL', 'scrapy',
+        'scipy', 'sklearn', 'matplotlib', 'scrapy',
         'twisted', 'numpy.testing', 'pandas.tests',
-        'pytest', 'unittest', 'doctest', 'pdb', 'distutils',
+        'pytest', 'unittest', 'doctest', 'pdb',
         'tkinter', 'tk', 'tcl', '_tkinter', 'Tkinter',
         'notebook', 'jupyter', 'IPython',
         'docutils', 'pygments', 'curses',
@@ -59,9 +55,12 @@ a = Analysis(
     noarchive=False,
 )
 
-# Exclude heavy/unused folders
+# Precisely include web assets and shared data
+a.datas += Tree('web/templates', prefix='web/templates', excludes=['*.bak', '.DS_Store'])
+a.datas += Tree('web/static', prefix='web/static', excludes=['*.bak', '.DS_Store', 'style.css.bak'])
 a.datas += Tree('scrapers', prefix='scrapers', excludes=['letterboxd-csv-imdb-tmdb-mapper', '__pycache__', '*.pyc', '.DS_Store'])
 a.datas += Tree('config', prefix='config', excludes=['config.json', '__pycache__', '*.pyc', '.DS_Store'])
+
 # Include only essential shared data
 if os.path.exists('data/db_imdb.csv'):
     a.datas += [('data/db_imdb.csv', 'data/db_imdb.csv', 'DATA')]

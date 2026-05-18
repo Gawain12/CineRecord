@@ -1,0 +1,411 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppConfig {
+    pub app: AppSettings,
+    pub platforms: PlatformConfigs,
+    pub cookiecloud: CookieCloudConfig,
+    pub download_sites_enabled: Vec<String>,
+    pub download_sites_custom: Vec<DownloadSiteConfig>,
+    pub download_sites_deleted: Vec<String>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            app: AppSettings::default(),
+            platforms: PlatformConfigs::default(),
+            cookiecloud: CookieCloudConfig::default(),
+            download_sites_enabled: Vec::new(),
+            download_sites_custom: Vec::new(),
+            download_sites_deleted: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppSettings {
+    pub host: String,
+    pub port: u16,
+    pub timezone: String,
+    pub data_dir: String,
+    pub database_url: String,
+    pub log_path: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            port: 18000,
+            timezone: "Asia/Shanghai".to_string(),
+            data_dir: "data/v2".to_string(),
+            database_url: "sqlite://data/v2/app.db".to_string(),
+            log_path: "logs/v2/server.log".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlatformConfigs {
+    pub tmdb: TmdbConfig,
+    pub trakt: TraktConfig,
+    pub imdb: CookiePlatformConfig,
+    pub douban: CookiePlatformConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CookiePlatformConfig {
+    pub user_id: Option<String>,
+    pub cookie: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TmdbConfig {
+    pub api_key: Option<String>,
+    pub request_token: Option<String>,
+    pub session_id: Option<String>,
+    pub account_id: Option<String>,
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TraktConfig {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub token_expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CookieCloudConfig {
+    pub host: Option<String>,
+    pub uuid: Option<String>,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DownloadSiteConfig {
+    pub label: String,
+    pub template: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformDescriptor {
+    pub id: String,
+    pub name: String,
+    pub auth_type: String,
+    pub supports_fetch: bool,
+    pub supports_sync: bool,
+    pub status: PlatformStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlatformStatus {
+    pub config_present: bool,
+    pub configured: bool,
+    pub last_validated_at: Option<DateTime<Utc>>,
+    pub message: Option<String>,
+    pub profile: Option<serde_json::Value>,
+}
+
+impl Default for PlatformStatus {
+    fn default() -> Self {
+        Self {
+            config_present: false,
+            configured: false,
+            last_validated_at: None,
+            message: None,
+            profile: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MovieRecord {
+    pub id: String,
+    pub platform: String,
+    pub title: String,
+    pub year: Option<i32>,
+    pub rating: Option<f64>,
+    pub rated_at: Option<DateTime<Utc>>,
+    pub external_id: Option<String>,
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub identifiers: MovieIdentifiers,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WishlistRecord {
+    pub id: String,
+    pub platform: String,
+    pub title: String,
+    pub year: Option<i32>,
+    pub external_id: Option<String>,
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub identifiers: MovieIdentifiers,
+    pub raw_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MovieIdentifiers {
+    pub imdb: Option<String>,
+    pub tmdb: Option<String>,
+    pub trakt: Option<String>,
+    pub douban: Option<String>,
+    pub letterboxd: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UnifiedSourceEntry {
+    pub platform: String,
+    pub external_id: Option<String>,
+    pub source_url: Option<String>,
+    pub rating: Option<f64>,
+    pub rated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UnifiedMediaItem {
+    pub id: String,
+    pub title: String,
+    pub original_title: Option<String>,
+    pub year: Option<i32>,
+    pub media_type: Option<String>,
+    pub poster_url: Option<String>,
+    pub source_url: Option<String>,
+    pub identifiers: MovieIdentifiers,
+    pub personal_rating: Option<f64>,
+    pub rated_at: Option<DateTime<Utc>>,
+    pub public_rating: Option<f64>,
+    pub public_votes: Option<i64>,
+    pub source_platforms: Vec<String>,
+    pub sources: Vec<UnifiedSourceEntry>,
+    pub library_matched: bool,
+    pub library_url: Option<String>,
+    pub library_title: Option<String>,
+    pub library_year: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncTask {
+    pub id: String,
+    pub name: String,
+    pub kind: TaskKind,
+    pub status: TaskStatus,
+    pub payload: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskKind {
+    FetchPlatform,
+    FetchWishlist,
+    ImportLegacy,
+    SyncPreview,
+    SyncExecute,
+    Maintenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncRun {
+    pub id: String,
+    pub source_platform: String,
+    pub target_platform: String,
+    pub dry_run: bool,
+    pub status: TaskStatus,
+    pub summary: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppEvent {
+    pub event_type: String,
+    pub task_id: Option<String>,
+    pub timestamp: DateTime<Utc>,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformValidationResult {
+    pub platform: String,
+    pub success: bool,
+    pub message: String,
+    pub profile: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchResult {
+    pub platform: String,
+    pub item_count: usize,
+    pub stored_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncPreviewRequest {
+    pub source_platform: String,
+    pub target_platform: String,
+    #[serde(default = "default_recent_limit")]
+    pub recent_limit: usize,
+    #[serde(default = "default_only_new")]
+    pub only_new: bool,
+    #[serde(default)]
+    pub overwrite: bool,
+    #[serde(default)]
+    pub default_rating: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncPreviewItem {
+    pub title: String,
+    pub year: Option<i32>,
+    pub source_platform: String,
+    pub target_platform: String,
+    pub source_rating: Option<f64>,
+    pub target_existing_rating: Option<f64>,
+    pub source_url: Option<String>,
+    pub target_linking_id: Option<String>,
+    pub identifiers: MovieIdentifiers,
+    pub action: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncPreviewResult {
+    pub direction: String,
+    pub source_count: usize,
+    pub target_count: usize,
+    pub preview_count: usize,
+    pub items: Vec<SyncPreviewItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncExecuteRequest {
+    pub source_platform: String,
+    pub target_platform: String,
+    #[serde(default = "default_recent_limit")]
+    pub recent_limit: usize,
+    #[serde(default = "default_only_new")]
+    pub only_new: bool,
+    #[serde(default)]
+    pub overwrite: bool,
+    #[serde(default)]
+    pub default_rating: Option<f64>,
+    #[serde(default)]
+    pub selected_target_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncExecutionItem {
+    pub title: String,
+    pub year: Option<i32>,
+    pub source_rating: Option<f64>,
+    pub source_url: Option<String>,
+    pub target_linking_id: Option<String>,
+    pub target_url: Option<String>,
+    pub status: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncExecuteResult {
+    pub direction: String,
+    pub success_count: usize,
+    pub failed_count: usize,
+    pub skipped_count: usize,
+    pub items: Vec<SyncExecutionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledTask {
+    pub id: String,
+    pub name: String,
+    pub source_platform: String,
+    pub target_platform: String,
+    pub schedule: String,
+    #[serde(default = "default_recent_limit")]
+    pub recent_limit: usize,
+    #[serde(default = "default_only_new")]
+    pub only_new: bool,
+    #[serde(default)]
+    pub overwrite: bool,
+    #[serde(default)]
+    pub default_rating: Option<f64>,
+    #[serde(default)]
+    pub paused: bool,
+    #[serde(default)]
+    pub running: bool,
+    pub last_run_at: Option<DateTime<Utc>>,
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub last_status_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledTaskLog {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub task_name: String,
+    pub source_platform: Option<String>,
+    pub target_platform: Option<String>,
+    pub log_type: String,
+    pub message: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraktDeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_url: String,
+    pub expires_in: i64,
+    pub interval: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraktDevicePollResult {
+    pub status: String,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub token_expires: Option<DateTime<Utc>>,
+    pub message: Option<String>,
+    pub profile: Option<serde_json::Value>,
+}
+
+fn default_recent_limit() -> usize {
+    100
+}
+
+fn default_only_new() -> bool {
+    true
+}
