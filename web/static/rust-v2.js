@@ -434,8 +434,7 @@ function appendLog(title, payload = {}) {
     if (!ui.eventsLog) return;
     const empty = ui.eventsLog.querySelector(".rust-empty");
     if (empty) empty.remove();
-    const el = document.createElement("div");
-    el.className = "rust-log-entry";
+    const el = document.createElement(ui.eventsLog.classList.contains("log-container-sidebar") ? "p" : "div");
     const time = new Date().toLocaleTimeString("zh-CN");
     const safePayload = redactPayload(payload);
     let message = safePayload?.message || safePayload?.error || "";
@@ -451,9 +450,22 @@ function appendLog(title, payload = {}) {
     }
     const level = safePayload?.level || title;
     const body = message ? message : JSON.stringify(safePayload, null, 2);
-    el.innerHTML = `<strong>${escapeHtml(time)} · ${escapeHtml(level)}</strong><pre>${escapeHtml(body)}</pre>`;
+    const tone = String(level).includes("error") || String(level).includes("failed")
+        ? "error"
+        : String(level).includes("success") || String(level).includes("completed")
+          ? "success"
+          : "info";
+    if (el.tagName === "P") {
+        el.className = tone;
+        el.textContent = `[${time}] ${body}`;
+    } else {
+        el.className = "rust-log-entry";
+        el.innerHTML = `<strong>${escapeHtml(time)} · ${escapeHtml(level)}</strong><pre>${escapeHtml(body)}</pre>`;
+    }
     ui.eventsLog.prepend(el);
-    const nodes = $$(".rust-log-entry", ui.eventsLog);
+    const nodes = ui.eventsLog.classList.contains("log-container-sidebar")
+        ? $$("p", ui.eventsLog)
+        : $$(".rust-log-entry", ui.eventsLog);
     if (nodes.length > 80) {
         nodes.slice(80).forEach((node) => node.remove());
     }
@@ -841,6 +853,8 @@ function renderTasks() {
 function populateScheduledTaskForm(task = null) {
     state.scheduled.editingId = task?.id || null;
     if (ui.scheduledTaskFormPanel) ui.scheduledTaskFormPanel.style.display = "";
+    const placeholder = document.getElementById("task-form-placeholder");
+    if (placeholder) placeholder.style.display = "none";
     document.getElementById("scheduled-task-id").value = task?.id || "";
     document.getElementById("scheduled-task-name").value = task?.name || "";
     document.getElementById("scheduled-task-source").value = task?.source_platform || "tmdb";
@@ -858,6 +872,8 @@ function hideScheduledTaskForm() {
     document.getElementById("scheduled-task-cron").value = "0 2 * * *";
     document.getElementById("scheduled-task-enabled").checked = true;
     if (ui.scheduledTaskFormPanel) ui.scheduledTaskFormPanel.style.display = "none";
+    const placeholder = document.getElementById("task-form-placeholder");
+    if (placeholder) placeholder.style.display = "";
 }
 
 function renderScheduledTasks() {
@@ -1005,6 +1021,71 @@ function ratingDifferenceTag(item) {
     return `<span class="status-pill difference-pill">平台评分差 ${min} / ${max}</span>`;
 }
 
+function renderPlatformBadge(source) {
+    const icon = platformIcon(source.platform);
+    const label = source.platform === "letterboxd" ? "LB" : platformLabel(source.platform);
+    const rating = source.rating !== null && source.rating !== undefined ? source.rating : "";
+    const href = source.source_url || "";
+    const content = `
+        ${icon ? `<img src="${escapeHtml(icon)}" alt="">` : ""}
+        <span>${escapeHtml(label)}</span>
+        ${rating !== "" ? `<span class="badge-rating">${escapeHtml(rating)}</span>` : ""}
+    `;
+    return href
+        ? `<a class="platform-badge ${escapeHtml(source.platform)}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${content}</a>`
+        : `<span class="platform-badge ${escapeHtml(source.platform)}">${content}</span>`;
+}
+
+function renderLegacyLibraryItem(item) {
+    const posterUrl = proxyImageUrl(item.poster_url || "");
+    const title = item.title || "Unknown title";
+    const year = item.year ? `<span class="movie-year">${escapeHtml(item.year)}</span>` : "";
+    const primaryRating =
+        item.personal_rating !== null && item.personal_rating !== undefined
+            ? item.personal_rating
+            : item.sources?.find((source) => source.rating !== null && source.rating !== undefined)?.rating;
+    const ratingHtml =
+        primaryRating !== null && primaryRating !== undefined
+            ? `<div class="rating-main"><span class="rating-label">评分</span><span class="rating-value">${escapeHtml(primaryRating)}</span></div>`
+            : "";
+    const dateValue = item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
+    const dateHtml = dateValue
+        ? `<div class="rating-date"><span class="date-label">最后操作于</span><span class="date-value">${escapeHtml(formatShortDate(dateValue))}</span></div>`
+        : "";
+    const poster = posterUrl
+        ? `<div class="movie-cover-wrapper"><img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');"></div>`
+        : `<div class="movie-cover-wrapper"><div class="movie-cover-placeholder large">🎬</div></div>`;
+    const badges = (item.sources || []).map(renderPlatformBadge).join("");
+    const identifiers = [
+        item.identifiers?.imdb ? `IMDb ${item.identifiers.imdb}` : "",
+        item.identifiers?.tmdb ? `TMDB ${item.identifiers.tmdb}` : "",
+        item.identifiers?.douban ? `豆瓣 ${item.identifiers.douban}` : "",
+    ].filter(Boolean).join(" · ");
+
+    return `
+        <div class="movie-item">
+            ${poster}
+            <div class="movie-info">
+                <div class="movie-title-row">
+                    <div class="movie-title">${escapeHtml(title)} ${year}</div>
+                    <div class="platform-badges-inline">${badges}</div>
+                </div>
+                <div class="movie-metadata-grid">
+                    ${identifiers ? `<div class="meta-item"><span class="meta-icon">🔎</span><span class="meta-text">${escapeHtml(identifiers)}</span></div>` : ""}
+                    ${item.public_rating ? `<div class="meta-item"><span class="meta-icon">⭐</span><span class="meta-text">站点评分 ${escapeHtml(item.public_rating)}</span></div>` : ""}
+                    ${item.public_votes ? `<div class="meta-item"><span class="meta-icon">👥</span><span class="meta-text">${escapeHtml(item.public_votes)} 人评价</span></div>` : ""}
+                </div>
+                <div class="movie-bottom">
+                    <div class="score-display">
+                        ${ratingHtml}
+                        ${dateHtml}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function updateLibraryInsight() {
     if (!ui.libraryInsightBar) return;
     const items = state.library.items || [];
@@ -1021,6 +1102,9 @@ function updateLibraryInsight() {
 }
 
 function renderMovieCard(item, mode = "library", view = "grid") {
+    if (mode === "library" && view === "list") {
+        return renderLegacyLibraryItem(item);
+    }
     const posterUrl = proxyImageUrl(item.poster_url || "");
     const title = item.title || "Unknown title";
     const primaryLink = itemPrimaryLink(item);
@@ -1090,7 +1174,7 @@ function renderMovieCard(item, mode = "library", view = "grid") {
 
 function renderLibrary() {
     const items = state.library.items || [];
-    ui.libraryList.className = state.library.view === "list" ? "rust-list" : "rust-card-grid";
+    ui.libraryList.className = state.library.view === "list" ? "library-list library-list-view" : "rust-card-grid library-grid-view";
     if (!items.length) {
         ui.libraryEmpty.style.display = "";
         ui.libraryList.style.display = "none";
@@ -1155,46 +1239,61 @@ function renderSyncItems(items, mode) {
     if (mode !== "preview") {
         state.sync.selectedTargetIds = new Set();
     }
-    ui.syncPreviewList.innerHTML = items
+    const rows = items
         .map((item) => {
             const status = mode === "preview" ? item.action || "preview" : item.status || "result";
             const hasRating = item.source_rating !== null && item.source_rating !== undefined;
-            const watchedOnlyHint =
+            const hint =
                 mode === "preview" && !hasRating && !item.reason
-                    ? `<div class="rust-movie-meta">无源评分；如果目标平台需要评分，请在左侧设置默认分数后重新预览。</div>`
+                    ? "需要评分的平台请设置默认分数后重新预览"
                     : "";
-            const reason = item.reason ? `<div class="rust-movie-meta">原因: ${escapeHtml(item.reason)}</div>` : watchedOnlyHint;
-            const rating = hasRating ? `评分 ${item.source_rating}` : "未评分";
+            const reason = item.reason || hint || "";
+            const rating = hasRating ? item.source_rating : "未评分";
             const targetRating =
                 item.target_existing_rating !== null && item.target_existing_rating !== undefined
-                    ? `目标 ${item.target_existing_rating}`
+                    ? item.target_existing_rating
                     : "";
             const selectable = mode === "preview" && item.target_linking_id && !item.reason;
             const checked =
                 selectable && state.sync.selectedTargetIds.has(item.target_linking_id) ? "checked" : "";
             const checkbox = selectable
                 ? `<input type="checkbox" class="sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" aria-label="选择 ${escapeHtml(item.title || "条目")}" ${checked}>`
-                : `<span class="rust-status-inline">--</span>`;
-            const statusClass = mode !== "preview" && status === "success" ? "matched" : "";
+                : "--";
             const sourceLabel = item.source_platform
                 ? `${platformLabel(item.source_platform)} → ${platformLabel(item.target_platform)}`
                 : state.sync.preview?.direction || "";
             return `
-                <div class="sync-preview-card-row">
-                    <div>${checkbox}</div>
-                    <div>
-                        <div class="rust-movie-title">${escapeHtml(item.title || "Unknown title")}</div>
-                        <div class="rust-movie-meta">${[item.year || "", rating, targetRating, item.target_linking_id || ""].filter(Boolean).join(" · ")}</div>
-                        ${reason}
-                    </div>
-                    <div class="sync-preview-status">
-                        <span class="rust-movie-meta">${escapeHtml(sourceLabel)}</span>
-                        <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
-                    </div>
-                </div>
+                <tr>
+                    <td>${checkbox}</td>
+                    <td>
+                        <strong>${escapeHtml(item.title || "Unknown title")}</strong>
+                        <div class="rust-movie-meta">${escapeHtml([item.year || "", item.target_linking_id || ""].filter(Boolean).join(" · "))}</div>
+                    </td>
+                    <td>${escapeHtml(sourceLabel)}</td>
+                    <td>${escapeHtml(rating)}</td>
+                    <td>${escapeHtml(targetRating || "--")}</td>
+                    <td>${escapeHtml(status)}</td>
+                    <td>${escapeHtml(reason || "--")}</td>
+                </tr>
             `;
         })
         .join("");
+    ui.syncPreviewList.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>选择</th>
+                    <th>电影</th>
+                    <th>流向</th>
+                    <th>源评分</th>
+                    <th>目标评分</th>
+                    <th>动作</th>
+                    <th>说明</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
     updateSyncSelectionSummary();
 }
 
@@ -1988,6 +2087,15 @@ function bindEvents() {
         previewSync()
             .catch(handleError)
             .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("toggle-advanced-sync", (event) => {
+        const content = document.getElementById("advanced-sync-options");
+        const icon = document.getElementById("advanced-sync-icon");
+        if (!content) return;
+        const isHidden = content.style.display === "none" || !content.style.display;
+        content.style.display = isHidden ? "flex" : "none";
+        if (icon) icon.style.transform = isHidden ? "rotate(90deg)" : "rotate(0deg)";
+        event.currentTarget.style.color = isHidden ? "var(--text-primary)" : "#888";
     });
     bindClick("execute-sync-btn", (event) => {
         const button = event.currentTarget;

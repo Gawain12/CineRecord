@@ -872,6 +872,248 @@
             min-width: 96px;
         }
 
+        .legacy-sync-layout {
+            display: grid;
+            grid-template-columns: 0.7fr 1.3fr;
+            gap: 24px;
+            margin-bottom: 24px;
+            align-items: start;
+        }
+
+        .legacy-sync-left {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .legacy-sync-layout .data-card,
+        .sync-preview-section.data-card {
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--bg-card);
+        }
+
+        .legacy-sync-layout .data-card-header,
+        .sync-preview-section .data-card-header {
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .legacy-sync-layout .data-card-header h3,
+        .sync-preview-section .data-card-header h3 {
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        .legacy-sync-card-body {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .legacy-sync-label {
+            font-size: 0.85rem;
+            color: #888;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .legacy-sync-flow {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .legacy-sync-caption {
+            font-size: 0.75rem;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .legacy-sync-arrow {
+            color: var(--accent);
+            font-size: 20px;
+            padding: 0 8px;
+        }
+
+        .legacy-sync-select {
+            width: 100%;
+            border: none;
+            background: transparent;
+            padding: 4px 0;
+            font-weight: 500;
+            font-size: 1rem;
+            color: var(--text-primary);
+        }
+
+        .legacy-sync-select-target {
+            text-align: right;
+            direction: rtl;
+        }
+
+        .legacy-advanced-toggle {
+            padding: 0;
+            font-size: 0.85rem;
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .legacy-advanced-sync {
+            flex-direction: column;
+            gap: 12px;
+            padding-left: 8px;
+            border-left: 2px solid var(--border-color);
+            margin-bottom: 16px;
+        }
+
+        .legacy-sync-options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .legacy-sync-options-grid .checkbox-card {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .legacy-default-rating-row {
+            display: grid;
+            grid-template-columns: auto 80px auto 80px;
+            gap: 10px;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .legacy-default-rating-row input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .legacy-sync-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: auto;
+        }
+
+        .legacy-sync-actions .btn {
+            height: 44px;
+            font-weight: 600;
+        }
+
+        .legacy-scheduled-card {
+            display: flex;
+            flex-direction: column;
+            height: 520px;
+        }
+
+        .legacy-card-desc {
+            font-size: 0.8rem;
+            color: #666;
+            margin: 4px 0 0 0;
+        }
+
+        .legacy-scheduled-body {
+            padding: 0;
+            display: grid;
+            grid-template-columns: clamp(320px, 40vw, 480px) 1fr;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .legacy-scheduled-list-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #888;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .legacy-scheduled-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            min-height: 0;
+        }
+
+        .legacy-scheduled-body .scheduled-tabs {
+            background: rgba(0, 0, 0, 0.2);
+            border-right: 1px solid var(--border-color);
+        }
+
+        .legacy-scheduled-body .scheduled-right-panel {
+            padding: 24px;
+            display: flex;
+            align-items: flex-start;
+            min-width: 0;
+            overflow: auto;
+        }
+
+        #task-form-placeholder {
+            width: 100%;
+            min-height: 180px;
+            display: grid;
+            place-items: center;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .sync-preview-section {
+            margin-top: 20px;
+        }
+
+        .legacy-sync-preview-list {
+            border-radius: 0;
+        }
+
+        .legacy-task-history {
+            margin-top: 20px;
+        }
+
+        .platform-badge img {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            object-fit: contain;
+        }
+
+        .badge-rating {
+            font-weight: 700;
+        }
+
         .source-pill,
         .download-pill,
         .status-pill {
@@ -1023,6 +1265,8 @@
             .rust-hero,
             .rust-secondary-grid,
             .rust-sync-workbench,
+            .legacy-sync-layout,
+            .legacy-scheduled-body,
             .rust-settings-grid,
             .rust-form-grid {
                 grid-template-columns: 1fr;
@@ -1040,6 +1284,17 @@
 
             .sync-preview-status {
                 justify-items: start;
+            }
+
+            .legacy-sync-flow,
+            .legacy-default-rating-row {
+                grid-template-columns: 1fr;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .legacy-scheduled-card {
+                height: auto;
             }
 
             .account-profile-row,
@@ -1157,9 +1412,7 @@
 
                 <div class="sidebar-section">
                     <h4 class="sidebar-title">运行日志</h4>
-                    <div id="events-log" class="rust-log-stream sidebar-log-stream">
-                        <div class="rust-empty">等待任务事件...</div>
-                    </div>
+                    <div id="events-log" class="log-container-sidebar"></div>
                 </div>
             </aside>
 
@@ -1310,137 +1563,178 @@
                         <h2>数据同步</h2>
                     </div>
 
-                    <div class="rust-sync-workbench">
-                        <section class="rust-panel sync-direction-card">
-                            <div class="rust-toolbar">
-                                <h3>同步方向</h3>
-                                <span class="rust-status-inline">预览后只执行勾选项</span>
-                            </div>
-                            <div class="sync-flow-row">
-                                <div>
-                                    <label for="sync-source-select">源平台</label>
-                                    <select id="sync-source-select">
-                                        <option value="tmdb">TMDB</option>
-                                        <option value="trakt">Trakt</option>
-                                        <option value="imdb">IMDb</option>
-                                        <option value="douban">Douban</option>
-                                    </select>
+                    <div class="legacy-sync-layout">
+                        <div class="legacy-sync-left">
+                            <div class="data-card sync-main-card">
+                                <div class="data-card-header">
+                                    <h3>🔄 数据同步</h3>
                                 </div>
-                                <div class="sync-flow-arrow">→</div>
-                                <div>
-                                    <label for="sync-target-select">目标平台</label>
-                                    <select id="sync-target-select">
-                                        <option value="trakt">Trakt</option>
-                                        <option value="tmdb">TMDB</option>
-                                        <option value="imdb">IMDb</option>
-                                        <option value="douban">Douban</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <details class="download-sites-details">
-                                <summary>高级同步选项</summary>
-                                <div class="download-sites-details-body" style="padding-top: 12px;">
-                                    <div class="rust-form-grid">
-                                <div>
-                                    <label for="sync-recent-limit">最近条目数</label>
-                                    <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
-                                </div>
-                                <div>
-                                    <label for="sync-default-rating">未评分时使用</label>
-                                    <input type="number" id="sync-default-rating" min="0" max="10" step="0.5" value="0">
-                                </div>
+                                <div class="data-card-body legacy-sync-card-body">
+                                    <div>
+                                        <label class="legacy-sync-label">同步流向</label>
+                                        <div class="legacy-sync-flow">
+                                            <div style="flex: 1;">
+                                                <div class="legacy-sync-caption">FROM</div>
+                                                <select id="sync-source-select" class="form-select legacy-sync-select">
+                                                    <option value="douban">🎬 豆瓣</option>
+                                                    <option value="imdb">⭐ IMDb</option>
+                                                    <option value="trakt">🎯 Trakt</option>
+                                                    <option value="tmdb">🎬 TMDB</option>
+                                                </select>
+                                            </div>
+                                            <div class="legacy-sync-arrow">➔</div>
+                                            <div style="flex: 1; text-align: right;">
+                                                <div class="legacy-sync-caption">TO</div>
+                                                <select id="sync-target-select" class="form-select legacy-sync-select legacy-sync-select-target">
+                                                    <option value="imdb">⭐ IMDb</option>
+                                                    <option value="douban">🎬 豆瓣</option>
+                                                    <option value="trakt">🎯 Trakt</option>
+                                                    <option value="tmdb">🎬 TMDB</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <button id="toggle-advanced-sync" class="btn btn-ghost legacy-advanced-toggle" type="button">
+                                            <span id="advanced-sync-icon">▶</span>
+                                            <span>⚙️ 高级同步选项</span>
+                                        </button>
+                                        <div id="advanced-sync-options" class="legacy-advanced-sync" style="display:none;">
+                                            <label class="legacy-sync-label">同步规则</label>
+                                            <div class="legacy-sync-options-grid">
+                                                <label class="checkbox-card">
+                                                    <input type="radio" name="rust-sync-mode" value="new" checked>
+                                                    <span>🆕 仅新增</span>
+                                                </label>
+                                                <label class="checkbox-card">
+                                                    <input type="radio" name="rust-sync-mode" value="overwrite" disabled>
+                                                    <span>✏️ 覆盖已有</span>
+                                                </label>
+                                            </div>
+                                            <div class="rust-compact-note">当前执行前会先刷新双方本地库；目标已有评分时默认保护。</div>
+                                            <div class="legacy-default-rating-row">
+                                                <label for="sync-recent-limit">最近条目数</label>
+                                                <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
+                                                <label for="sync-default-rating">未评分默认</label>
+                                                <input type="number" id="sync-default-rating" min="0" max="10" step="0.5" value="0">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="legacy-sync-actions">
+                                        <button class="btn btn-secondary" id="preview-sync-btn">🔍 预览</button>
+                                        <button class="btn btn-primary" id="execute-sync-btn">✨ 执行同步</button>
                                     </div>
                                 </div>
-                            </details>
-                            <p class="rust-compact-note">预览和执行前会先刷新双方本地库，目标已有评分时默认保护，不把评分覆盖成未评分。</p>
-                            <div class="rust-card-actions">
-                                <button class="btn btn-outline" id="preview-sync-btn">同步预览</button>
-                                <button class="btn btn-primary" id="execute-sync-btn">执行已选</button>
                             </div>
-                        </section>
+                        </div>
 
-                        <section class="rust-panel">
-                        <div class="rust-toolbar">
-                            <h3>同步预览 / 执行结果</h3>
+                        <div class="data-card sync-main-card legacy-scheduled-card">
+                            <div class="data-card-header">
+                                <div>
+                                    <h3>⏰ 定时同步任务</h3>
+                                    <p class="legacy-card-desc">自动后台同步</p>
+                                </div>
+                            </div>
+                            <div class="data-card-body legacy-scheduled-body">
+                                <div class="scheduled-tabs">
+                                    <div class="scheduled-tabs-header">
+                                        <button class="scheduled-tab-button active" type="button">任务列表</button>
+                                        <button class="scheduled-tab-button" type="button">执行日志</button>
+                                    </div>
+                                    <div class="scheduled-tabs-content">
+                                        <div class="scheduled-tab-panel active">
+                                            <div class="legacy-scheduled-list-header">
+                                                <span>全部任务</span>
+                                                <div class="rust-toolbar-group">
+                                                    <button class="btn btn-ghost btn-sm" id="refresh-scheduled-tasks-btn" type="button">刷新</button>
+                                                    <button class="btn btn-ghost btn-sm" id="show-scheduled-task-form-btn" type="button">＋</button>
+                                                </div>
+                                            </div>
+                                            <div class="legacy-scheduled-scroll">
+                                                <div id="scheduled-tasks-empty" class="rust-empty">📭 暂无定时任务</div>
+                                                <div id="scheduled-tasks-list" class="rust-list" style="display:none;"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="scheduled-right-panel">
+                                    <div id="scheduled-task-form-panel" class="task-form-compact" style="display:none;">
+                                        <div class="rust-toolbar">
+                                            <h4>任务表单</h4>
+                                            <button class="btn btn-outline btn-sm" id="hide-scheduled-task-form-btn" type="button">收起</button>
+                                        </div>
+                                        <form id="scheduled-task-form">
+                                            <input type="hidden" id="scheduled-task-id">
+                                            <div class="rust-form-grid">
+                                                <div class="full">
+                                                    <label for="scheduled-task-name">任务名称</label>
+                                                    <input type="text" id="scheduled-task-name" placeholder="例如：每日 TMDB -> Trakt">
+                                                </div>
+                                                <div>
+                                                    <label for="scheduled-task-source">源平台</label>
+                                                    <select id="scheduled-task-source">
+                                                        <option value="tmdb">TMDB</option>
+                                                        <option value="trakt">Trakt</option>
+                                                        <option value="imdb">IMDb</option>
+                                                        <option value="douban">Douban</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label for="scheduled-task-target">目标平台</label>
+                                                    <select id="scheduled-task-target">
+                                                        <option value="trakt">Trakt</option>
+                                                        <option value="tmdb">TMDB</option>
+                                                        <option value="imdb">IMDb</option>
+                                                        <option value="douban">Douban</option>
+                                                    </select>
+                                                </div>
+                                                <div class="full">
+                                                    <label for="scheduled-task-cron">Cron 表达式</label>
+                                                    <input type="text" id="scheduled-task-cron" placeholder="例如 0 2 * * *">
+                                                </div>
+                                            </div>
+                                            <div class="rust-card-actions" style="margin-top: 12px;">
+                                                <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 2 * * *">每日 2 点</button>
+                                                <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 */6 * * *">每 6 小时</button>
+                                                <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 0 * * 0">每周日</button>
+                                            </div>
+                                            <div class="rust-card-actions" style="margin-top: 16px;">
+                                                <label class="rust-status-inline" style="display:flex;align-items:center;gap:8px;">
+                                                    <input type="checkbox" id="scheduled-task-enabled" checked>
+                                                    启用任务
+                                                </label>
+                                                <button type="submit" class="btn btn-primary">保存任务</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                    <div id="task-form-placeholder" class="task-form-compact">
+                                        <div style="font-size: 1.6rem; opacity: 0.45;">⚙️</div>
+                                        <p class="rust-compact-note">选择或新建一个任务</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sync-preview-section data-card" id="sync-preview-card">
+                        <div class="data-card-header">
+                            <h3>同步预览</h3>
                             <div class="rust-toolbar-group">
-                                <span class="rust-status-inline" id="sync-summary-text">尚未生成同步预览</span>
-                                <span class="rust-status-inline" id="sync-selection-summary">待预览</span>
+                                <span class="data-summary" id="sync-summary-text">尚未生成同步预览</span>
+                                <span class="data-summary" id="sync-selection-summary">待预览</span>
                                 <button class="btn btn-outline btn-sm" id="select-all-sync-btn" type="button">全选可执行</button>
                                 <button class="btn btn-outline btn-sm" id="clear-sync-selection-btn" type="button">清空</button>
                             </div>
                         </div>
-                        <div id="sync-preview-empty" class="rust-empty">先点击“同步预览”，这里会显示待同步列表、跳过原因和执行结果。</div>
-                        <div id="sync-preview-list" class="rust-list sync-preview-list" style="display:none;"></div>
-                        </section>
-
-                        <section class="rust-panel">
-                        <div class="rust-toolbar">
-                            <h3>定时同步任务</h3>
-                            <div class="rust-toolbar-group">
-                                <button class="btn btn-outline btn-sm" id="refresh-scheduled-tasks-btn">刷新任务</button>
-                                <button class="btn btn-primary btn-sm" id="show-scheduled-task-form-btn">新建任务</button>
-                            </div>
-                        </div>
-                        <p class="rust-compact-note">任务卡片直接显示最近结果和下次时间，执行日志统一在左侧日志窗口查看。</p>
-                        <div class="scheduled-stack">
-                            <div id="scheduled-tasks-empty" class="rust-empty">还没有定时任务，点“新建任务”开始。</div>
-                            <div id="scheduled-tasks-list" class="rust-list" style="display:none;"></div>
-                            <div class="rust-panel" id="scheduled-task-form-panel" style="display:none; padding: 16px; background: var(--bg-secondary);">
-                                <div class="rust-toolbar">
-                                    <h4>任务表单</h4>
-                                    <button class="btn btn-outline btn-sm" id="hide-scheduled-task-form-btn">收起</button>
-                                </div>
-                                <form id="scheduled-task-form">
-                                    <input type="hidden" id="scheduled-task-id">
-                                    <div class="rust-form-grid">
-                                        <div class="full">
-                                            <label for="scheduled-task-name">任务名称</label>
-                                            <input type="text" id="scheduled-task-name" placeholder="例如：每日 TMDB -> Trakt">
-                                        </div>
-                                        <div>
-                                            <label for="scheduled-task-source">源平台</label>
-                                            <select id="scheduled-task-source">
-                                                <option value="tmdb">TMDB</option>
-                                                <option value="trakt">Trakt</option>
-                                                <option value="imdb">IMDb</option>
-                                                <option value="douban">Douban</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label for="scheduled-task-target">目标平台</label>
-                                            <select id="scheduled-task-target">
-                                                <option value="trakt">Trakt</option>
-                                                <option value="tmdb">TMDB</option>
-                                                <option value="imdb">IMDb</option>
-                                                <option value="douban">Douban</option>
-                                            </select>
-                                        </div>
-                                        <div class="full">
-                                            <label for="scheduled-task-cron">Cron 表达式</label>
-                                            <input type="text" id="scheduled-task-cron" placeholder="例如 0 2 * * *">
-                                        </div>
-                                    </div>
-                                    <div class="rust-card-actions" style="margin-top: 12px;">
-                                        <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 2 * * *">每日 2 点</button>
-                                        <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 */6 * * *">每 6 小时</button>
-                                        <button type="button" class="btn btn-outline btn-sm scheduled-preset-btn" data-cron="0 0 * * 0">每周日</button>
-                                    </div>
-                                    <div class="rust-card-actions" style="margin-top: 16px;">
-                                        <label class="rust-status-inline" style="display:flex;align-items:center;gap:8px;">
-                                            <input type="checkbox" id="scheduled-task-enabled" checked>
-                                            启用任务
-                                        </label>
-                                        <button type="submit" class="btn btn-primary">保存任务</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                        </section>
+                        <div id="sync-preview-empty" class="rust-empty">先点击“预览”，这里会显示待同步列表、跳过原因和执行结果。</div>
+                        <div id="sync-preview-list" class="data-preview legacy-sync-preview-list" style="display:none;"></div>
                     </div>
 
-                    <section class="rust-panel" style="margin-top: 20px;">
+                    <section class="rust-panel legacy-task-history">
                         <div class="rust-toolbar">
-                            <h3>任务列表</h3>
+                            <h3>后台任务</h3>
                             <button class="btn btn-outline btn-sm" id="refresh-tasks-btn">刷新任务</button>
                         </div>
                         <div id="tasks-list" class="rust-list"></div>
