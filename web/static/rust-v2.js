@@ -48,13 +48,13 @@ const state = {
         page: 1,
         total: 0,
         items: [],
-        view: localStorage.getItem("rust_v2_library_view") || "grid",
+        view: localStorage.getItem("cinerecord_library_view") || "list",
     },
     wishlist: {
         items: [],
         filteredItems: [],
         page: 1,
-        view: localStorage.getItem("rust_v2_wishlist_view") || "grid",
+        view: localStorage.getItem("cinerecord_wishlist_view") || "list",
         sources: new Set(["douban", "imdb", "trakt", "tmdb", "letterboxd"]),
     },
     sync: {
@@ -945,6 +945,16 @@ function sourceBadges(item) {
         .join("");
 }
 
+function platformIcon(platform) {
+    return {
+        douban: "/static/images/platforms/douban.png",
+        imdb: "/static/images/platforms/imdb.svg",
+        trakt: "/static/images/platforms/trakt.png",
+        letterboxd: "/static/images/platforms/letterboxd.png",
+        tmdb: "/static/images/platforms/tmdb.png",
+    }[platform] || "";
+}
+
 function itemPrimaryLink(item) {
     return item.source_url || item.library_url || item.sources?.find((source) => source.source_url)?.source_url || "";
 }
@@ -964,21 +974,18 @@ function sourceRatingText(source) {
     return `评分 ${source.rating}`;
 }
 
-function sourceLedger(item) {
+function sourceScoreStrip(item) {
     const sources = item.sources || [];
     if (!sources.length) return "";
     return `
-        <div class="source-ledger">
+        <div class="source-score-strip">
             ${sources
                 .map(
                     (source) => `
-                <div class="source-ledger-item">
-                    <div class="source-ledger-top">
-                        <span>${escapeHtml(platformLabel(source.platform))}</span>
-                        <span>${escapeHtml(sourceRatingText(source))}</span>
-                    </div>
-                    <div class="source-ledger-meta">${escapeHtml(source.rated_at ? formatShortDate(source.rated_at) : source.external_id || "已记录")}</div>
-                </div>
+                <span class="source-score" title="${escapeHtml(platformLabel(source.platform))}${source.rated_at ? ` · ${formatShortDate(source.rated_at)}` : ""}">
+                    ${platformIcon(source.platform) ? `<img src="${escapeHtml(platformIcon(source.platform))}" alt="">` : ""}
+                    <span>${escapeHtml(sourceRatingText(source).replace("评分 ", ""))}</span>
+                </span>
             `
                 )
                 .join("")}
@@ -1061,13 +1068,14 @@ function renderMovieCard(item, mode = "library", view = "grid") {
                     <div class="unified-media-meta">
                         ${matchedTag}
                         ${ratingDifferenceTag(item)}
-                        ${sourceBadges(item)}
+                        ${view === "grid" ? sourceBadges(item) : ""}
                     </div>
                 </div>
+                ${mode === "library" ? sourceScoreStrip(item) : ""}
                 <div class="unified-media-meta">
-                    ${item.identifiers?.imdb ? `<span class="status-pill">IMDb ${escapeHtml(item.identifiers.imdb)}</span>` : ""}
-                    ${item.identifiers?.tmdb ? `<span class="status-pill">TMDB ${escapeHtml(item.identifiers.tmdb)}</span>` : ""}
-                    ${item.identifiers?.douban ? `<span class="status-pill">豆瓣 ${escapeHtml(item.identifiers.douban)}</span>` : ""}
+                    ${view === "grid" && item.identifiers?.imdb ? `<span class="status-pill">IMDb ${escapeHtml(item.identifiers.imdb)}</span>` : ""}
+                    ${view === "grid" && item.identifiers?.tmdb ? `<span class="status-pill">TMDB ${escapeHtml(item.identifiers.tmdb)}</span>` : ""}
+                    ${view === "grid" && item.identifiers?.douban ? `<span class="status-pill">豆瓣 ${escapeHtml(item.identifiers.douban)}</span>` : ""}
                     ${item.public_votes ? `<span class="status-pill">${escapeHtml(String(item.public_votes))} 人评价</span>` : ""}
                 </div>
                 <div class="unified-media-links">
@@ -1075,7 +1083,6 @@ function renderMovieCard(item, mode = "library", view = "grid") {
                     ${downloadLinks}
                     ${mode === "wishlist" && item.library_matched && item.library_url ? `<a class="download-pill" href="${escapeHtml(item.library_url)}" target="_blank" rel="noopener noreferrer">片库条目 ↗</a>` : ""}
                 </div>
-                ${mode === "library" ? sourceLedger(item) : ""}
             </div>
         </article>
     `;
@@ -1154,7 +1161,7 @@ function renderSyncItems(items, mode) {
             const hasRating = item.source_rating !== null && item.source_rating !== undefined;
             const watchedOnlyHint =
                 mode === "preview" && !hasRating && !item.reason
-                    ? `<div class="rust-movie-meta">无源评分，默认不勾选；手动勾选后只同步“看过”。</div>`
+                    ? `<div class="rust-movie-meta">无源评分；如果目标平台需要评分，请在左侧设置默认分数后重新预览。</div>`
                     : "";
             const reason = item.reason ? `<div class="rust-movie-meta">原因: ${escapeHtml(item.reason)}</div>` : watchedOnlyHint;
             const rating = hasRating ? `评分 ${item.source_rating}` : "未评分";
@@ -1166,21 +1173,24 @@ function renderSyncItems(items, mode) {
             const checked =
                 selectable && state.sync.selectedTargetIds.has(item.target_linking_id) ? "checked" : "";
             const checkbox = selectable
-                ? `<label class="rust-movie-meta" style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" class="sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" ${checked}>
-                        <span>执行这项</span>
-                   </label>`
-                : "";
+                ? `<input type="checkbox" class="sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" aria-label="选择 ${escapeHtml(item.title || "条目")}" ${checked}>`
+                : `<span class="rust-status-inline">--</span>`;
+            const statusClass = mode !== "preview" && status === "success" ? "matched" : "";
+            const sourceLabel = item.source_platform
+                ? `${platformLabel(item.source_platform)} → ${platformLabel(item.target_platform)}`
+                : state.sync.preview?.direction || "";
             return `
-                <div class="rust-list-row">
+                <div class="sync-preview-card-row">
+                    <div>${checkbox}</div>
                     <div>
                         <div class="rust-movie-title">${escapeHtml(item.title || "Unknown title")}</div>
                         <div class="rust-movie-meta">${[item.year || "", rating, targetRating, item.target_linking_id || ""].filter(Boolean).join(" · ")}</div>
                         ${reason}
-                        ${checkbox}
                     </div>
-                    <div class="rust-movie-meta">${escapeHtml(item.source_platform || state.sync.preview?.direction || "")}</div>
-                    <div class="rust-tag">${escapeHtml(status)}</div>
+                    <div class="sync-preview-status">
+                        <span class="rust-movie-meta">${escapeHtml(sourceLabel)}</span>
+                        <span class="status-pill ${statusClass}">${escapeHtml(status)}</span>
+                    </div>
                 </div>
             `;
         })
@@ -1576,7 +1586,7 @@ async function previewSync() {
     state.sync.result = null;
     state.sync.selectedTargetIds = new Set(
         (payload.result.items || [])
-            .filter((item) => item.target_linking_id && !item.reason && item.source_rating !== null && item.source_rating !== undefined)
+            .filter((item) => item.target_linking_id && !item.reason)
             .map((item) => item.target_linking_id)
     );
     ui.syncSummaryText.textContent = `${payload.result.direction} · 共 ${payload.result.preview_count} 项`;
@@ -1604,6 +1614,7 @@ async function executeSync() {
     ui.syncSummaryText.textContent = `${payload.result.direction} · 成功 ${payload.result.success_count} · 跳过 ${payload.result.skipped_count} · 失败 ${payload.result.failed_count}`;
     renderSyncItems(payload.result.items, "result");
     appendLog("sync.execute", payload);
+    setActionStatus(`同步执行完成 · 成功 ${payload.result.success_count} · 跳过 ${payload.result.skipped_count} · 失败 ${payload.result.failed_count}`, payload.result.failed_count ? "warning" : "success");
     loadTasks().catch(handleError);
 }
 
@@ -1826,7 +1837,7 @@ async function runScheduledTask(taskId) {
 
 function setLibraryView(view) {
     state.library.view = view;
-    localStorage.setItem("rust_v2_library_view", view);
+    localStorage.setItem("cinerecord_library_view", view);
     document.getElementById("library-view-grid").classList.toggle("active", view === "grid");
     document.getElementById("library-view-list").classList.toggle("active", view === "list");
     renderLibrary();
@@ -1834,7 +1845,7 @@ function setLibraryView(view) {
 
 function setWishlistView(view) {
     state.wishlist.view = view;
-    localStorage.setItem("rust_v2_wishlist_view", view);
+    localStorage.setItem("cinerecord_wishlist_view", view);
     document.getElementById("wishlist-view-grid").classList.toggle("active", view === "grid");
     document.getElementById("wishlist-view-list").classList.toggle("active", view === "list");
     renderWishlist();
@@ -1989,7 +2000,7 @@ function bindEvents() {
         const previewItems = state.sync.preview?.items || [];
         state.sync.selectedTargetIds = new Set(
             previewItems
-                .filter((item) => item.target_linking_id && !item.reason && item.source_rating !== null && item.source_rating !== undefined)
+                .filter((item) => item.target_linking_id && !item.reason)
                 .map((item) => item.target_linking_id)
         );
         renderSyncItems(previewItems, "preview");

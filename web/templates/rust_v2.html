@@ -93,6 +93,13 @@
             gap: 20px;
         }
 
+        .rust-sync-workbench {
+            display: grid;
+            grid-template-columns: minmax(260px, 0.78fr) minmax(420px, 1.35fr) minmax(300px, 0.9fr);
+            gap: 18px;
+            align-items: start;
+        }
+
         .rust-card-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -251,11 +258,17 @@
         }
 
         .rust-log-stream {
-            min-height: 260px;
+            min-height: 220px;
             max-height: calc(100vh - 260px);
             overflow: auto;
             display: grid;
             gap: 10px;
+        }
+
+        .sidebar-log-stream {
+            min-height: 260px;
+            max-height: 34vh;
+            padding-right: 2px;
         }
 
         .rust-log-entry {
@@ -643,6 +656,23 @@
             min-height: 232px;
         }
 
+        .unified-media-card.list {
+            grid-template-columns: 64px minmax(0, 1fr);
+            min-height: unset;
+            padding: 10px 12px;
+            align-items: center;
+        }
+
+        .unified-media-card.list .unified-media-poster {
+            min-height: 86px;
+            border-radius: 10px;
+        }
+
+        .unified-media-card.list .unified-media-fallback {
+            font-size: 1.25rem;
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(51, 65, 85, 0.95));
+        }
+
         .unified-media-poster img {
             width: 100%;
             height: 100%;
@@ -760,6 +790,86 @@
             color: #fbbf24;
             border-color: rgba(245, 158, 11, 0.3);
             background: rgba(245, 158, 11, 0.09);
+        }
+
+        .source-score-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .source-score {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.045);
+            color: var(--text-secondary);
+            font-size: 0.76rem;
+            line-height: 1;
+        }
+
+        .source-score img {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            object-fit: contain;
+        }
+
+        .sync-direction-card {
+            display: grid;
+            gap: 14px;
+        }
+
+        .sync-flow-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            gap: 10px;
+            align-items: end;
+        }
+
+        .sync-flow-arrow {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+
+        .sync-preview-list {
+            max-height: calc(100vh - 310px);
+            overflow: auto;
+            padding-right: 2px;
+        }
+
+        .sync-preview-card-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .sync-preview-card-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+        }
+
+        .sync-preview-status {
+            display: grid;
+            gap: 6px;
+            justify-items: end;
+            min-width: 96px;
         }
 
         .source-pill,
@@ -912,6 +1022,7 @@
         @media (max-width: 1180px) {
             .rust-hero,
             .rust-secondary-grid,
+            .rust-sync-workbench,
             .rust-settings-grid,
             .rust-form-grid {
                 grid-template-columns: 1fr;
@@ -921,8 +1032,14 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
-            .rust-list-row {
+            .rust-list-row,
+            .sync-flow-row,
+            .sync-preview-card-row {
                 grid-template-columns: 1fr;
+            }
+
+            .sync-preview-status {
+                justify-items: start;
             }
 
             .account-profile-row,
@@ -1037,6 +1154,13 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="sidebar-section">
+                    <h4 class="sidebar-title">运行日志</h4>
+                    <div id="events-log" class="rust-log-stream sidebar-log-stream">
+                        <div class="rust-empty">等待任务事件...</div>
+                    </div>
+                </div>
             </aside>
 
             <main class="content-main">
@@ -1139,8 +1263,8 @@
                         </div>
                         <div class="export-controls">
                             <div class="library-view-toggle" role="group">
-                                <button class="btn btn-secondary btn-sm active" id="library-view-grid" data-view="grid">🔳 网格</button>
-                                <button class="btn btn-secondary btn-sm" id="library-view-list" data-view="list">📋 列表</button>
+                                <button class="btn btn-secondary btn-sm" id="library-view-grid" data-view="grid">🔳 网格</button>
+                                <button class="btn btn-secondary btn-sm active" id="library-view-list" data-view="list">📋 列表</button>
                             </div>
                             <button class="btn btn-outline btn-sm" id="import-legacy-btn">导入 CSV</button>
                             <button class="btn btn-primary btn-sm" id="refresh-library-btn">刷新</button>
@@ -1172,7 +1296,7 @@
                             <p>📚 暂无看过数据</p>
                             <p class="help-text">先导入 CSV，或直接从已支持的平台抓取。</p>
                         </div>
-                        <div id="library-list" class="rust-card-grid" style="display:none;"></div>
+                        <div id="library-list" class="rust-list" style="display:none;"></div>
                         <div class="rust-pagination" id="library-pagination" style="display:none;">
                             <button class="btn btn-secondary btn-sm" id="lib-prev-btn">← 上一页</button>
                             <span class="pagination-info" id="lib-page-info">1 / 1</span>
@@ -1186,13 +1310,13 @@
                         <h2>数据同步</h2>
                     </div>
 
-                    <div class="rust-secondary-grid">
-                        <section class="rust-panel">
+                    <div class="rust-sync-workbench">
+                        <section class="rust-panel sync-direction-card">
                             <div class="rust-toolbar">
                                 <h3>同步方向</h3>
                                 <span class="rust-status-inline">预览后只执行勾选项</span>
                             </div>
-                            <div class="rust-form-grid">
+                            <div class="sync-flow-row">
                                 <div>
                                     <label for="sync-source-select">源平台</label>
                                     <select id="sync-source-select">
@@ -1202,6 +1326,7 @@
                                         <option value="douban">Douban</option>
                                     </select>
                                 </div>
+                                <div class="sync-flow-arrow">→</div>
                                 <div>
                                     <label for="sync-target-select">目标平台</label>
                                     <select id="sync-target-select">
@@ -1211,6 +1336,11 @@
                                         <option value="douban">Douban</option>
                                     </select>
                                 </div>
+                            </div>
+                            <details class="download-sites-details">
+                                <summary>高级同步选项</summary>
+                                <div class="download-sites-details-body" style="padding-top: 12px;">
+                                    <div class="rust-form-grid">
                                 <div>
                                     <label for="sync-recent-limit">最近条目数</label>
                                     <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
@@ -1219,40 +1349,31 @@
                                     <label for="sync-default-rating">未评分时使用</label>
                                     <input type="number" id="sync-default-rating" min="0" max="10" step="0.5" value="0">
                                 </div>
-                            </div>
-                            <div class="rust-card-actions" style="margin-top: 16px;">
+                                    </div>
+                                </div>
+                            </details>
+                            <p class="rust-compact-note">预览和执行前会先刷新双方本地库，目标已有评分时默认保护，不把评分覆盖成未评分。</p>
+                            <div class="rust-card-actions">
                                 <button class="btn btn-outline" id="preview-sync-btn">同步预览</button>
                                 <button class="btn btn-primary" id="execute-sync-btn">执行已选</button>
-                                <button class="btn btn-secondary rust-placeholder-btn" data-feature="scheduled-sync">跳到定时任务</button>
                             </div>
                         </section>
-                    </div>
 
-                    <section class="rust-panel" style="margin-top: 20px;">
+                        <section class="rust-panel">
                         <div class="rust-toolbar">
                             <h3>同步预览 / 执行结果</h3>
                             <div class="rust-toolbar-group">
                                 <span class="rust-status-inline" id="sync-summary-text">尚未生成同步预览</span>
                                 <span class="rust-status-inline" id="sync-selection-summary">待预览</span>
-                                <button class="btn btn-outline btn-sm" id="select-all-sync-btn" type="button">全选可评分</button>
+                                <button class="btn btn-outline btn-sm" id="select-all-sync-btn" type="button">全选可执行</button>
                                 <button class="btn btn-outline btn-sm" id="clear-sync-selection-btn" type="button">清空</button>
                             </div>
                         </div>
                         <div id="sync-preview-empty" class="rust-empty">先点击“同步预览”，这里会显示待同步列表、跳过原因和执行结果。</div>
-                        <div id="sync-preview-list" class="rust-list" style="display:none;"></div>
-                    </section>
+                        <div id="sync-preview-list" class="rust-list sync-preview-list" style="display:none;"></div>
+                        </section>
 
-                    <section class="rust-panel" style="margin-top: 20px;">
-                        <div class="rust-toolbar">
-                            <h3>运行日志</h3>
-                            <span class="rust-status-inline">只显示关键阶段：刷新、预览、执行和错误</span>
-                        </div>
-                        <div id="events-log" class="rust-log-stream">
-                            <div class="rust-empty">等待任务事件...</div>
-                        </div>
-                    </section>
-
-                    <section class="rust-panel" style="margin-top: 20px;">
+                        <section class="rust-panel">
                         <div class="rust-toolbar">
                             <h3>定时同步任务</h3>
                             <div class="rust-toolbar-group">
@@ -1260,7 +1381,7 @@
                                 <button class="btn btn-primary btn-sm" id="show-scheduled-task-form-btn">新建任务</button>
                             </div>
                         </div>
-                        <p class="rust-compact-note">这里保留任务本身，执行细节不再占满页面；每个任务卡片直接显示最近一次结果和下一次时间。</p>
+                        <p class="rust-compact-note">任务卡片直接显示最近结果和下次时间，执行日志统一在左侧日志窗口查看。</p>
                         <div class="scheduled-stack">
                             <div id="scheduled-tasks-empty" class="rust-empty">还没有定时任务，点“新建任务”开始。</div>
                             <div id="scheduled-tasks-list" class="rust-list" style="display:none;"></div>
@@ -1314,7 +1435,8 @@
                                 </form>
                             </div>
                         </div>
-                    </section>
+                        </section>
+                    </div>
 
                     <section class="rust-panel" style="margin-top: 20px;">
                         <div class="rust-toolbar">

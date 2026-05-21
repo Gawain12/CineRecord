@@ -339,11 +339,14 @@ pub fn build_sync_preview(
             reason = Some("No linking identifier available for target platform".to_string());
         }
 
-        if target == "tmdb" && !is_valid_rating(source_rating) {
+        if matches!(target, "tmdb" | "imdb" | "douban") && !is_valid_rating(source_rating) {
             if let Some(default_rating) = request.default_rating.filter(|rating| *rating > 0.0) {
                 source_rating = Some(default_rating);
-            } else {
-                reason = Some("TMDB does not support watched-only sync without a rating".to_string());
+            } else if target == "tmdb" || target == "imdb" {
+                reason = Some(format!(
+                    "{} does not support watched-only sync without a rating",
+                    target.to_uppercase()
+                ));
             }
         }
 
