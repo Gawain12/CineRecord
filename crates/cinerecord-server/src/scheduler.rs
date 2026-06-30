@@ -4,7 +4,10 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use cinerecord_core::{AppEvent, ScheduledTask};
 use cinerecord_jobs::run_scheduled_sync_task;
-use cinerecord_storage::{claim_due_scheduled_tasks, get_scheduled_task, mark_scheduled_task_idle, start_scheduled_task_run};
+use cinerecord_storage::{
+    claim_due_scheduled_tasks, get_scheduled_task, mark_scheduled_task_idle,
+    start_scheduled_task_run,
+};
 use cron::Schedule;
 use serde_json::json;
 use tokio::time::sleep;
@@ -31,9 +34,13 @@ pub fn spawn_scheduler_loop(state: AppState) {
     });
 }
 
-pub fn calculate_next_run_at(expr: &str, from: chrono::DateTime<Utc>) -> Result<Option<chrono::DateTime<Utc>>> {
+pub fn calculate_next_run_at(
+    expr: &str,
+    from: chrono::DateTime<Utc>,
+) -> Result<Option<chrono::DateTime<Utc>>> {
     let normalized = normalize_cron_expression(expr);
-    let schedule = Schedule::from_str(&normalized).with_context(|| format!("invalid cron expression: {expr}"))?;
+    let schedule = Schedule::from_str(&normalized)
+        .with_context(|| format!("invalid cron expression: {expr}"))?;
     Ok(schedule.upcoming(Utc).find(|next| *next > from))
 }
 

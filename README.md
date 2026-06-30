@@ -1,200 +1,102 @@
-# 🎬 CineRecord Hub
+# CineRecord
 
-<div align="center">
+CineRecord 是一个本地优先的电影记录管理与跨平台同步工具。后端使用 Rust，浏览器界面由同一个二进制直接提供，不需要 Python、Node.js 或额外数据库服务。
 
-**您的私人电影数据管理中心**
+支持的平台：
 
-一站式同步、备份和管理您的电影评分：支持豆瓣、IMDb、Trakt、TMDB 和 Letterboxd。
+- 豆瓣：公开主页读取；写入和部分受限数据需要 Cookie
+- IMDb：Cookie 登录、评分与想看数据
+- Trakt：设备 OAuth、评分与想看同步
+- TMDB：API Key / Session
+- Letterboxd：CSV 导入
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
-[![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg)](https://flask.palletsprojects.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## 快速开始
 
-[English](./README.en.md) | [中文文档](./README.md)
-
-</div>
-
----
-
-
-## 📸 界面展示
-
-<div align="center">
-  <img src="docs/images/app_demo_dual.webp" width="800" alt="应用演示 (中英双语)">
-  <p><i>快速演示：仪表盘概览与任务流程 (中英双语演示)</i></p>
-
-  <br>
-
-  <img src="docs/images/dashboard_cn.png" width="800" alt="仪表盘预览">
-  <p><i>仪表盘：账户状态与概览 (个人信息已打码处理)</i></p>
-
-  <br>
-
-  <img src="docs/images/library_cn.png" width="800" alt="影片库预览">
-  <p><i>支持多平台数据聚合与 CSV 导出功能</i></p>
-
-  <br>
-
-  <img src="docs/images/sync_cn.png" width="800" alt="同步任务预览">
-  <p><i>可视化任务调度与实时状态监控</i></p>
-
-  <br>
-
-  <img src="docs/images/wishlist_cn.png" width="800" alt="想看清单预览">
-  <p><i>想看清单：汇集各平台想看数据，支持一键搜索资源</i></p>
-</div>
-
----
-
-## ✨ 核心特性
-
-### 🌐 多平台支持
-
-| 平台 | 获取评分 | 同步至 | 认证方式 |
-|------|:--------:|:-------:|-------------|
-| **豆瓣** | ✅ | ✅ | Cookie / 自动登录 |
-| **IMDb** | ✅ | ✅ | Cookie / 自动登录 |
-| **Trakt** | ✅ | ✅ | OAuth 设备授权 |
-| **TMDB** | ✅ | ✅ | API Key + Session |
-| **Letterboxd**| ✅ | ⚠️ | CSV 导入 / 导出 |
-
-### ⚡ 核心能力
-
--   **统一电影库**：在一个地方查看您看过的所有电影，自动去重。
--   **双向同步**：保持各平台评分一致（例如：自动把豆瓣评分同步到 IMDb）。
--   **全平台导出**：支持将聚合后的数据导出为 CSV，或生成 Letterboxd 兼容格式。
--   **内置桌面登录**：Windows 和 macOS 版本内置 WebView 登录窗口，一键抓取 Cookie。（✅ 新增）
--   **想看/在看清单**：支持抓取和导出您的“想看”清单，不再局限于已看。（✅ 新增）
--   **智能同步预览**：支持同步前预览差异，自动过滤已知失败项，所见即所得。
--   **定时任务**：设置自动每日/每周同步任务，彻底解放双手。
--   **隐私优先**：所有数据和 Cookie 仅保存在您本地电脑上。
--   **深色界面**：专注内容的简洁深色模式。
-
----
-
-## 🚀 快速开始
-
-### 标准安装
-
-1.  **克隆仓库**
-    ```bash
-    git clone https://github.com/Gawain12/CineRecord.git
-    cd CineRecord
-    ```
-
-2.  **安装依赖**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **启动应用**
-    ```bash
-    python web/app.py
-    ```
-    浏览器将自动打开 `http://127.0.0.1:8000`。
-
-### Docker 部署
-
-推荐在服务器上使用 Docker 部署：
-
-1.  **克隆仓库**
-    ```bash
-    git clone https://github.com/Gawain12/CineRecord.git
-    cd CineRecord
-    ```
-
-2.  **配置环境**
-    ```bash
-    # 复制配置模板
-    cp config/config.json.template config/config.json
-    ```
-
-3.  **启动容器**
-    ```bash
-    docker compose up -d
-    ```
-    应用将运行在 `http://YOUR_SERVER_IP:8000`。
-
-4.  **查看日志**
-    ```bash
-    docker logs -f cinerecord
-    ```
-
-5.  **停止/重启**
-    ```bash
-    docker compose down      # 停止
-    docker compose restart   # 重启
-    docker compose up -d --build  # 重新构建并启动
-    ```
-
-> **提示**: 配置和数据持久化存储在 `config/` 和 `data/` 目录。
-
-### Rust Rewrite V1 预览
-
-仓库里现在也有一条独立的 Rust 重构线，和 Python 版并行存在，不共享运行态数据：
+### 从源码运行
 
 ```bash
-rtk cargo run -p cinerecord-server
+cargo run -p cinerecord-server
 ```
 
-- Rust v2 默认运行在 `http://127.0.0.1:18000`
-- 旧版 Python 仍然运行在 `http://127.0.0.1:8000`
-- Rust 版使用独立的 `config/v2`、`data/v2`、`logs/v2`
+打开 [http://127.0.0.1:18000](http://127.0.0.1:18000)。
 
-重构说明见 [`docs/rust-rewrite-v1.md`](./docs/rust-rewrite-v1.md)。
+开发仓库会继续使用：
 
----
-
-## 📖 使用指南
-
-### 1. 连接账户
-前往 **账户**页 或各平台卡片。
--   **豆瓣/IMDb**：使用“自动登录”按钮（macOS）或在**设置**中手动粘贴 Cookie。
--   **Trakt**：点击“连接”，获取 8 位代码并在 Trakt.tv 完成授权。
--   **TMDB**：在设置中输入 API Key 以启用搜索和同步。
-
-### 2. 同步评分
-前往 **同步** 页。
--   **手动同步**：选择源平台（如豆瓣）和目标平台（如 Trakt），点击“预览”，确认无误后点击“执行同步”。
--   **定时同步**：点击“新建任务”，选择同步方向和频率（如“每天凌晨 2:00”），启用即可。App 将在后台自动处理。
-
-### 3. 查看电影库
-**数据** 页是您的统一电影数据库。您可以通过筛选“平台独占”来查看哪些电影还没有同步到其他平台。
-
----
-
-## 🛠 项目结构
-
-```
-CineRecord/
-├── web/
-│   ├── app.py             # 后端应用入口
-│   ├── scheduler.py       # 定时任务服务
-│   ├── logic.py           # 同步与合并逻辑
-│   ├── static/            # 前端资源 (JS, Scheduler, i18n, CSS)
-│   └── templates/         # HTML 页面模板
-├── scrapers/              # 平台连接器
-│   ├── douban_scraper.py
-│   ├── imdb_scraper.py
-│   ├── trakt_client.py
-│   └── tmdb_client.py
-└── data/                  # 本地数据存储
+```text
+config/v2/config.toml
+data/v2/app.db
+logs/v2/server.log
 ```
 
----
+安装包会使用系统用户目录：
 
-## 🛡️ 隐私与安全
+- macOS：`~/Library/Application Support/CineRecord`
+- Windows：`%APPDATA%\CineRecord`
+- Linux：`$XDG_DATA_HOME/cinerecord` 或 `~/.local/share/cinerecord`
 
--   **仅限本地**：您的 Cookie 和电影数据永远不会离开您的本地网络。
--   **开源**：代码完全透明，可供审计。
--   **无追踪**：我们不收集任何使用数据。
+可以通过 `CINERECORD_HOME` 指定其他目录。
 
----
+## Docker
 
-## 🤝 贡献
+```bash
+docker compose up -d --build
+```
 
-欢迎提交贡献！请查阅 `ROADMAP.md` 获取开发指南。
+默认访问地址为 `http://127.0.0.1:18000`，数据保存在 `./cinerecord-data`。
 
-## 📜 许可证
+## 打包
 
-MIT License. 详见 [LICENSE](./LICENSE)。
+### macOS
+
+```bash
+./scripts/package_rust_macos.sh
+```
+
+输出：
+
+- `dist-rust/CineRecord.app`
+- `dist-rust/CineRecord-macOS-<arch>.dmg`
+- `dist-rust/CineRecord-macOS-<arch>.zip`
+
+### Linux
+
+Linux 推荐直接使用 Docker。`dev`、`main` 和版本 tag 会自动发布对应的
+`ghcr.io/gawain12/cinerecord` 镜像标签。
+
+### Windows
+
+```powershell
+.\scripts\package_rust_windows.ps1
+```
+
+输出 `CineRecord-Windows-x64.exe` 和 ZIP 包。双击 EXE 会在后台启动服务并自动打开浏览器。
+
+GitHub Actions 会在 `dev`、`main` 和版本 tag 上自动测试，并在真实 macOS ARM、
+macOS Intel、Windows x64 runner 上打包和执行健康检查；Linux 使用 Docker 构建与容器健康检查。
+
+## 环境变量
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `CINERECORD_HOME` | 系统用户目录 | 配置、数据库和日志目录 |
+| `CINERECORD_HOST` | `127.0.0.1` | 监听地址 |
+| `CINERECORD_PORT` | `18000` | 监听端口 |
+| `CINERECORD_PORTABLE` | `false` | 使用当前目录保存数据 |
+| `RUST_LOG` | `info,tower_http=info` | Rust 日志级别 |
+
+## 同步安全
+
+- 预览默认使用本地库快速生成。
+- 真正执行同步前会刷新源平台和目标平台，再次确认差异。
+- 默认只新增，不会用“未评分”覆盖目标平台已有评分。
+- 执行前可以逐条选择或取消候选项。
+
+Cookie、OAuth Token 和 API Key 只保存在本地配置目录。不要提交 `config/`、`data/`、`logs/` 或安装包用户数据目录。
+
+## Legacy Python
+
+仓库中暂时保留旧 Python 实现用于行为对照和少量迁移工具，但正式运行、Docker 和发布包均使用 Rust。新功能不应再依赖 Python 运行时。
+
+## License
+
+MIT

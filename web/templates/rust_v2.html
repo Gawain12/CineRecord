@@ -998,26 +998,39 @@
             background: rgba(255, 255, 255, 0.02);
         }
 
-        .legacy-default-rating-row {
-            display: grid;
-            grid-template-columns: auto 80px auto 80px;
-            gap: 10px;
-            align-items: center;
-            padding: 10px;
+	        .legacy-default-rating-row {
+	            display: grid;
+	            grid-template-columns: auto 80px minmax(150px, 1fr) 80px;
+	            gap: 10px;
+	            align-items: center;
+	            padding: 10px;
             border: 1px solid var(--border-color);
             border-radius: 6px;
             background: rgba(255, 255, 255, 0.02);
         }
 
-        .legacy-default-rating-row input {
-            width: 100%;
+	        .legacy-default-rating-row input {
+	            width: 100%;
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--border-color);
             border-radius: 4px;
             padding: 4px 8px;
             color: var(--text-primary);
-            text-align: center;
-        }
+	            text-align: center;
+	        }
+
+	        .legacy-default-rating-toggle {
+	            display: inline-flex;
+	            align-items: center;
+	            gap: 8px;
+	            color: var(--text-secondary);
+	            font-size: 0.86rem;
+	        }
+
+	        .legacy-default-rating-toggle input {
+	            width: auto;
+	            accent-color: var(--accent);
+	        }
 
         .legacy-sync-actions {
             display: grid;
@@ -1074,6 +1087,17 @@
             border-right: 1px solid var(--border-color);
         }
 
+        .scheduled-tabs-content,
+        .scheduled-tab-panel {
+            min-height: 0;
+            height: 100%;
+        }
+
+        .scheduled-tab-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
         .legacy-scheduled-body .scheduled-right-panel {
             padding: 24px;
             display: flex;
@@ -1091,13 +1115,350 @@
             color: var(--text-secondary);
         }
 
+        .settings-sub-panel {
+            width: 100%;
+        }
+
+        .settings-feature-panel {
+            margin-bottom: 18px;
+        }
+
+        .backup-create-form {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto auto auto;
+            gap: 12px;
+            align-items: end;
+            margin-top: 18px;
+        }
+
+        .backup-option {
+            min-height: 42px;
+            padding: 0 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .backup-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .backup-list-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: center;
+            padding: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .backup-list-actions,
+        .backup-preview-tabs {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .backup-preview-tabs {
+            margin: 14px 0;
+        }
+
+        .backup-preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 10px;
+        }
+
+        .backup-preview-item,
+        .system-info-item {
+            padding: 12px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.025);
+            min-width: 0;
+        }
+
+        .backup-preview-item strong,
+        .system-info-item strong {
+            display: block;
+            color: var(--text-primary);
+        }
+
+        .backup-preview-item span,
+        .system-info-item span {
+            display: block;
+            margin-top: 5px;
+            color: var(--text-secondary);
+            font-size: 0.82rem;
+            overflow-wrap: anywhere;
+        }
+
+        .system-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        @media (max-width: 760px) {
+            .backup-create-form {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .backup-create-form>div,
+            .backup-create-form>.btn {
+                grid-column: 1 / -1;
+            }
+
+            .backup-list-item {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .sync-preview-section {
             margin-top: 20px;
         }
 
-        .legacy-sync-preview-list {
-            border-radius: 0;
+        .sync-live-progress {
+            display: grid;
+            grid-template-columns: minmax(120px, 1fr) minmax(220px, 2fr);
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 13px;
         }
+
+        .sync-live-progress[hidden] {
+            display: none;
+        }
+
+        .sync-live-progress-track {
+            height: 6px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.18);
+        }
+
+        .sync-live-progress-track span {
+            display: block;
+            width: 0;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #2f80ed, #47b881);
+            transition: width 220ms ease;
+        }
+
+	        .legacy-sync-preview-list {
+	            border-radius: 0;
+	        }
+
+	        .sync-preview-overview {
+	            display: grid;
+	            grid-template-columns: repeat(4, minmax(0, 1fr));
+	            gap: 12px;
+	            padding: 16px 20px 4px;
+	        }
+
+	        .sync-preview-metric {
+	            border: 1px solid var(--border-color);
+	            border-radius: 12px;
+	            padding: 12px;
+	            background: rgba(255, 255, 255, 0.035);
+	        }
+
+	        .sync-preview-metric strong {
+	            display: block;
+	            font-size: 1.35rem;
+	            line-height: 1;
+	            color: var(--text-primary);
+	        }
+
+	        .sync-preview-metric span {
+	            display: block;
+	            margin-top: 6px;
+	            color: var(--text-secondary);
+	            font-size: 0.78rem;
+	        }
+
+		        .sync-preview-table-wrap {
+		            padding: 12px 20px 20px;
+		            max-height: calc(100vh - 360px);
+		            overflow: auto;
+		        }
+
+		        .sync-preview-table {
+		            width: 100%;
+		            border-collapse: collapse;
+		            font-size: 0.84rem;
+		        }
+
+		        .sync-preview-table th,
+		        .sync-preview-table td {
+		            padding: 10px 12px;
+		            border-bottom: 1px solid var(--border-color);
+		            vertical-align: top;
+		        }
+
+		        .sync-preview-table th {
+		            color: var(--text-secondary);
+		            font-size: 0.76rem;
+		            font-weight: 700;
+		            text-transform: uppercase;
+		            letter-spacing: 0.04em;
+		            background: rgba(255, 255, 255, 0.025);
+		            position: sticky;
+		            top: 0;
+		            z-index: 1;
+		        }
+
+		        .sync-preview-table tr.is-skipped {
+		            opacity: 0.68;
+		        }
+
+		        .sync-preview-table tr:hover {
+		            background: rgba(255, 255, 255, 0.025);
+		        }
+
+		        .sync-preview-links {
+		            display: flex;
+		            gap: 8px;
+		            flex-wrap: wrap;
+		            margin-top: 4px;
+		            font-size: 0.78rem;
+		        }
+
+		        .sync-preview-card-list {
+		            display: grid;
+		            gap: 10px;
+		            padding: 16px 20px 20px;
+		            max-height: calc(100vh - 360px);
+		            overflow: auto;
+		        }
+
+	        .sync-preview-item-card {
+	            display: grid;
+	            grid-template-columns: auto minmax(0, 1fr) auto;
+	            gap: 14px;
+	            align-items: center;
+	            padding: 14px;
+	            border: 1px solid var(--border-color);
+	            border-radius: 14px;
+	            background: rgba(255, 255, 255, 0.03);
+	        }
+
+	        .sync-preview-item-card.is-skipped {
+	            opacity: 0.72;
+	        }
+
+	        .sync-preview-checkbox {
+	            width: 18px;
+	            height: 18px;
+	            accent-color: var(--accent);
+	        }
+
+	        .sync-preview-title-line {
+	            display: flex;
+	            gap: 8px;
+	            align-items: center;
+	            flex-wrap: wrap;
+	        }
+
+	        .sync-preview-title-line strong {
+	            color: var(--text-primary);
+	        }
+
+	        .sync-preview-meta {
+	            display: flex;
+	            gap: 8px;
+	            flex-wrap: wrap;
+	            margin-top: 6px;
+	            color: var(--text-secondary);
+	            font-size: 0.82rem;
+	        }
+
+	        .sync-preview-right {
+	            display: grid;
+	            gap: 8px;
+	            justify-items: end;
+	            min-width: 150px;
+	        }
+
+	        .sync-rating-flow {
+	            display: flex;
+	            align-items: center;
+	            gap: 8px;
+	            color: var(--text-secondary);
+	            font-size: 0.82rem;
+	        }
+
+	        .sync-rating-badge {
+	            border: 1px solid var(--border-color);
+	            background: rgba(255, 255, 255, 0.05);
+	            color: var(--text-primary);
+	            border-radius: 999px;
+	            padding: 4px 9px;
+	            font-weight: 700;
+	        }
+
+	        .sync-action-pill {
+	            display: inline-flex;
+	            align-items: center;
+	            border-radius: 999px;
+	            padding: 5px 10px;
+	            font-size: 0.78rem;
+	            font-weight: 700;
+	            border: 1px solid rgba(148, 163, 184, 0.28);
+	            color: #cbd5e1;
+	            background: rgba(148, 163, 184, 0.10);
+	        }
+
+	        .sync-action-pill.new,
+	        .sync-action-pill.overwrite,
+	        .sync-action-pill.success {
+	            color: #6ee7b7;
+	            border-color: rgba(16, 185, 129, 0.32);
+	            background: rgba(16, 185, 129, 0.12);
+	        }
+
+	        .sync-action-pill.keep,
+	        .sync-action-pill.skipped {
+	            color: #fcd34d;
+	            border-color: rgba(245, 158, 11, 0.32);
+	            background: rgba(245, 158, 11, 0.12);
+	        }
+
+	        .sync-action-pill.failed,
+	        .sync-action-pill.error {
+	            color: #fca5a5;
+	            border-color: rgba(239, 68, 68, 0.35);
+	            background: rgba(239, 68, 68, 0.12);
+	        }
+
+	        .sync-reason {
+	            color: var(--text-secondary);
+	            font-size: 0.8rem;
+	            text-align: right;
+	            max-width: 260px;
+	        }
+
+	        .rust-capability-note {
+	            display: inline-flex;
+	            align-items: center;
+	            min-height: 38px;
+	            padding: 8px 12px;
+	            border-radius: 10px;
+	            border: 1px dashed var(--border-color);
+	            color: var(--text-secondary);
+	            background: rgba(255, 255, 255, 0.03);
+	            font-size: 0.84rem;
+	        }
 
         .legacy-task-history {
             margin-top: 20px;
@@ -1262,6 +1623,10 @@
         }
 
         @media (max-width: 1180px) {
+            .sync-live-progress {
+                grid-template-columns: 1fr;
+            }
+
             .rust-hero,
             .rust-secondary-grid,
             .rust-sync-workbench,
@@ -1276,18 +1641,31 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
-            .rust-list-row,
-            .sync-flow-row,
-            .sync-preview-card-row {
-                grid-template-columns: 1fr;
-            }
+	            .rust-list-row,
+	            .sync-flow-row,
+	            .sync-preview-card-row,
+	            .sync-preview-item-card {
+	                grid-template-columns: 1fr;
+	            }
 
-            .sync-preview-status {
-                justify-items: start;
-            }
+	            .sync-preview-status,
+	            .sync-preview-right {
+	                justify-items: start;
+	            }
 
-            .legacy-sync-flow,
-            .legacy-default-rating-row {
+	            .sync-preview-overview {
+	                grid-template-columns: repeat(2, minmax(0, 1fr));
+	                padding: 14px;
+	            }
+
+	            .sync-preview-card-list,
+	            .sync-preview-table-wrap {
+	                padding: 14px;
+	                max-height: none;
+	            }
+
+	            .legacy-sync-flow,
+	            .legacy-default-rating-row {
                 grid-template-columns: 1fr;
                 flex-direction: column;
                 align-items: stretch;
@@ -1316,18 +1694,21 @@
         <header class="top-nav">
             <div class="nav-brand">
                 <img src="/static/images/logo.svg" alt="Logo" class="nav-logo">
-                <span class="nav-title">CineRecord</span>
+                <span class="nav-title">CineRecord Hub</span>
             </div>
             <nav class="nav-tabs">
-                <button class="nav-tab active" data-tab="dashboard">总览</button>
-                <button class="nav-tab" data-tab="data">数据</button>
-                <button class="nav-tab" data-tab="sync">同步</button>
-                <button class="nav-tab" data-tab="wishlist">想看</button>
-                <button class="nav-tab" data-tab="settings">设置</button>
+                <button class="nav-tab active" data-tab="dashboard">🏠 总览</button>
+                <button class="nav-tab" data-tab="data">📊 数据</button>
+                <button class="nav-tab" data-tab="sync">🔄 同步</button>
+                <button class="nav-tab" data-tab="wishlist">✨ 想看</button>
+                <button class="nav-tab" data-tab="settings">⚙️ 设置</button>
             </nav>
             <div class="nav-actions">
                 <button class="icon-btn" id="mobile-menu-btn" title="平台状态" style="display:none;">☰</button>
                 <button class="icon-btn" id="theme-btn" title="切换主题">🌙</button>
+                <button id="lang-btn"
+                    style="padding: 6px 12px; min-width: 40px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 600;"
+                    title="Switch Language">EN</button>
             </div>
         </header>
 
@@ -1336,9 +1717,6 @@
         <div class="main-layout-v2 rust-shell">
             <aside class="main-layout-sidebar">
                 <div class="sidebar-section">
-                    <div class="rust-top-note">
-                        <span class="rust-badge-inline">CineRecord</span>
-                    </div>
                     <h4 class="sidebar-title">平台状态</h4>
 
                     <div class="account-summary-card douban" id="summary-douban">
@@ -1390,27 +1768,10 @@
                         </div>
                         <span class="status-dot disconnected" id="summary-dot-tmdb"></span>
                     </div>
-                </div>
 
-                <div class="sidebar-section">
-                    <h4 class="sidebar-title">进度概览</h4>
-                    <div class="sidebar-mini-metrics">
-                        <div class="sidebar-mini-metric">
-                            <span class="sidebar-mini-metric-label">看过库</span>
-                            <span class="sidebar-mini-metric-value" id="sidebar-library-total">--</span>
-                        </div>
-                        <div class="sidebar-mini-metric">
-                            <span class="sidebar-mini-metric-label">想看库</span>
-                            <span class="sidebar-mini-metric-value" id="sidebar-wishlist-total">--</span>
-                        </div>
-                        <div class="sidebar-mini-metric">
-                            <span class="sidebar-mini-metric-label">最近任务</span>
-                            <span class="sidebar-mini-metric-value" id="sidebar-task-total">--</span>
-                        </div>
-                    </div>
-                </div>
+	                </div>
 
-                <div class="sidebar-section">
+                <div class="sidebar-section sidebar-logs">
                     <h4 class="sidebar-title">运行日志</h4>
                     <div id="events-log" class="log-container-sidebar"></div>
                 </div>
@@ -1422,78 +1783,36 @@
                 <div class="tab-content active" id="tab-dashboard">
                     <div class="content-header">
                         <h2>总览</h2>
+                        <p>快速查看状态并执行常用操作</p>
                     </div>
 
-                    <div class="rust-hero">
-                        <section class="rust-panel">
-                            <h3>当前状态</h3>
-                            <div class="rust-metrics">
-                                <div class="rust-metric">
-                                    <span class="rust-metric-label">看过总条目</span>
-                                    <span class="rust-metric-value" id="metric-library-total">--</span>
-                                </div>
-                                <div class="rust-metric">
-                                    <span class="rust-metric-label">想看总条目</span>
-                                    <span class="rust-metric-value" id="metric-wishlist-total">--</span>
-                                </div>
-                                <div class="rust-metric">
-                                    <span class="rust-metric-label">已配置平台</span>
-                                    <span class="rust-metric-value" id="metric-platform-configured">--</span>
-                                </div>
-                                <div class="rust-metric">
-                                    <span class="rust-metric-label">最近任务</span>
-                                    <span class="rust-metric-value" id="metric-task-total">--</span>
-                                </div>
+                    <div class="dashboard-grid">
+                        <div class="dashboard-card">
+                            <h3>快速操作</h3>
+                            <div class="dashboard-actions">
+                                <button class="btn btn-primary rust-open-tab-btn" data-tab="data">🔄 刷新影片库</button>
+                                <button class="btn btn-secondary rust-open-tab-btn" data-tab="wishlist">✨ 刷新想看</button>
+                                <button class="btn btn-outline rust-open-tab-btn" data-tab="settings">⚙️ 设置与备份</button>
                             </div>
-                        </section>
-
-                        <section class="rust-panel">
-                            <h3>工作区</h3>
-                            <div class="rust-list">
-                                <div class="rust-list-row">
-                                    <div>
-                                        <div class="rust-movie-title">数据页</div>
-                                    </div>
-                                    <div class="rust-status-inline" id="health-status">检测中...</div>
-                                </div>
-                                <div class="rust-list-row">
-                                    <div>
-                                        <div class="rust-movie-title">想看页</div>
-                                    </div>
-                                    <div class="rust-status-inline">本地持久化</div>
-                                </div>
-                                <div class="rust-list-row">
-                                    <div>
-                                        <div class="rust-movie-title">同步页</div>
-                                    </div>
-                                    <div class="rust-status-inline">可用</div>
-                                </div>
+                            <p class="rust-compact-note" id="health-status">检测中...</p>
+                        </div>
+	                        <div class="dashboard-card">
+                            <h3>使用指引</h3>
+                            <div class="dashboard-hints">
+                                <p>📊 在「数据」查看评分库与同步工具</p>
+                                <p>✨ 在「想看」聚合多平台片单</p>
+                                <p>⚙️ 在「设置」管理账户、备份与下载站点</p>
                             </div>
-                        </section>
+                        </div>
                     </div>
-
-                    <div class="rust-secondary-grid">
-                        <section class="rust-panel">
-                            <div class="rust-toolbar">
-                                <h3>平台账户</h3>
-                            </div>
-                            <div id="dashboard-platform-grid" class="rust-card-grid"></div>
-                        </section>
-
-                        <section class="rust-panel">
-                            <div class="rust-toolbar">
-                                <h3>最近任务</h3>
-                                <button class="btn btn-outline btn-sm" id="dashboard-refresh-tasks-btn">刷新任务</button>
-                            </div>
-                            <div id="dashboard-task-list" class="rust-list"></div>
-                        </section>
-                    </div>
+                    <div id="dashboard-platform-grid" style="display:none;"></div>
+                    <div id="dashboard-task-list" style="display:none;"></div>
                 </div>
 
                 <div class="tab-content" id="tab-data">
                     <div class="content-header">
                         <h2>我的影片库</h2>
-                        <p>“看过”主列表和平台筛选都在这里，当前由本地影片库驱动。</p>
+                        <p>跨平台统一视图，自动按电影去重</p>
                     </div>
 
                     <div class="data-controls-row">
@@ -1507,42 +1826,73 @@
                             <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="trakt"><img
                                     src="/static/images/platforms/trakt.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Trakt</button>
-                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="letterboxd"><img
-                                    src="/static/images/platforms/letterboxd.png"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Letterboxd</button>
-                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="tmdb"><img
-                                    src="/static/images/platforms/tmdb.png"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB</button>
-                        </div>
-                        <div class="export-controls">
+	                            <button class="btn btn-secondary btn-sm" id="import-letterboxd-library-btn"><img
+	                                    src="/static/images/platforms/letterboxd.png"
+	                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Letterboxd CSV</button>
+	                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="tmdb"><img
+	                                    src="/static/images/platforms/tmdb.png"
+	                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB</button>
+	                            <button class="btn btn-outline btn-sm" id="import-legacy-btn" data-platform="all">导入旧版 CSV</button>
+	                        </div>
+	                        <div class="export-controls">
                             <div class="library-view-toggle" role="group">
-                                <button class="btn btn-secondary btn-sm" id="library-view-grid" data-view="grid">🔳 网格</button>
-                                <button class="btn btn-secondary btn-sm active" id="library-view-list" data-view="list">📋 列表</button>
+                                <button class="btn btn-secondary btn-sm" id="library-view-grid" data-view="grid" title="海报网格视图">🔳 网格</button>
+                                <button class="btn btn-secondary btn-sm active" id="library-view-list" data-view="list" title="详细列表视图">📋 列表</button>
                             </div>
-                            <button class="btn btn-outline btn-sm" id="import-legacy-btn">导入 CSV</button>
-                            <button class="btn btn-primary btn-sm" id="refresh-library-btn">刷新</button>
-                        </div>
+                            <select id="export-source" class="export-select">
+                                <option value="merged" selected>合并数据</option>
+	                                <option value="douban">豆瓣</option>
+	                                <option value="imdb">IMDb</option>
+	                                <option value="trakt">Trakt</option>
+	                                <option value="letterboxd">Letterboxd</option>
+	                                <option value="tmdb">TMDB</option>
+	                            </select>
+	                            <button class="btn btn-secondary btn-sm" id="export-library-btn">📥 导出</button>
+	                        </div>
                     </div>
 
                     <div class="library-filter-header">
                         <div class="library-filter-tabs" id="library-filter-tabs">
-                            <button class="filter-tab active" data-filter="all">全部 <span class="filter-count"
+                            <button class="filter-tab active" data-filter="all">🔗 共有 <span class="filter-count"
                                     id="count-all">0</span></button>
-                            <button class="filter-tab" data-filter="douban">豆瓣 <span class="filter-count"
+                            <button class="filter-tab" data-filter="douban">
+                                <label class="filter-checkbox" onclick="event.stopPropagation();">
+                                    <input type="checkbox" value="douban" id="platform-check-douban" checked>
+                                </label>
+                                <img src="/static/images/platforms/douban.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 豆瓣 <span class="filter-count"
                                     id="count-douban">0</span></button>
-                            <button class="filter-tab" data-filter="imdb">IMDb <span class="filter-count"
+                            <button class="filter-tab" data-filter="imdb">
+                                <label class="filter-checkbox" onclick="event.stopPropagation();">
+                                    <input type="checkbox" value="imdb" id="platform-check-imdb" checked>
+                                </label>
+                                <img src="/static/images/platforms/imdb.svg"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> IMDb <span class="filter-count"
                                     id="count-imdb">0</span></button>
-                            <button class="filter-tab" data-filter="trakt">Trakt <span class="filter-count"
+                            <button class="filter-tab" data-filter="trakt">
+                                <label class="filter-checkbox" onclick="event.stopPropagation();">
+                                    <input type="checkbox" value="trakt" id="platform-check-trakt" checked>
+                                </label>
+                                <img src="/static/images/platforms/trakt.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Trakt <span class="filter-count"
                                     id="count-trakt">0</span></button>
-                            <button class="filter-tab" data-filter="letterboxd">Letterboxd <span class="filter-count"
+                            <button class="filter-tab" data-filter="letterboxd">
+                                <label class="filter-checkbox" onclick="event.stopPropagation();">
+                                    <input type="checkbox" value="letterboxd" id="platform-check-letterboxd" checked>
+                                </label>
+                                <img src="/static/images/platforms/letterboxd.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Letterboxd <span class="filter-count"
                                     id="count-letterboxd">0</span></button>
-                            <button class="filter-tab" data-filter="tmdb">TMDB <span class="filter-count"
+                            <button class="filter-tab" data-filter="tmdb">
+                                <label class="filter-checkbox" onclick="event.stopPropagation();">
+                                    <input type="checkbox" value="tmdb" id="platform-check-tmdb" checked>
+                                </label>
+                                <img src="/static/images/platforms/tmdb.png"
+                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB <span class="filter-count"
                                     id="count-tmdb">0</span></button>
                         </div>
                     </div>
-                    <div class="library-insight-bar" id="library-insight-bar">
-                        正在整理整合片库与平台差异...
-                    </div>
+                    <div class="library-insight-bar" id="library-insight-bar" style="display:none;"></div>
 
                     <div class="unified-library">
                         <div class="library-empty" id="library-empty">
@@ -1607,28 +1957,36 @@
                                                     <input type="radio" name="rust-sync-mode" value="new" checked>
                                                     <span>🆕 仅新增</span>
                                                 </label>
-                                                <label class="checkbox-card">
-                                                    <input type="radio" name="rust-sync-mode" value="overwrite" disabled>
-                                                    <span>✏️ 覆盖已有</span>
-                                                </label>
-                                            </div>
-                                            <div class="rust-compact-note">当前执行前会先刷新双方本地库；目标已有评分时默认保护。</div>
-                                            <div class="legacy-default-rating-row">
-                                                <label for="sync-recent-limit">最近条目数</label>
-                                                <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
-                                                <label for="sync-default-rating">未评分默认</label>
-                                                <input type="number" id="sync-default-rating" min="0" max="10" step="0.5" value="0">
-                                            </div>
+	                                                <label class="checkbox-card">
+	                                                    <input type="radio" name="rust-sync-mode" value="overwrite">
+	                                                    <span>✏️ 覆盖已有</span>
+	                                                </label>
+	                                            </div>
+		                                            <div class="rust-compact-note">预览默认使用本地库以保持快速；执行同步会强制刷新双方后再次确认，避免旧数据覆盖目标平台已有评分。</div>
+		                                            <div class="legacy-default-rating-row">
+		                                                <label for="sync-recent-limit">最近条目数</label>
+		                                                <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
+	                                                    <label class="legacy-default-rating-toggle" for="sync-refresh-before">
+	                                                        <input type="checkbox" id="sync-refresh-before">
+	                                                        预览前也刷新双方
+	                                                    </label>
+		                                                <label class="legacy-default-rating-toggle" for="sync-default-rating-enabled">
+		                                                    <input type="checkbox" id="sync-default-rating-enabled">
+		                                                    未评分使用默认分
+	                                                </label>
+	                                                <input type="number" id="sync-default-rating" min="1" max="10" step="0.5" value="7" disabled>
+	                                            </div>
                                         </div>
                                     </div>
 
                                     <div class="legacy-sync-actions">
                                         <button class="btn btn-secondary" id="preview-sync-btn">🔍 预览</button>
-                                        <button class="btn btn-primary" id="execute-sync-btn">✨ 执行同步</button>
+	                                        <button class="btn btn-primary" id="execute-sync-btn" disabled>✨ 执行同步</button>
                                     </div>
                                 </div>
                             </div>
-                        </div>
+
+	                        </div>
 
                         <div class="data-card sync-main-card legacy-scheduled-card">
                             <div class="data-card-header">
@@ -1640,11 +1998,11 @@
                             <div class="data-card-body legacy-scheduled-body">
                                 <div class="scheduled-tabs">
                                     <div class="scheduled-tabs-header">
-                                        <button class="scheduled-tab-button active" type="button">任务列表</button>
-                                        <button class="scheduled-tab-button" type="button">执行日志</button>
+                                        <button class="scheduled-tab-button active" type="button" data-scheduled-target="scheduled-task-list-panel">任务列表</button>
+                                        <button class="scheduled-tab-button" type="button" data-scheduled-target="scheduled-task-log-panel">执行日志</button>
                                     </div>
                                     <div class="scheduled-tabs-content">
-                                        <div class="scheduled-tab-panel active">
+                                        <div class="scheduled-tab-panel active" id="scheduled-task-list-panel">
                                             <div class="legacy-scheduled-list-header">
                                                 <span>全部任务</span>
                                                 <div class="rust-toolbar-group">
@@ -1655,6 +2013,17 @@
                                             <div class="legacy-scheduled-scroll">
                                                 <div id="scheduled-tasks-empty" class="rust-empty">📭 暂无定时任务</div>
                                                 <div id="scheduled-tasks-list" class="rust-list" style="display:none;"></div>
+                                            </div>
+                                        </div>
+                                        <div class="scheduled-tab-panel" id="scheduled-task-log-panel" style="display:none;">
+                                            <div class="legacy-scheduled-list-header">
+                                                <span>最近执行</span>
+                                                <button class="btn btn-ghost btn-sm" id="refresh-scheduled-logs-btn" type="button">刷新</button>
+                                            </div>
+                                            <div class="legacy-scheduled-scroll">
+                                                <div id="scheduled-task-logs" class="rust-list">
+                                                    <div class="rust-empty">暂无执行日志</div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1728,6 +2097,10 @@
                                 <button class="btn btn-outline btn-sm" id="clear-sync-selection-btn" type="button">清空</button>
                             </div>
                         </div>
+                        <div class="sync-live-progress" id="sync-live-progress" hidden>
+                            <div class="sync-live-progress-track"><span id="sync-live-progress-bar"></span></div>
+                            <span id="sync-live-progress-text">准备同步</span>
+                        </div>
                         <div id="sync-preview-empty" class="rust-empty">先点击“预览”，这里会显示待同步列表、跳过原因和执行结果。</div>
                         <div id="sync-preview-list" class="data-preview legacy-sync-preview-list" style="display:none;"></div>
                     </div>
@@ -1761,11 +2134,11 @@
                             <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="tmdb"><img
                                     src="/static/images/platforms/tmdb.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新 TMDB 想看</button>
-                            <button class="btn btn-outline btn-sm rust-placeholder-btn" data-feature="letterboxd-watchlist">导入 Letterboxd 想看</button>
+	                            <button class="btn btn-outline btn-sm" id="import-letterboxd-legacy-btn">导入 Letterboxd diary.csv</button>
                         </div>
                         <div class="wishlist-view-toggle" role="group" aria-label="Wishlist view mode">
-                            <button class="btn btn-secondary btn-sm active" id="wishlist-view-grid" data-view="grid">🔳 网格</button>
-                            <button class="btn btn-secondary btn-sm" id="wishlist-view-list" data-view="list">📋 列表</button>
+                            <button class="btn btn-secondary btn-sm" id="wishlist-view-grid" data-view="grid">🔳 网格</button>
+                            <button class="btn btn-secondary btn-sm active" id="wishlist-view-list" data-view="list">📋 列表</button>
                         </div>
                     </div>
 
@@ -1774,9 +2147,10 @@
                         <label class="wishlist-source-option"><input type="checkbox" data-source="douban" checked> 豆瓣</label>
                         <label class="wishlist-source-option"><input type="checkbox" data-source="imdb" checked> IMDb</label>
                         <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked> Trakt</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
-                    </div>
+	                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
+	                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
+	                        <label class="wishlist-source-option"><input type="checkbox" id="wishlist-filter-unmatched"> 仅未入库</label>
+	                    </div>
 
                     <div class="unified-library">
                         <div class="library-empty" id="wishlist-empty">
@@ -1794,9 +2168,16 @@
 
                 <div class="tab-content" id="tab-settings">
                     <div class="content-header">
-                        <h2>设置与账户</h2>
+                        <h2>设置与管理</h2>
+                        <p>账户连接、备份与系统设置</p>
+                    </div>
+                    <div class="settings-sub-tabs">
+                        <button class="settings-sub-tab active" type="button" data-settings-target="settings-account-panel">🔐 账户</button>
+                        <button class="settings-sub-tab" type="button" data-settings-target="settings-backup-panel">📁 备份</button>
+                        <button class="settings-sub-tab" type="button" data-settings-target="settings-system-panel">⚙️ 系统</button>
                     </div>
 
+                    <div class="settings-sub-panel active" id="settings-account-panel">
                     <section class="platform-cards-stack">
                         <div class="platform-full-card douban">
                             <div class="card-header">
@@ -1996,24 +2377,26 @@
                                 /
                                 <a class="rust-link" href="https://juejin.cn/post/7190963442017108027" target="_blank" rel="noopener noreferrer">Juejin 教程</a>
                             </p>
-                            <div class="rust-form-grid" style="margin-top: 14px;">
-                                <div class="full">
-                                    <label for="cookiecloud-host">服务地址</label>
-                                    <input type="text" id="cookiecloud-host" placeholder="例如 https://cookie.example.com">
+                            <form id="cookiecloud-form">
+                                <div class="rust-form-grid" style="margin-top: 14px;">
+                                    <div class="full">
+                                        <label for="cookiecloud-host">服务地址</label>
+                                        <input type="url" id="cookiecloud-host" placeholder="例如 https://cookie.example.com" autocomplete="url">
+                                    </div>
+                                    <div>
+                                        <label for="cookiecloud-uuid">UUID</label>
+                                        <input type="text" id="cookiecloud-uuid" placeholder="CookieCloud UUID" autocomplete="username">
+                                    </div>
+                                    <div>
+                                        <label for="cookiecloud-password">密码</label>
+                                        <input type="password" id="cookiecloud-password" placeholder="CookieCloud Password" autocomplete="current-password">
+                                    </div>
                                 </div>
-                                <div>
-                                    <label for="cookiecloud-uuid">UUID</label>
-                                    <input type="text" id="cookiecloud-uuid" placeholder="CookieCloud UUID">
+                                <div class="card-actions" style="margin-top: 16px;">
+                                    <button class="btn btn-primary" id="sync-cookiecloud-btn" type="button">☁️ 同步 CookieCloud</button>
+                                    <span class="rust-status-inline">建议先保证浏览器插件侧的登录态仍有效</span>
                                 </div>
-                                <div>
-                                    <label for="cookiecloud-password">密码</label>
-                                    <input type="password" id="cookiecloud-password" placeholder="CookieCloud Password">
-                                </div>
-                            </div>
-                            <div class="card-actions" style="margin-top: 16px;">
-                                <button class="btn btn-primary" id="sync-cookiecloud-btn">☁️ 同步 CookieCloud</button>
-                                <span class="rust-status-inline">建议先保证浏览器插件侧的登录态仍有效</span>
-                            </div>
+                            </form>
                         </section>
 
                         <section class="rust-panel">
@@ -2028,27 +2411,27 @@
                                         <div class="rust-form-grid">
                                             <div>
                                                 <label for="tmdb-api-key">TMDB API Key</label>
-                                                <input type="text" id="tmdb-api-key" placeholder="仅写入本地配置">
+                                                <input type="text" id="tmdb-api-key" placeholder="仅写入本地配置" autocomplete="off">
                                             </div>
                                             <div>
                                                 <label for="tmdb-session-id">TMDB Session ID</label>
-                                                <input type="text" id="tmdb-session-id" placeholder="用于评分抓取">
+                                                <input type="text" id="tmdb-session-id" placeholder="用于评分抓取" autocomplete="off">
                                             </div>
                                             <div>
                                                 <label for="trakt-client-id">Trakt Client ID</label>
-                                                <input type="text" id="trakt-client-id" placeholder="设备授权所需">
+                                                <input type="text" id="trakt-client-id" placeholder="设备授权所需" autocomplete="off">
                                             </div>
                                             <div>
                                                 <label for="trakt-client-secret">Trakt Client Secret</label>
-                                                <input type="password" id="trakt-client-secret" placeholder="设备授权所需">
+                                                <input type="password" id="trakt-client-secret" placeholder="设备授权所需" autocomplete="current-password">
                                             </div>
                                             <div>
                                                 <label for="imdb-user-id">IMDb User ID</label>
-                                                <input type="text" id="imdb-user-id" placeholder="例如 ur12345678">
+                                                <input type="text" id="imdb-user-id" placeholder="例如 ur12345678" autocomplete="off">
                                             </div>
                                             <div>
                                                 <label for="douban-user-id">Douban User ID</label>
-                                                <input type="text" id="douban-user-id" placeholder="例如 gawaintan">
+                                                <input type="text" id="douban-user-id" placeholder="例如 gawaintan" autocomplete="off">
                                             </div>
                                             <div class="full">
                                                 <label for="imdb-cookie">IMDb Cookie</label>
@@ -2104,6 +2487,74 @@
                             </div>
                         </section>
                     </div>
+                    </div>
+
+                    <div class="settings-sub-panel" id="settings-backup-panel" style="display:none;">
+                        <section class="rust-panel settings-feature-panel">
+                            <div class="rust-toolbar">
+                                <div>
+                                    <h3>好友豆瓣备份</h3>
+                                    <p class="rust-compact-note">输入公开豆瓣 ID，可同时归档好友的看过与想看；不会使用你的 Cookie。</p>
+                                </div>
+                                <button class="btn btn-outline btn-sm" id="refresh-backups-btn" type="button">刷新</button>
+                            </div>
+                            <form id="friend-backup-form" class="backup-create-form">
+                                <div>
+                                    <label for="friend-backup-user-id">好友豆瓣 ID</label>
+                                    <input type="text" id="friend-backup-user-id" placeholder="例如 shuaMovie" autocomplete="off">
+                                </div>
+                                <label class="rust-status-inline backup-option">
+                                    <input type="checkbox" id="friend-backup-watched" checked>
+                                    看过
+                                </label>
+                                <label class="rust-status-inline backup-option">
+                                    <input type="checkbox" id="friend-backup-wishlist" checked>
+                                    想看
+                                </label>
+                                <button class="btn btn-primary" id="create-friend-backup-btn" type="submit">开始备份</button>
+                            </form>
+                            <div class="rust-status-inline" id="friend-backup-status">备份保存在独立数据目录，可随时预览或删除。</div>
+                        </section>
+
+                        <section class="rust-panel settings-feature-panel">
+                            <div class="rust-toolbar">
+                                <h3>备份记录</h3>
+                                <span class="rust-status-inline" id="backups-summary">0 份</span>
+                            </div>
+                            <div id="backups-empty" class="rust-empty">暂无好友备份</div>
+                            <div id="backups-list" class="backup-list" style="display:none;"></div>
+                        </section>
+
+                        <section class="rust-panel settings-feature-panel" id="backup-preview-panel" style="display:none;">
+                            <div class="rust-toolbar">
+                                <div>
+                                    <h3 id="backup-preview-title">备份预览</h3>
+                                    <p class="rust-compact-note" id="backup-preview-summary"></p>
+                                </div>
+                                <button class="btn btn-outline btn-sm" id="close-backup-preview-btn" type="button">关闭</button>
+                            </div>
+                            <div class="backup-preview-tabs">
+                                <button class="btn btn-secondary btn-sm active" type="button" data-backup-preview-kind="watched">看过</button>
+                                <button class="btn btn-outline btn-sm" type="button" data-backup-preview-kind="wishlist">想看</button>
+                            </div>
+                            <div id="backup-preview-list" class="backup-preview-grid"></div>
+                        </section>
+                    </div>
+
+                    <div class="settings-sub-panel" id="settings-system-panel" style="display:none;">
+                        <section class="rust-panel settings-feature-panel">
+                            <div class="rust-toolbar">
+                                <div>
+                                    <h3>系统状态</h3>
+                                    <p class="rust-compact-note">运行信息与本地存储位置，不显示密钥和 Cookie。</p>
+                                </div>
+                                <button class="btn btn-outline btn-sm" id="refresh-system-info-btn" type="button">刷新</button>
+                            </div>
+                            <div id="system-info-grid" class="system-info-grid">
+                                <div class="rust-empty">正在读取系统信息...</div>
+                            </div>
+                        </section>
+                    </div>
                 </div>
             </main>
         </div>
@@ -2117,7 +2568,7 @@
         </nav>
     </div>
 
-    <script src="/static/rust-v2.js?v=20260518-sync2"></script>
+    <script src="/static/rust-v2.js?v=20260612-packaging-scheduler3"></script>
 </body>
 
 </html>

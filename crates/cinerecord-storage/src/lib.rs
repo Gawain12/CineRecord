@@ -7,8 +7,9 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use cinerecord_core::{
-    AppConfig, MovieIdentifiers, MovieRecord, PlatformDescriptor, PlatformStatus, ScheduledTask, ScheduledTaskLog,
-    SyncTask, TaskKind, TaskStatus, UnifiedMediaItem, UnifiedSourceEntry, WishlistRecord,
+    AppConfig, MovieIdentifiers, MovieRecord, PlatformDescriptor, PlatformStatus, ScheduledTask,
+    ScheduledTaskLog, SyncTask, TaskKind, TaskStatus, UnifiedMediaItem, UnifiedSourceEntry,
+    WishlistRecord,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -18,6 +19,7 @@ use sqlx::{
 use tokio::fs;
 
 static DOUBAN_IMDB_CACHE: OnceLock<HashMap<String, String>> = OnceLock::new();
+const LIBRARY_PLATFORMS: [&str; 5] = ["douban", "imdb", "trakt", "letterboxd", "tmdb"];
 
 #[derive(Debug, Clone)]
 pub struct StoragePaths {
@@ -26,6 +28,7 @@ pub struct StoragePaths {
     pub data_dir: PathBuf,
     pub platforms_dir: PathBuf,
     pub exports_dir: PathBuf,
+    pub backups_dir: PathBuf,
     pub db_path: PathBuf,
     pub log_path: PathBuf,
 }
@@ -37,6 +40,7 @@ impl StoragePaths {
         let data_dir = root.join("data").join("v2");
         let platforms_dir = data_dir.join("platforms");
         let exports_dir = data_dir.join("exports");
+        let backups_dir = data_dir.join("backups");
         let db_path = data_dir.join("app.db");
         let log_path = root.join("logs").join("v2").join("server.log");
         Self {
@@ -45,6 +49,7 @@ impl StoragePaths {
             data_dir,
             platforms_dir,
             exports_dir,
+            backups_dir,
             db_path,
             log_path,
         }
@@ -55,9 +60,106 @@ impl StoragePaths {
         fs::create_dir_all(&self.data_dir).await?;
         fs::create_dir_all(&self.platforms_dir).await?;
         fs::create_dir_all(&self.exports_dir).await?;
+        fs::create_dir_all(&self.backups_dir).await?;
         fs::create_dir_all(self.log_path.parent().context("log dir missing")?).await?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendBackup {
+    pub id: String,
+    pub platform: String,
+    pub user_id: String,
+    pub watched: Vec<MovieRecord>,
+    pub wishlist: Vec<WishlistRecord>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendBackupSummary {
+    pub id: String,
+    pub platform: String,
+    pub user_id: String,
+    pub watched_count: usize,
+    pub wishlist_count: usize,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<&FriendBackup> for FriendBackupSummary {
+    fn from(value: &FriendBackup) -> Self {
+        Self {
+            id: value.id.clone(),
+            platform: value.platform.clone(),
+            user_id: value.user_id.clone(),
+            watched_count: value.watched.len(),
+            wishlist_count: value.wishlist.len(),
+            created_at: value.created_at,
+        }
+    }
+}
+
+pub async fn save_friend_backup(paths: &StoragePaths, backup: &FriendBackup) -> Result<()> {
+    paths.ensure_dirs().await?;
+    validate_backup_id(&backup.id)?;
+    let content = serde_json::to_vec_pretty(backup)?;
+    fs::write(
+        paths.backups_dir.join(format!("{}.json", backup.id)),
+        content,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn list_friend_backups(paths: &StoragePaths) -> Result<Vec<FriendBackupSummary>> {
+    paths.ensure_dirs().await?;
+    let mut entries = fs::read_dir(&paths.backups_dir).await?;
+    let mut backups = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let content = fs::read(entry.path()).await?;
+        if let Ok(backup) = serde_json::from_slice::<FriendBackup>(&content) {
+            backups.push(FriendBackupSummary::from(&backup));
+        }
+    }
+    backups.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    Ok(backups)
+}
+
+pub async fn get_friend_backup(
+    paths: &StoragePaths,
+    backup_id: &str,
+) -> Result<Option<FriendBackup>> {
+    validate_backup_id(backup_id)?;
+    let path = paths.backups_dir.join(format!("{backup_id}.json"));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read(path).await?;
+    Ok(Some(serde_json::from_slice(&content)?))
+}
+
+pub async fn delete_friend_backup(paths: &StoragePaths, backup_id: &str) -> Result<bool> {
+    validate_backup_id(backup_id)?;
+    let path = paths.backups_dir.join(format!("{backup_id}.json"));
+    if !path.exists() {
+        return Ok(false);
+    }
+    fs::remove_file(path).await?;
+    Ok(true)
+}
+
+fn validate_backup_id(backup_id: &str) -> Result<()> {
+    if backup_id.is_empty()
+        || !backup_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    {
+        anyhow::bail!("invalid backup id");
+    }
+    Ok(())
 }
 
 pub async fn load_or_init_config(paths: &StoragePaths) -> Result<AppConfig> {
@@ -102,7 +204,8 @@ async fn hydrate_legacy_download_sites(paths: &StoragePaths, config: &mut AppCon
         .get("download_sites_enabled")
         .and_then(|items| items.as_array())
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(|item| item.as_str().map(ToOwned::to_owned))
                 .collect::<Vec<_>>()
         })
@@ -111,7 +214,8 @@ async fn hydrate_legacy_download_sites(paths: &StoragePaths, config: &mut AppCon
         .get("download_sites_deleted")
         .and_then(|items| items.as_array())
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(|item| item.as_str().map(ToOwned::to_owned))
                 .collect::<Vec<_>>()
         })
@@ -120,7 +224,8 @@ async fn hydrate_legacy_download_sites(paths: &StoragePaths, config: &mut AppCon
         .get("download_sites_custom")
         .and_then(|items| items.as_array())
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(|item| serde_json::from_value(item.clone()).ok())
                 .collect::<Vec<_>>()
         })
@@ -144,19 +249,45 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
     let value: serde_json::Value = serde_json::from_str(&content)?;
     let mut changed = false;
 
-    if config.platforms.tmdb.api_key.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(api_key) = value.get("tmdb_api_key").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .tmdb
+        .api_key
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(api_key) = value
+            .get("tmdb_api_key")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.tmdb.api_key = Some(api_key.to_string());
             changed = true;
         }
     }
-    if config.platforms.tmdb.session_id.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(session_id) = value.get("tmdb_session_id").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .tmdb
+        .session_id
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(session_id) = value
+            .get("tmdb_session_id")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.tmdb.session_id = Some(session_id.to_string());
             changed = true;
         }
     }
-    if config.platforms.tmdb.request_token.as_deref().is_none_or(|value| value.trim().is_empty()) {
+    if config
+        .platforms
+        .tmdb
+        .request_token
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
         if let Some(request_token) = value
             .get("tmdb_request_token")
             .and_then(|item| item.as_str())
@@ -166,31 +297,68 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
             changed = true;
         }
     }
-    if config.platforms.tmdb.account_id.as_deref().is_none_or(|value| value.trim().is_empty()) {
+    if config
+        .platforms
+        .tmdb
+        .account_id
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
         if let Some(account_id) = value
             .get("tmdb_account_id")
             .and_then(|item| item.as_i64())
             .map(|item| item.to_string())
-            .or_else(|| value.get("tmdb_account_id").and_then(|item| item.as_str()).map(ToOwned::to_owned))
+            .or_else(|| {
+                value
+                    .get("tmdb_account_id")
+                    .and_then(|item| item.as_str())
+                    .map(ToOwned::to_owned)
+            })
         {
             config.platforms.tmdb.account_id = Some(account_id);
             changed = true;
         }
     }
-    if config.platforms.tmdb.username.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(username) = value.get("tmdb_username").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .tmdb
+        .username
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(username) = value
+            .get("tmdb_username")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.tmdb.username = Some(username.to_string());
             changed = true;
         }
     }
 
-    if config.platforms.trakt.client_id.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(client_id) = value.get("trakt_client_id").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .trakt
+        .client_id
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(client_id) = value
+            .get("trakt_client_id")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.trakt.client_id = Some(client_id.to_string());
             changed = true;
         }
     }
-    if config.platforms.trakt.client_secret.as_deref().is_none_or(|value| value.trim().is_empty()) {
+    if config
+        .platforms
+        .trakt
+        .client_secret
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
         if let Some(client_secret) = value
             .get("trakt_client_secret")
             .and_then(|item| item.as_str())
@@ -200,7 +368,13 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
             changed = true;
         }
     }
-    if config.platforms.trakt.access_token.as_deref().is_none_or(|value| value.trim().is_empty()) {
+    if config
+        .platforms
+        .trakt
+        .access_token
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
         if let Some(access_token) = value
             .get("trakt_access_token")
             .and_then(|item| item.as_str())
@@ -210,7 +384,13 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
             changed = true;
         }
     }
-    if config.platforms.trakt.refresh_token.as_deref().is_none_or(|value| value.trim().is_empty()) {
+    if config
+        .platforms
+        .trakt
+        .refresh_token
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
         if let Some(refresh_token) = value
             .get("trakt_refresh_token")
             .and_then(|item| item.as_str())
@@ -232,44 +412,107 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
         }
     }
 
-    if config.platforms.douban.user_id.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(user_id) = value.get("douban_user_id").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .douban
+        .user_id
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(user_id) = value
+            .get("douban_user_id")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.douban.user_id = Some(user_id.to_string());
             changed = true;
         }
     }
-    if config.platforms.douban.cookie.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(cookie) = value.get("douban_cookie").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .douban
+        .cookie
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(cookie) = value
+            .get("douban_cookie")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.douban.cookie = Some(cookie.to_string());
             changed = true;
         }
     }
-    if config.platforms.imdb.user_id.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(user_id) = value.get("imdb_user_id").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .imdb
+        .user_id
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(user_id) = value
+            .get("imdb_user_id")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.imdb.user_id = Some(user_id.to_string());
             changed = true;
         }
     }
-    if config.platforms.imdb.cookie.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(cookie) = value.get("imdb_cookie").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .platforms
+        .imdb
+        .cookie
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(cookie) = value
+            .get("imdb_cookie")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.platforms.imdb.cookie = Some(cookie.to_string());
             changed = true;
         }
     }
 
-    if config.cookiecloud.host.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(host) = value.get("cookiecloud_host").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .cookiecloud
+        .host
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(host) = value
+            .get("cookiecloud_host")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.cookiecloud.host = Some(host.to_string());
             changed = true;
         }
     }
-    if config.cookiecloud.uuid.as_deref().is_none_or(|value| value.trim().is_empty()) {
-        if let Some(uuid) = value.get("cookiecloud_uuid").and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+    if config
+        .cookiecloud
+        .uuid
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        if let Some(uuid) = value
+            .get("cookiecloud_uuid")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
             config.cookiecloud.uuid = Some(uuid.to_string());
             changed = true;
         }
     }
-    if config.cookiecloud.password.as_deref().is_none_or(|value| value.trim().is_empty()) {
+    if config
+        .cookiecloud
+        .password
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
         if let Some(password) = value
             .get("cookiecloud_password")
             .and_then(|item| item.as_str())
@@ -430,10 +673,15 @@ async fn recover_incomplete_tasks(pool: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
-pub async fn list_platforms(config: &AppConfig, pool: &SqlitePool) -> Result<Vec<PlatformDescriptor>> {
-    let states = sqlx::query("SELECT platform, configured, last_validated_at, message, profile_json FROM platform_state")
-        .fetch_all(pool)
-        .await?;
+pub async fn list_platforms(
+    config: &AppConfig,
+    pool: &SqlitePool,
+) -> Result<Vec<PlatformDescriptor>> {
+    let states = sqlx::query(
+        "SELECT platform, configured, last_validated_at, message, profile_json FROM platform_state",
+    )
+    .fetch_all(pool)
+    .await?;
 
     let mut state_map = std::collections::HashMap::new();
     for row in states {
@@ -457,9 +705,30 @@ pub async fn list_platforms(config: &AppConfig, pool: &SqlitePool) -> Result<Vec
     }
 
     let descriptors = vec![
-        ("tmdb", "TMDB", "api_key", config.platforms.tmdb.api_key.is_some(), true, true),
-        ("trakt", "Trakt", "oauth", config.platforms.trakt.client_id.is_some(), true, true),
-        ("imdb", "IMDb", "cookie", config.platforms.imdb.cookie.is_some(), true, true),
+        (
+            "tmdb",
+            "TMDB",
+            "api_key",
+            config.platforms.tmdb.api_key.is_some(),
+            true,
+            true,
+        ),
+        (
+            "trakt",
+            "Trakt",
+            "oauth",
+            config.platforms.trakt.client_id.is_some(),
+            true,
+            true,
+        ),
+        (
+            "imdb",
+            "IMDb",
+            "cookie",
+            config.platforms.imdb.cookie.is_some(),
+            true,
+            true,
+        ),
         (
             "douban",
             "Douban",
@@ -473,37 +742,43 @@ pub async fn list_platforms(config: &AppConfig, pool: &SqlitePool) -> Result<Vec
 
     Ok(descriptors
         .into_iter()
-        .map(|(id, name, auth_type, config_present, supports_fetch, supports_sync)| {
-            let persisted = state_map.remove(id);
-            let status = match persisted {
-                Some(state) => PlatformStatus {
-                    config_present,
-                    configured: config_present && state.configured,
-                    last_validated_at: state.last_validated_at,
-                    message: if state.message.as_deref().is_some_and(|message| !message.trim().is_empty()) {
-                        state.message
-                    } else {
-                        None
+        .map(
+            |(id, name, auth_type, config_present, supports_fetch, supports_sync)| {
+                let persisted = state_map.remove(id);
+                let status = match persisted {
+                    Some(state) => PlatformStatus {
+                        config_present,
+                        configured: config_present && state.configured,
+                        last_validated_at: state.last_validated_at,
+                        message: if state
+                            .message
+                            .as_deref()
+                            .is_some_and(|message| !message.trim().is_empty())
+                        {
+                            state.message
+                        } else {
+                            None
+                        },
+                        profile: if config_present { state.profile } else { None },
                     },
-                    profile: if config_present { state.profile } else { None },
-                },
-                None => PlatformStatus {
-                    config_present,
-                    configured: id == "letterboxd" && config_present,
-                    last_validated_at: None,
-                    message: None,
-                    profile: None,
-                },
-            };
-            PlatformDescriptor {
-                id: id.to_string(),
-                name: name.to_string(),
-                auth_type: auth_type.to_string(),
-                supports_fetch,
-                supports_sync,
-                status,
-            }
-        })
+                    None => PlatformStatus {
+                        config_present,
+                        configured: id == "letterboxd" && config_present,
+                        last_validated_at: None,
+                        message: None,
+                        profile: None,
+                    },
+                };
+                PlatformDescriptor {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    auth_type: auth_type.to_string(),
+                    supports_fetch,
+                    supports_sync,
+                    status,
+                }
+            },
+        )
         .collect())
 }
 
@@ -532,6 +807,60 @@ pub async fn upsert_platform_state(
     .bind(profile.map(|value| value.to_string()))
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+pub async fn update_platform_local_counts(
+    pool: &SqlitePool,
+    platform: &str,
+    library_count: Option<usize>,
+    wishlist_count: Option<usize>,
+) -> Result<()> {
+    let profile_json = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT profile_json FROM platform_state WHERE platform = ?1",
+    )
+    .bind(platform)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+
+    let mut profile = profile_json
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let Some(profile) = profile.as_object_mut() else {
+        return Ok(());
+    };
+
+    if let Some(count) = library_count {
+        let keys: &[&str] = match platform {
+            "douban" => &["watched", "watched_total"],
+            "imdb" => &["ratings", "ratings_total"],
+            "trakt" => &["watched"],
+            "tmdb" => &["ratings", "rated_total"],
+            "letterboxd" => &["watched"],
+            _ => &[],
+        };
+        for key in keys {
+            profile.insert((*key).to_string(), serde_json::json!(count));
+        }
+    }
+
+    if let Some(count) = wishlist_count {
+        let keys: &[&str] = if platform == "douban" {
+            &["wish", "wish_total"]
+        } else {
+            &["watchlist", "watchlist_total"]
+        };
+        for key in keys {
+            profile.insert((*key).to_string(), serde_json::json!(count));
+        }
+    }
+
+    sqlx::query("UPDATE platform_state SET profile_json = ?1 WHERE platform = ?2")
+        .bind(serde_json::Value::Object(profile.clone()).to_string())
+        .bind(platform)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -585,16 +914,19 @@ pub async fn get_task(pool: &SqlitePool, task_id: &str) -> Result<Option<SyncTas
     row.map(task_from_row).transpose()
 }
 
-pub async fn update_task_status(pool: &SqlitePool, task_id: &str, status: TaskStatus, payload: serde_json::Value) -> Result<()> {
-    sqlx::query(
-        "UPDATE tasks SET status = ?2, payload_json = ?3, updated_at = ?4 WHERE id = ?1",
-    )
-    .bind(task_id)
-    .bind(task_status_to_str(&status))
-    .bind(payload.to_string())
-    .bind(Utc::now().to_rfc3339())
-    .execute(pool)
-    .await?;
+pub async fn update_task_status(
+    pool: &SqlitePool,
+    task_id: &str,
+    status: TaskStatus,
+    payload: serde_json::Value,
+) -> Result<()> {
+    sqlx::query("UPDATE tasks SET status = ?2, payload_json = ?3, updated_at = ?4 WHERE id = ?1")
+        .bind(task_id)
+        .bind(task_status_to_str(&status))
+        .bind(payload.to_string())
+        .bind(Utc::now().to_rfc3339())
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -606,7 +938,11 @@ pub async fn delete_task(pool: &SqlitePool, task_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn replace_library_items(pool: &SqlitePool, platform: &str, items: &[MovieRecord]) -> Result<()> {
+pub async fn replace_library_items(
+    pool: &SqlitePool,
+    platform: &str,
+    items: &[MovieRecord],
+) -> Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM library_items WHERE platform = ?1")
         .bind(platform)
@@ -637,7 +973,11 @@ pub async fn replace_library_items(pool: &SqlitePool, platform: &str, items: &[M
     Ok(())
 }
 
-pub async fn replace_wishlist_items(pool: &SqlitePool, platform: &str, items: &[WishlistRecord]) -> Result<()> {
+pub async fn replace_wishlist_items(
+    pool: &SqlitePool,
+    platform: &str,
+    items: &[WishlistRecord],
+) -> Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM wishlist_items WHERE platform = ?1")
         .bind(platform)
@@ -666,7 +1006,10 @@ pub async fn replace_wishlist_items(pool: &SqlitePool, platform: &str, items: &[
     Ok(())
 }
 
-pub async fn list_library_items(pool: &SqlitePool, platform: Option<&str>) -> Result<Vec<MovieRecord>> {
+pub async fn list_library_items(
+    pool: &SqlitePool,
+    platform: Option<&str>,
+) -> Result<Vec<MovieRecord>> {
     list_library_items_paginated(pool, platform, None, None).await
 }
 
@@ -714,7 +1057,10 @@ pub async fn count_library_items(pool: &SqlitePool, platform: Option<&str>) -> R
     Ok(row.get("count"))
 }
 
-pub async fn list_wishlist_items(pool: &SqlitePool, platform: Option<&str>) -> Result<Vec<WishlistRecord>> {
+pub async fn list_wishlist_items(
+    pool: &SqlitePool,
+    platform: Option<&str>,
+) -> Result<Vec<WishlistRecord>> {
     list_wishlist_items_paginated(pool, platform, None, None).await
 }
 
@@ -777,6 +1123,68 @@ pub async fn count_library_groups(pool: &SqlitePool, platform: Option<&str>) -> 
     Ok(aggregate_library_records(list_library_items(pool, platform).await?).len() as i64)
 }
 
+pub async fn list_library_items_view_paginated(
+    pool: &SqlitePool,
+    platform_filter: Option<&str>,
+    selected_platforms: &[String],
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<UnifiedMediaItem>> {
+    let mut items = filter_library_view_items(
+        aggregate_library_records(list_library_items(pool, None).await?),
+        platform_filter,
+        selected_platforms,
+    );
+    sort_unified_items(&mut items, true);
+    Ok(apply_paging(items, limit, offset))
+}
+
+pub async fn count_library_view_groups(
+    pool: &SqlitePool,
+    platform_filter: Option<&str>,
+    selected_platforms: &[String],
+) -> Result<i64> {
+    Ok(filter_library_view_items(
+        aggregate_library_records(list_library_items(pool, None).await?),
+        platform_filter,
+        selected_platforms,
+    )
+    .len() as i64)
+}
+
+pub async fn library_view_counts(
+    pool: &SqlitePool,
+    selected_platforms: &[String],
+) -> Result<HashMap<String, i64>> {
+    let items = aggregate_library_records(list_library_items(pool, None).await?);
+    let selected = normalized_selected_platforms(selected_platforms);
+    let show_union = selected.is_empty();
+    let mut counts = HashMap::new();
+    let shared_count = if show_union {
+        items.len()
+    } else {
+        items
+            .iter()
+            .filter(|item| has_all_selected_platforms(item, &selected))
+            .count()
+    };
+    counts.insert("shared".to_string(), shared_count as i64);
+
+    for platform in LIBRARY_PLATFORMS {
+        let count = items
+            .iter()
+            .filter(|item| {
+                item.source_platforms
+                    .iter()
+                    .any(|source| source == platform)
+            })
+            .filter(|item| show_union || !has_all_selected_platforms(item, &selected))
+            .count();
+        counts.insert(platform.to_string(), count as i64);
+    }
+    Ok(counts)
+}
+
 pub async fn list_wishlist_items_aggregated_paginated(
     pool: &SqlitePool,
     platform: Option<&str>,
@@ -784,14 +1192,18 @@ pub async fn list_wishlist_items_aggregated_paginated(
     offset: Option<i64>,
 ) -> Result<Vec<UnifiedMediaItem>> {
     let library = aggregate_library_records(list_library_items(pool, None).await?);
-    let mut items = aggregate_wishlist_records(list_wishlist_items(pool, platform).await?, &library);
+    let mut items =
+        aggregate_wishlist_records(list_wishlist_items(pool, platform).await?, &library);
     sort_unified_items(&mut items, false);
     Ok(apply_paging(items, limit, offset))
 }
 
 pub async fn count_wishlist_groups(pool: &SqlitePool, platform: Option<&str>) -> Result<i64> {
     let library = aggregate_library_records(list_library_items(pool, None).await?);
-    Ok(aggregate_wishlist_records(list_wishlist_items(pool, platform).await?, &library).len() as i64)
+    Ok(
+        aggregate_wishlist_records(list_wishlist_items(pool, platform).await?, &library).len()
+            as i64,
+    )
 }
 
 pub async fn list_scheduled_tasks(pool: &SqlitePool) -> Result<Vec<ScheduledTask>> {
@@ -867,7 +1279,10 @@ pub async fn delete_scheduled_task(pool: &SqlitePool, task_id: &str) -> Result<(
     Ok(())
 }
 
-pub async fn claim_due_scheduled_tasks(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<ScheduledTask>> {
+pub async fn claim_due_scheduled_tasks(
+    pool: &SqlitePool,
+    now: DateTime<Utc>,
+) -> Result<Vec<ScheduledTask>> {
     let due = sqlx::query(
         "SELECT id, name, source_platform, target_platform, schedule, recent_limit, only_new, overwrite, default_rating, paused, running, last_run_at, next_run_at, last_status_message, created_at, updated_at FROM scheduled_tasks WHERE paused = 0 AND running = 0 AND next_run_at IS NOT NULL AND next_run_at <= ?1 ORDER BY next_run_at ASC",
     )
@@ -964,7 +1379,10 @@ pub async fn add_scheduled_task_log(pool: &SqlitePool, log: &ScheduledTaskLog) -
     Ok(())
 }
 
-pub async fn list_scheduled_task_logs(pool: &SqlitePool, limit: i64) -> Result<Vec<ScheduledTaskLog>> {
+pub async fn list_scheduled_task_logs(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<ScheduledTaskLog>> {
     let rows = sqlx::query(
         "SELECT id, task_id, task_name, source_platform, target_platform, log_type, message, created_at FROM scheduled_task_logs ORDER BY created_at DESC LIMIT ?1",
     )
@@ -976,8 +1394,12 @@ pub async fn list_scheduled_task_logs(pool: &SqlitePool, limit: i64) -> Result<V
 
 pub async fn platform_item_counts(pool: &SqlitePool, table: &str) -> Result<HashMap<String, i64>> {
     let query = match table {
-        "library_items" => "SELECT platform, COUNT(*) AS count FROM library_items GROUP BY platform",
-        "wishlist_items" => "SELECT platform, COUNT(*) AS count FROM wishlist_items GROUP BY platform",
+        "library_items" => {
+            "SELECT platform, COUNT(*) AS count FROM library_items GROUP BY platform"
+        }
+        "wishlist_items" => {
+            "SELECT platform, COUNT(*) AS count FROM wishlist_items GROUP BY platform"
+        }
         other => anyhow::bail!("unsupported table for counts: {other}"),
     };
     let rows = sqlx::query(query).fetch_all(pool).await?;
@@ -988,7 +1410,12 @@ pub async fn platform_item_counts(pool: &SqlitePool, table: &str) -> Result<Hash
     Ok(counts)
 }
 
-pub async fn import_legacy_csv(paths: &StoragePaths, platform: &str, config: &AppConfig, pool: &SqlitePool) -> Result<LibrarySnapshot> {
+pub async fn import_legacy_csv(
+    paths: &StoragePaths,
+    platform: &str,
+    config: &AppConfig,
+    pool: &SqlitePool,
+) -> Result<LibrarySnapshot> {
     let csv_path = find_legacy_csv_path(paths, platform, config)
         .await?
         .with_context(|| format!("no legacy CSV found for platform {platform}"))?;
@@ -1010,15 +1437,18 @@ fn task_from_row(row: sqlx::sqlite::SqliteRow) -> Result<SyncTask> {
         kind: task_kind_from_str(row.get::<String, _>("kind").as_str()),
         status: task_status_from_str(row.get::<String, _>("status").as_str()),
         payload: serde_json::from_str(row.get::<String, _>("payload_json").as_str())?,
-        created_at: DateTime::parse_from_rfc3339(row.get::<String, _>("created_at").as_str())?.with_timezone(&Utc),
-        updated_at: DateTime::parse_from_rfc3339(row.get::<String, _>("updated_at").as_str())?.with_timezone(&Utc),
+        created_at: DateTime::parse_from_rfc3339(row.get::<String, _>("created_at").as_str())?
+            .with_timezone(&Utc),
+        updated_at: DateTime::parse_from_rfc3339(row.get::<String, _>("updated_at").as_str())?
+            .with_timezone(&Utc),
     })
 }
 
 fn movie_from_row(row: sqlx::sqlite::SqliteRow) -> Result<MovieRecord> {
     let platform: String = row.get("platform");
     let external_id: Option<String> = row.get("external_id");
-    let raw_json: serde_json::Value = serde_json::from_str(row.get::<String, _>("raw_json").as_str())?;
+    let raw_json: serde_json::Value =
+        serde_json::from_str(row.get::<String, _>("raw_json").as_str())?;
     Ok(MovieRecord {
         id: row.get("id"),
         platform: platform.clone(),
@@ -1039,7 +1469,8 @@ fn movie_from_row(row: sqlx::sqlite::SqliteRow) -> Result<MovieRecord> {
 fn wishlist_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WishlistRecord> {
     let platform: String = row.get("platform");
     let external_id: Option<String> = row.get("external_id");
-    let raw_json: serde_json::Value = serde_json::from_str(row.get::<String, _>("raw_json").as_str())?;
+    let raw_json: serde_json::Value =
+        serde_json::from_str(row.get::<String, _>("raw_json").as_str())?;
     Ok(WishlistRecord {
         id: row.get("id"),
         platform: platform.clone(),
@@ -1074,8 +1505,10 @@ fn scheduled_task_from_row(row: sqlx::sqlite::SqliteRow) -> Result<ScheduledTask
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&Utc)),
         last_status_message: row.get("last_status_message"),
-        created_at: DateTime::parse_from_rfc3339(row.get::<String, _>("created_at").as_str())?.with_timezone(&Utc),
-        updated_at: DateTime::parse_from_rfc3339(row.get::<String, _>("updated_at").as_str())?.with_timezone(&Utc),
+        created_at: DateTime::parse_from_rfc3339(row.get::<String, _>("created_at").as_str())?
+            .with_timezone(&Utc),
+        updated_at: DateTime::parse_from_rfc3339(row.get::<String, _>("updated_at").as_str())?
+            .with_timezone(&Utc),
     })
 }
 
@@ -1088,78 +1521,253 @@ fn scheduled_task_log_from_row(row: sqlx::sqlite::SqliteRow) -> Result<Scheduled
         target_platform: row.get("target_platform"),
         log_type: row.get("log_type"),
         message: row.get("message"),
-        created_at: DateTime::parse_from_rfc3339(row.get::<String, _>("created_at").as_str())?.with_timezone(&Utc),
+        created_at: DateTime::parse_from_rfc3339(row.get::<String, _>("created_at").as_str())?
+            .with_timezone(&Utc),
     })
 }
 
-fn infer_identifiers(platform: &str, external_id: Option<&str>, raw_json: &serde_json::Value) -> MovieIdentifiers {
+#[cfg(test)]
+mod friend_backup_tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn friend_backup_round_trip_and_delete() {
+        let root = std::env::temp_dir().join(format!("cinerecord-backup-test-{}", Uuid::new_v4()));
+        let paths = StoragePaths::from_repo_root(&root);
+        let backup = FriendBackup {
+            id: Uuid::new_v4().to_string(),
+            platform: "douban".to_string(),
+            user_id: "friend-test".to_string(),
+            watched: vec![MovieRecord {
+                id: "douban:1".to_string(),
+                platform: "douban".to_string(),
+                title: "Test Movie".to_string(),
+                year: Some(2026),
+                rating: Some(8.0),
+                rated_at: None,
+                external_id: Some("1".to_string()),
+                source_url: None,
+                identifiers: MovieIdentifiers::default(),
+                raw_json: serde_json::json!({}),
+            }],
+            wishlist: Vec::new(),
+            created_at: Utc::now(),
+        };
+
+        save_friend_backup(&paths, &backup).await.unwrap();
+        let summaries = list_friend_backups(&paths).await.unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].watched_count, 1);
+        assert_eq!(
+            get_friend_backup(&paths, &backup.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .user_id,
+            "friend-test"
+        );
+        assert!(delete_friend_backup(&paths, &backup.id).await.unwrap());
+        assert!(
+            get_friend_backup(&paths, &backup.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        fs::remove_dir_all(root).await.unwrap();
+    }
+}
+
+fn infer_identifiers(
+    platform: &str,
+    external_id: Option<&str>,
+    raw_json: &serde_json::Value,
+) -> MovieIdentifiers {
     let mut ids = MovieIdentifiers::default();
     match platform {
         "tmdb" => {
-            ids.tmdb = external_id.map(ToOwned::to_owned).or_else(|| raw_json.get("id").and_then(|v| v.as_i64()).map(|v| v.to_string()));
+            ids.tmdb = external_id.map(ToOwned::to_owned).or_else(|| {
+                raw_json
+                    .get("id")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+            });
             ids.imdb = raw_json
                 .get("external_ids")
                 .and_then(|v| v.get("imdb_id"))
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("imdb_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("IMDb ID").and_then(|v| v.as_str()).map(ToOwned::to_owned));
+                .or_else(|| {
+                    raw_json
+                        .get("imdb_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("IMDb ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                });
         }
         "trakt" => {
-            let trakt_ids = raw_json.get("ids").or_else(|| raw_json.get("movie").and_then(|movie| movie.get("ids")));
+            let trakt_ids = raw_json
+                .get("ids")
+                .or_else(|| raw_json.get("movie").and_then(|movie| movie.get("ids")));
             ids.trakt = trakt_ids
                 .and_then(|v| v.get("trakt"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v.to_string())
-                .or_else(|| raw_json.get("Trakt ID").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("trakt_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
+                .or_else(|| {
+                    raw_json
+                        .get("Trakt ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("trakt_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
                 .or_else(|| external_id.map(ToOwned::to_owned));
             ids.tmdb = trakt_ids
                 .and_then(|v| v.get("tmdb"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v.to_string())
-                .or_else(|| raw_json.get("TMDB ID").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("tmdb_id").and_then(|v| v.as_str()).map(ToOwned::to_owned));
+                .or_else(|| {
+                    raw_json
+                        .get("TMDB ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("tmdb_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                });
             ids.imdb = trakt_ids
                 .and_then(|v| v.get("imdb"))
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("IMDb ID").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("IMDB ID").and_then(|v| v.as_str()).map(ToOwned::to_owned));
+                .or_else(|| {
+                    raw_json
+                        .get("IMDb ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("IMDB ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                });
         }
         "imdb" => {
             ids.imdb = external_id
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("Const").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("imdb_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("IMDb ID").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("IMDB ID").and_then(|v| v.as_str()).map(ToOwned::to_owned));
+                .or_else(|| {
+                    raw_json
+                        .get("Const")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("imdb_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("IMDb ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("IMDB ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                });
             ids.douban = raw_json
                 .get("douban_id")
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("douban_id").and_then(|v| v.as_f64()).map(|v| format!("{v:.0}")));
+                .or_else(|| {
+                    raw_json
+                        .get("douban_id")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| format!("{v:.0}"))
+                });
             ids.tmdb = raw_json
                 .get("TMDB ID")
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("tmdb_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("tmdb_id").and_then(|v| v.as_i64()).map(|v| v.to_string()));
+                .or_else(|| {
+                    raw_json
+                        .get("tmdb_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("tmdb_id")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v.to_string())
+                });
         }
         "douban" => {
             ids.douban = external_id
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("douban_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("douban_id").and_then(|v| v.as_f64()).map(|v| format!("{v:.0}")))
-                .or_else(|| raw_json.get("movie_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("subject").and_then(|v| v.get("id")).and_then(|v| v.as_str()).map(ToOwned::to_owned));
+                .or_else(|| {
+                    raw_json
+                        .get("douban_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("douban_id")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| format!("{v:.0}"))
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("movie_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("subject")
+                        .and_then(|v| v.get("id"))
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                });
             ids.imdb = raw_json
                 .get("Const")
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("imdb_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("IMDb ID").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("IMDB ID").and_then(|v| v.as_str()).map(ToOwned::to_owned))
+                .or_else(|| {
+                    raw_json
+                        .get("imdb_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("IMDb ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("IMDB ID")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
                 .or_else(|| {
                     raw_json
                         .get("subject")
@@ -1174,19 +1782,43 @@ fn infer_identifiers(platform: &str, external_id: Option<&str>, raw_json: &serde
                         .and_then(|v| v.as_str())
                         .map(ToOwned::to_owned)
                 })
-                .or_else(|| ids.douban.as_deref().and_then(lookup_cached_imdb_for_douban));
+                .or_else(|| {
+                    ids.douban
+                        .as_deref()
+                        .and_then(lookup_cached_imdb_for_douban)
+                });
             ids.tmdb = raw_json
                 .get("TMDB ID")
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("tmdb_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("tmdb_id").and_then(|v| v.as_i64()).map(|v| v.to_string()));
+                .or_else(|| {
+                    raw_json
+                        .get("tmdb_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("tmdb_id")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v.to_string())
+                });
             ids.trakt = raw_json
                 .get("Trakt ID")
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| raw_json.get("trakt_id").and_then(|v| v.as_str()).map(ToOwned::to_owned))
-                .or_else(|| raw_json.get("trakt_id").and_then(|v| v.as_i64()).map(|v| v.to_string()));
+                .or_else(|| {
+                    raw_json
+                        .get("trakt_id")
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    raw_json
+                        .get("trakt_id")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v.to_string())
+                });
         }
         "letterboxd" => {
             ids.letterboxd = external_id.map(ToOwned::to_owned);
@@ -1218,8 +1850,14 @@ fn douban_imdb_cache() -> &'static HashMap<String, String> {
         };
         let mut map = HashMap::new();
         for row in reader.deserialize::<HashMap<String, String>>().flatten() {
-            let douban_id = row.get("douban_id").map(|value| value.trim()).unwrap_or_default();
-            let imdb_id = row.get("imdb").map(|value| value.trim()).unwrap_or_default();
+            let douban_id = row
+                .get("douban_id")
+                .map(|value| value.trim())
+                .unwrap_or_default();
+            let imdb_id = row
+                .get("imdb")
+                .map(|value| value.trim())
+                .unwrap_or_default();
             if !douban_id.is_empty() && !imdb_id.is_empty() {
                 map.insert(douban_id.to_string(), imdb_id.to_string());
             }
@@ -1231,29 +1869,43 @@ fn douban_imdb_cache() -> &'static HashMap<String, String> {
 fn aggregate_library_records(records: Vec<MovieRecord>) -> Vec<UnifiedMediaItem> {
     let mut groups = HashMap::<String, UnifiedMediaItem>::new();
     for record in records {
-        let key = unified_key(&record.identifiers, &record.title, record.year, record.external_id.as_deref(), &record.platform);
-        let entry = groups.entry(key.clone()).or_insert_with(|| UnifiedMediaItem {
-            id: key.clone(),
-            title: record.title.clone(),
-            original_title: extract_original_title(&record.raw_json),
-            year: record.year,
-            media_type: extract_media_type(&record.raw_json),
-            poster_url: extract_poster_url(&record.raw_json),
-            source_url: record.source_url.clone(),
-            identifiers: record.identifiers.clone(),
-            personal_rating: record.rating,
-            rated_at: record.rated_at,
-            public_rating: extract_public_rating(&record.raw_json),
-            public_votes: extract_public_votes(&record.raw_json),
-            source_platforms: Vec::new(),
-            sources: Vec::new(),
-            library_matched: true,
-            library_url: record.source_url.clone(),
-            library_title: Some(record.title.clone()),
-            library_year: record.year,
-        });
+        let key = unified_key(
+            &record.identifiers,
+            &record.title,
+            record.year,
+            record.external_id.as_deref(),
+            &record.platform,
+        );
+        let entry = groups
+            .entry(key.clone())
+            .or_insert_with(|| UnifiedMediaItem {
+                id: key.clone(),
+                title: record.title.clone(),
+                original_title: extract_original_title(&record.raw_json),
+                year: record.year,
+                media_type: extract_media_type(&record.raw_json),
+                poster_url: extract_poster_url(&record.raw_json),
+                source_url: record.source_url.clone(),
+                identifiers: record.identifiers.clone(),
+                personal_rating: record.rating,
+                rated_at: record.rated_at,
+                public_rating: extract_public_rating(&record.raw_json),
+                public_votes: extract_public_votes(&record.raw_json),
+                source_platforms: Vec::new(),
+                sources: Vec::new(),
+                library_matched: true,
+                library_url: record.source_url.clone(),
+                library_title: Some(record.title.clone()),
+                library_year: record.year,
+            });
         merge_unified_identifiers(&mut entry.identifiers, &record.identifiers);
-        fill_unified_defaults(entry, &record.title, record.year, &record.raw_json, record.source_url.as_deref());
+        fill_unified_defaults(
+            entry,
+            &record.title,
+            record.year,
+            &record.raw_json,
+            record.source_url.as_deref(),
+        );
         merge_library_preference(entry, &record);
         push_unified_source(
             entry,
@@ -1269,34 +1921,94 @@ fn aggregate_library_records(records: Vec<MovieRecord>) -> Vec<UnifiedMediaItem>
     groups.into_values().collect()
 }
 
-fn aggregate_wishlist_records(records: Vec<WishlistRecord>, library: &[UnifiedMediaItem]) -> Vec<UnifiedMediaItem> {
+fn normalized_selected_platforms(selected_platforms: &[String]) -> Vec<&str> {
+    selected_platforms
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| LIBRARY_PLATFORMS.contains(item))
+        .collect()
+}
+
+fn has_all_selected_platforms(item: &UnifiedMediaItem, selected_platforms: &[&str]) -> bool {
+    selected_platforms.iter().all(|platform| {
+        item.source_platforms
+            .iter()
+            .any(|source| source == platform)
+    })
+}
+
+fn filter_library_view_items(
+    items: Vec<UnifiedMediaItem>,
+    platform_filter: Option<&str>,
+    selected_platforms: &[String],
+) -> Vec<UnifiedMediaItem> {
+    let selected = normalized_selected_platforms(selected_platforms);
+    let show_union = selected.is_empty();
+    items
+        .into_iter()
+        .filter(|item| match platform_filter {
+            Some(platform) if LIBRARY_PLATFORMS.contains(&platform) => {
+                item.source_platforms
+                    .iter()
+                    .any(|source| source == platform)
+                    && (show_union || !has_all_selected_platforms(item, &selected))
+            }
+            _ if show_union => true,
+            _ => has_all_selected_platforms(item, &selected),
+        })
+        .collect()
+}
+
+fn aggregate_wishlist_records(
+    records: Vec<WishlistRecord>,
+    library: &[UnifiedMediaItem],
+) -> Vec<UnifiedMediaItem> {
     let library_lookup = build_unified_lookup(library);
     let mut groups = HashMap::<String, UnifiedMediaItem>::new();
     for record in records {
-        let key = unified_key(&record.identifiers, &record.title, record.year, record.external_id.as_deref(), &record.platform);
-        let matched = unified_lookup_match(&library_lookup, &record.identifiers, &record.title, record.year);
-        let entry = groups.entry(key.clone()).or_insert_with(|| UnifiedMediaItem {
-            id: key.clone(),
-            title: record.title.clone(),
-            original_title: extract_original_title(&record.raw_json),
-            year: record.year,
-            media_type: extract_media_type(&record.raw_json),
-            poster_url: extract_poster_url(&record.raw_json),
-            source_url: record.source_url.clone(),
-            identifiers: record.identifiers.clone(),
-            personal_rating: None,
-            rated_at: extract_date_like(&record.raw_json),
-            public_rating: extract_public_rating(&record.raw_json),
-            public_votes: extract_public_votes(&record.raw_json),
-            source_platforms: Vec::new(),
-            sources: Vec::new(),
-            library_matched: matched.is_some(),
-            library_url: matched.and_then(|item| item.library_url.clone()),
-            library_title: matched.and_then(|item| item.library_title.clone()),
-            library_year: matched.and_then(|item| item.library_year),
-        });
+        let key = unified_key(
+            &record.identifiers,
+            &record.title,
+            record.year,
+            record.external_id.as_deref(),
+            &record.platform,
+        );
+        let matched = unified_lookup_match(
+            &library_lookup,
+            &record.identifiers,
+            &record.title,
+            record.year,
+        );
+        let entry = groups
+            .entry(key.clone())
+            .or_insert_with(|| UnifiedMediaItem {
+                id: key.clone(),
+                title: record.title.clone(),
+                original_title: extract_original_title(&record.raw_json),
+                year: record.year,
+                media_type: extract_media_type(&record.raw_json),
+                poster_url: extract_poster_url(&record.raw_json),
+                source_url: record.source_url.clone(),
+                identifiers: record.identifiers.clone(),
+                personal_rating: None,
+                rated_at: extract_date_like(&record.raw_json),
+                public_rating: extract_public_rating(&record.raw_json),
+                public_votes: extract_public_votes(&record.raw_json),
+                source_platforms: Vec::new(),
+                sources: Vec::new(),
+                library_matched: matched.is_some(),
+                library_url: matched.and_then(|item| item.library_url.clone()),
+                library_title: matched.and_then(|item| item.library_title.clone()),
+                library_year: matched.and_then(|item| item.library_year),
+            });
         merge_unified_identifiers(&mut entry.identifiers, &record.identifiers);
-        fill_unified_defaults(entry, &record.title, record.year, &record.raw_json, record.source_url.as_deref());
+        fill_unified_defaults(
+            entry,
+            &record.title,
+            record.year,
+            &record.raw_json,
+            record.source_url.as_deref(),
+        );
         if entry.rated_at.is_none() {
             entry.rated_at = extract_date_like(&record.raw_json);
         }
@@ -1373,7 +2085,11 @@ fn fill_unified_defaults(
 }
 
 fn push_unified_source(entry: &mut UnifiedMediaItem, source: UnifiedSourceEntry) {
-    if !entry.source_platforms.iter().any(|platform| platform == &source.platform) {
+    if !entry
+        .source_platforms
+        .iter()
+        .any(|platform| platform == &source.platform)
+    {
         entry.source_platforms.push(source.platform.clone());
     }
     let duplicate = entry.sources.iter().any(|item| {
@@ -1431,7 +2147,11 @@ fn unified_lookup_match<'a>(
         .find_map(|key| lookup.get(&key))
 }
 
-fn unified_lookup_keys(identifiers: &MovieIdentifiers, title: &str, year: Option<i32>) -> Vec<String> {
+fn unified_lookup_keys(
+    identifiers: &MovieIdentifiers,
+    title: &str,
+    year: Option<i32>,
+) -> Vec<String> {
     let mut keys = Vec::new();
     if let Some(imdb) = clean_string(identifiers.imdb.as_deref()) {
         keys.push(format!("imdb:{imdb}"));
@@ -1479,7 +2199,13 @@ fn title_year_key(title: &str, year: Option<i32>) -> Option<String> {
 fn normalize_title(title: &str) -> String {
     title
         .chars()
-        .map(|ch| if ch.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&ch) { ch.to_ascii_lowercase() } else { ' ' })
+        .map(|ch| {
+            if ch.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&ch) {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -1521,14 +2247,20 @@ fn extract_media_type(raw_json: &serde_json::Value) -> Option<String> {
         &["Type", "type", "Title Type", "media_type", "titleType"],
     )?;
     let lower = value.to_lowercase();
-    if ["tv", "series", "show", "episode", "miniseries"].iter().any(|part| lower.contains(part)) {
+    if ["tv", "series", "show", "episode", "miniseries"]
+        .iter()
+        .any(|part| lower.contains(part))
+    {
         return Some("tv".to_string());
     }
     Some("movie".to_string())
 }
 
 fn extract_poster_url(raw_json: &serde_json::Value) -> Option<String> {
-    if let Some(value) = json_string(raw_json, &["Cover URL", "cover_url", "poster_url", "poster", "Cover"]) {
+    if let Some(value) = json_string(
+        raw_json,
+        &["Cover URL", "cover_url", "poster_url", "poster", "Cover"],
+    ) {
         return Some(value);
     }
     if let Some(path) = json_string(raw_json, &["poster_path"]) {
@@ -1545,7 +2277,16 @@ fn extract_poster_url(raw_json: &serde_json::Value) -> Option<String> {
 }
 
 fn extract_public_rating(raw_json: &serde_json::Value) -> Option<f64> {
-    json_number(raw_json, &["Douban Rating", "IMDb Rating", "IMDB Rating", "vote_average", "tmdb_rating"])
+    json_number(
+        raw_json,
+        &[
+            "Douban Rating",
+            "IMDb Rating",
+            "IMDB Rating",
+            "vote_average",
+            "tmdb_rating",
+        ],
+    )
 }
 
 fn extract_public_votes(raw_json: &serde_json::Value) -> Option<i64> {
@@ -1554,13 +2295,22 @@ fn extract_public_votes(raw_json: &serde_json::Value) -> Option<i64> {
 }
 
 fn extract_year(raw_json: &serde_json::Value) -> Option<i32> {
-    json_string(raw_json, &["Year", "year", "release_date", "上映年份"])
-        .and_then(|value| value.chars().take(4).collect::<String>().parse::<i32>().ok())
+    json_string(raw_json, &["Year", "year", "release_date", "上映年份"]).and_then(|value| {
+        value
+            .chars()
+            .take(4)
+            .collect::<String>()
+            .parse::<i32>()
+            .ok()
+    })
 }
 
 fn extract_date_like(raw_json: &serde_json::Value) -> Option<DateTime<Utc>> {
-    json_string(raw_json, &["Date Added", "Date Rated", "date", "listed_at", "listedAt"])
-        .and_then(|value| parse_date_string(&value))
+    json_string(
+        raw_json,
+        &["Date Added", "Date Rated", "date", "listed_at", "listedAt"],
+    )
+    .and_then(|value| parse_date_string(&value))
 }
 
 fn parse_date_string(value: &str) -> Option<DateTime<Utc>> {
@@ -1577,7 +2327,9 @@ fn parse_date_string(value: &str) -> Option<DateTime<Utc>> {
 
 fn json_string(raw_json: &serde_json::Value, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|key| match raw_json.get(*key) {
-        Some(serde_json::Value::String(value)) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        Some(serde_json::Value::String(value)) if !value.trim().is_empty() => {
+            Some(value.trim().to_string())
+        }
         Some(serde_json::Value::Number(value)) => Some(value.to_string()),
         _ => None,
     })
@@ -1639,7 +2391,11 @@ pub struct LibrarySnapshot {
     pub item_count: usize,
 }
 
-async fn find_legacy_csv_path(paths: &StoragePaths, platform: &str, config: &AppConfig) -> Result<Option<PathBuf>> {
+async fn find_legacy_csv_path(
+    paths: &StoragePaths,
+    platform: &str,
+    config: &AppConfig,
+) -> Result<Option<PathBuf>> {
     let mut candidates = Vec::new();
     let mut dir = fs::read_dir(paths.root.join("data")).await?;
     while let Some(entry) = dir.next_entry().await? {
@@ -1685,10 +2441,9 @@ async fn find_legacy_csv_path(paths: &StoragePaths, platform: &str, config: &App
     };
 
     if let Some(preferred) = preferred {
-        if let Some(path) = candidates
-            .iter()
-            .find(|path| path.file_name().and_then(|value| value.to_str()) == Some(preferred.as_str()))
-        {
+        if let Some(path) = candidates.iter().find(|path| {
+            path.file_name().and_then(|value| value.to_str()) == Some(preferred.as_str())
+        }) {
             return Ok(Some(path.clone()));
         }
     }
@@ -1709,7 +2464,11 @@ fn matches_platform_csv(name: &str, platform: &str) -> bool {
 
 fn parse_legacy_csv(path: &Path, platform: &str) -> Result<Vec<MovieRecord>> {
     let mut reader = csv::Reader::from_path(path)?;
-    let headers = reader.headers()?.iter().map(ToOwned::to_owned).collect::<Vec<_>>();
+    let headers = reader
+        .headers()?
+        .iter()
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
     let mut items = Vec::new();
 
     for row in reader.records() {
@@ -1720,11 +2479,17 @@ fn parse_legacy_csv(path: &Path, platform: &str) -> Result<Vec<MovieRecord>> {
             .zip(row.iter().map(ToOwned::to_owned))
             .collect::<HashMap<_, _>>();
         let raw_json = serde_json::to_value(&map)?;
-        let title = first_value(&map, &["Title", "Name", "Film"]).unwrap_or_else(|| "Unknown title".to_string());
-        let year = first_value(&map, &["Year", "Release Year"]).and_then(|value| value.parse::<i32>().ok());
-        let rating = first_value(&map, &["Your Rating", "Rating", "rating"]).and_then(|value| value.parse::<f64>().ok());
-        let rated_at = first_value(&map, &["Date Rated", "Watched Date", "watched_at", "rated_at"])
-            .and_then(|value| parse_legacy_datetime(&value));
+        let title = first_value(&map, &["Title", "Name", "Film"])
+            .unwrap_or_else(|| "Unknown title".to_string());
+        let year = first_value(&map, &["Year", "Release Year"])
+            .and_then(|value| value.parse::<i32>().ok());
+        let rating = first_value(&map, &["Your Rating", "Rating", "rating"])
+            .and_then(|value| value.parse::<f64>().ok());
+        let rated_at = first_value(
+            &map,
+            &["Date Rated", "Watched Date", "watched_at", "rated_at"],
+        )
+        .and_then(|value| parse_legacy_datetime(&value));
         let identifiers = MovieIdentifiers {
             imdb: first_value(&map, &["Const", "IMDb ID", "imdb_id"]),
             tmdb: first_value(&map, &["TMDB ID", "tmdb_id"]),

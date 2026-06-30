@@ -1,29 +1,15 @@
-version: '3.8'
-
 services:
   cinerecord:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: cinerecord
     ports:
-      - "8000:8000"
+      - "${CINERECORD_PORT:-18000}:18000"
     volumes:
-      # Persist config and data
-      - ./config:/app/config
-      - ./data:/app/data
+      - ./cinerecord-data:/var/lib/cinerecord
     environment:
-      - FLASK_ENV=production
-      - PYTHONUNBUFFERED=1
-      - CINERECORD_HOST=0.0.0.0
+      CINERECORD_HOST: 0.0.0.0
+      CINERECORD_PORT: 18000
+      RUST_LOG: info,tower_http=warn
     restart: unless-stopped
-
-# Optional: for development
-# services:
-#   cinerecord-dev:
-#     build: .
-#     ports:
-#       - "8000:8000"
-#     volumes:
-#       - .:/app
-#     environment:
-#       - FLASK_ENV=development
-#     command: python web/app.py

@@ -1,195 +1,62 @@
-# 🎬 CineRecord Hub
+# CineRecord
 
-<div align="center">
+CineRecord is a local-first movie library and cross-platform synchronization tool. The backend is written in Rust, and the same binary serves the browser UI. Python, Node.js, and an external database service are not required.
 
-**Your Personal Movie Data Command Center**
+Supported sources include Douban, IMDb, Trakt, TMDB, and Letterboxd CSV imports.
 
-Sync, Back up, and Manage your movie ratings across Douban, IMDb, Trakt, TMDB, and Letterboxd.
-
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
-[![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg)](https://flask.palletsprojects.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-[English](./README.en.md) | [中文文档](./README.md)
-
-</div>
-
----
-
-## 📸 Interface Preview
-
-<div align="center">
-  <img src="docs/images/app_demo_dual.webp" width="800" alt="App Walkthrough Demo">
-  <p><i>Quick Walkthrough: Dashboard Overview & Task Flow (Bilingual Demo)</i></p>
-
-  <br>
-
-  <img src="docs/images/dashboard_en.png" width="800" alt="Dashboard Preview">
-  <p><i>Dashboard: Account Status & Overview (Masked User Info)</i></p>
-  
-  <br>
-  
-  <img src="docs/images/library_en.png" width="800" alt="Library Preview">
-  <p><i>Unified Library: Cross-Platform Collection</i></p>
-</div>
-
----
-
-## ✨ Key Features
-
-### 🌐 Multi-Platform Support
-
-| Platform | Fetch Ratings | Sync To | Auth Method |
-|----------|:-------------:|:-------:|-------------|
-| **Douban** | ✅ | ✅ | Cookie / Auto-Login |
-| **IMDb** | ✅ | ✅ | Cookie / Auto-Login |
-| **Trakt** | ✅ | ✅ | OAuth Device Flow |
-| **TMDB** | ✅ | ✅ | API Key + Session |
-| **Letterboxd**| ✅ | ⚠️ | CSV Import / Export |
-
-### ⚡ Core Capabilities
-
--   **Unified Library**: View all your watched movies in one place, auto-deduplicated.
--   **Bi-Directional Sync**: Keep your ratings consistent across all platforms (e.g., Douban ↔ IMDb).
--   **Universal Export**: Export your aggregated data to CSV or Letterboxd-compatible formats.
--   **Task Scheduler**: Set up automated daily/weekly sync tasks.
--   **Privacy First**: All data and cookies are stored locally on your machine.
--   **Dark Mode**: A clean, content-focused dark interface.
-
----
-
-## 🚀 Quick Start
-
-### Standard Installation
-
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/Gawain12/CineRecord.git
-    cd CineRecord
-    ```
-
-2.  **Install Dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Run the Application**
-    ```bash
-    python web/app.py
-    ```
-    The app will open automatically at `http://127.0.0.1:8000`.
-
-### Docker Deployment
-
-Recommended for server deployment:
-
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/Gawain12/CineRecord.git
-    cd CineRecord
-    ```
-
-2.  **Configure environment**
-    ```bash
-    # Copy config template
-    cp config/config.json.template config/config.json
-    ```
-
-3.  **Start container**
-    ```bash
-    docker compose up -d
-    ```
-    The app will be available at `http://YOUR_SERVER_IP:8000`.
-
-4.  **View logs**
-    ```bash
-    docker logs -f cinerecord
-    ```
-
-5.  **Stop/Restart**
-    ```bash
-    docker compose down      # Stop
-    docker compose restart   # Restart
-    docker compose up -d --build  # Rebuild and start
-    ```
-
-> **Note**: Config and data are persisted in `config/` and `data/` directories.
-
-### Rust Rewrite V1 Preview
-
-This repo now also contains a parallel Rust rewrite track that runs independently from the Python app:
+## Run from source
 
 ```bash
-rtk cargo run -p cinerecord-server
+cargo run -p cinerecord-server
 ```
 
-- Rust v2 runs on `http://127.0.0.1:18000`
-- The legacy Python app still runs on `http://127.0.0.1:8000`
-- Rust uses isolated `config/v2`, `data/v2`, and `logs/v2`
+Open [http://127.0.0.1:18000](http://127.0.0.1:18000).
 
-See [`docs/rust-rewrite-v1.md`](./docs/rust-rewrite-v1.md) for the current scope and API surface.
+Installed builds store user data in:
 
----
+- macOS: `~/Library/Application Support/CineRecord`
+- Windows: `%APPDATA%\CineRecord`
+- Linux: `$XDG_DATA_HOME/cinerecord` or `~/.local/share/cinerecord`
 
-## 📖 User Guide
+Set `CINERECORD_HOME` to override the location.
 
-### 1. Connect Accounts
-Navigate to the **Accounts** tab or different platform cards.
--   **Douban/IMDb**: Use the "Auto Login" button (macOS) or manually paste your cookies in **Settings**.
--   **Trakt**: Click "Connect", get your 8-digit code, and authorize on Trakt.tv.
--   **TMDB**: Enter your API Key in Settings to enable search and sync.
+## Docker
 
-### 2. Sync Ratings
-Go to the **Sync** tab.
-
-<div align="center">
-  <img src="docs/images/sync_en.png" width="800" alt="Sync Page Preview">
-</div>
-
--   **Manual Sync**: Select Source (e.g., Douban) and Target (e.g., Trakt), click "Preview", then "Execute".
--   **Scheduled Sync**: Click "New Task", choose your sync direction and frequency (e.g., "Daily at 2:00 AM"), and enable it. The app will handle the rest in the background.
-
-### 3. View Library
-The **Data** tab serves as your unified movie database. Filter by platform exclusives to see which movies are missing from your other profiles.
-
-<div align="center">
-  <img src="docs/images/library_en.png" width="800" alt="Library Preview">
-</div>
-
----
-
-## 🛠 Project Structure
-
-```
-CineRecord/
-├── web/
-│   ├── app.py             # Backend Application Entry
-│   ├── scheduler.py       # Task Scheduler Service
-│   ├── logic.py           # Sync & Merge Logic
-│   ├── static/            # JS (App, Scheduler, i18n) & CSS
-│   └── templates/         # HTML Views
-├── scrapers/              # Platform Connectors
-│   ├── douban_scraper.py
-│   ├── imdb_scraper.py
-│   ├── trakt_client.py
-│   └── tmdb_client.py
-└── data/                  # Local Data Storage
+```bash
+docker compose up -d --build
 ```
 
----
+The service listens on port `18000`, with persistent data in `./cinerecord-data`.
 
-## 🛡️ Privacy & Security
+## Packaging
 
--   **Local Only**: Your cookies and movie data never leave your local network.
--   **Open Source**: The code is fully transparent and auditable.
--   **No Tracking**: We do not collect usage data.
+```bash
+./scripts/package_rust_macos.sh
+```
 
----
+On Windows:
 
-## 🤝 Contributing
+```powershell
+.\scripts\package_rust_windows.ps1
+```
 
-Contributions are welcome! Please check `ROADMAP.md` for development guidelines.
+The Windows script creates a standalone `CineRecord-Windows-x64.exe` with an
+application icon. Double-clicking it starts the background service and opens
+the browser UI.
 
-## 📜 License
+GitHub Actions automatically tests `dev`, `main`, and version tags, builds and
+smoke-tests native macOS ARM, macOS Intel, and Windows x64 packages, and
+publishes the Linux Docker image to `ghcr.io/gawain12/cinerecord`.
 
-MIT License. See [LICENSE](./LICENSE) for details.
+## Synchronization safety
+
+- Preview is generated from the local cache for responsiveness.
+- Both platforms are refreshed before an actual write.
+- Unrated source entries do not overwrite existing target ratings.
+- Candidates can be selected individually before execution.
+
+The legacy Python implementation remains temporarily for comparison and migration utilities. Production builds use Rust only.
+
+## License
+
+MIT

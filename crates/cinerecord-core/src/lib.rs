@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub app: AppSettings,
@@ -10,19 +10,6 @@ pub struct AppConfig {
     pub download_sites_enabled: Vec<String>,
     pub download_sites_custom: Vec<DownloadSiteConfig>,
     pub download_sites_deleted: Vec<String>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            app: AppSettings::default(),
-            platforms: PlatformConfigs::default(),
-            cookiecloud: CookieCloudConfig::default(),
-            download_sites_enabled: Vec::new(),
-            download_sites_custom: Vec::new(),
-            download_sites_deleted: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +98,7 @@ pub struct PlatformDescriptor {
     pub status: PlatformStatus,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PlatformStatus {
     pub config_present: bool,
@@ -119,18 +106,6 @@ pub struct PlatformStatus {
     pub last_validated_at: Option<DateTime<Utc>>,
     pub message: Option<String>,
     pub profile: Option<serde_json::Value>,
-}
-
-impl Default for PlatformStatus {
-    fn default() -> Self {
-        Self {
-            config_present: false,
-            configured: false,
-            last_validated_at: None,
-            message: None,
-            profile: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,6 +257,8 @@ pub struct SyncPreviewRequest {
     pub overwrite: bool,
     #[serde(default)]
     pub default_rating: Option<f64>,
+    #[serde(default)]
+    pub refresh_before_sync: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,6 +297,8 @@ pub struct SyncExecuteRequest {
     pub overwrite: bool,
     #[serde(default)]
     pub default_rating: Option<f64>,
+    #[serde(default)]
+    pub refresh_before_sync: bool,
     #[serde(default)]
     pub selected_target_ids: Vec<String>,
 }

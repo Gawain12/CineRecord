@@ -1,35 +1,34 @@
-FROM python:3.11-slim
+FROM rust:1.93-bookworm AS builder
 
-# Set working directory
-WORKDIR /app
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY web/static ./web/static
+COPY web/templates ./web/templates
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN cargo build --locked --release -p cinerecord-server
 
-# Copy requirements first for caching
-COPY requirements.txt .
+FROM debian:bookworm-slim
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 cinerecord \
+    && mkdir -p /var/lib/cinerecord \
+    && chown -R cinerecord:cinerecord /var/lib/cinerecord
 
-# Copy application code
-COPY . .
+COPY --from=builder /src/target/release/cinerecord-server /usr/local/bin/cinerecord
 
-# Create necessary directories
-RUN mkdir -p /app/config /app/data
+ENV CINERECORD_HOME=/var/lib/cinerecord \
+    CINERECORD_HOST=0.0.0.0 \
+    CINERECORD_PORT=18000 \
+    RUST_LOG=info,tower_http=warn
 
-# Expose port
-EXPOSE 8000
+USER cinerecord
+VOLUME ["/var/lib/cinerecord"]
+EXPOSE 18000
 
-# Environment variables
-ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=web/app.py
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:18000/api/v2/health || exit 1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/ || exit 1
-
-# Run the application
-CMD ["python", "web/app.py"]
+ENTRYPOINT ["/usr/local/bin/cinerecord"]

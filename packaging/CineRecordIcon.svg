@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="120" y1="96" x2="904" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172839"/>
+      <stop offset="1" stop-color="#09121d"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="292" y1="256" x2="760" y2="772" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#56c8ff"/>
+      <stop offset="1" stop-color="#2784ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="30" stdDeviation="34" flood-color="#000" flood-opacity=".4"/>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="218" fill="url(#background)"/>
+  <path d="M128 318C259 135 469 82 658 139c135 41 239 143 302 272v331c-85 139-221 225-382 248H294C166 922 83 817 64 682V452c14-49 35-94 64-134Z"
+        fill="#1f3549" opacity=".46"/>
+
+  <g filter="url(#shadow)">
+    <rect x="304" y="220" width="416" height="584" rx="72" fill="#2d4357"/>
+    <rect x="348" y="282" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="348" y="390" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="348" y="498" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="348" y="606" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="348" y="714" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="622" y="282" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="622" y="390" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="622" y="498" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="622" y="606" width="54" height="54" rx="12" fill="#dff4ff"/>
+    <rect x="622" y="714" width="54" height="54" rx="12" fill="#dff4ff"/>
+  </g>
+
+  <g fill="none" stroke="url(#accent)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M674 397c-38-85-123-144-222-144-79 0-150 37-195 95"/>
+    <path d="M258 244v112h112"/>
+    <path d="M350 627c38 85 123 144 222 144 79 0 150-37 195-95"/>
+    <path d="M766 780V668H654"/>
+  </g>
+</svg>

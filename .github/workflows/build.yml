@@ -1,158 +1,264 @@
-name: Build All Platforms
+name: Rust CI and Releases
 
 on:
   push:
+    branches:
+      - main
+      - dev
     tags:
-      - 'v*'
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - dev
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY_IMAGE: ghcr.io/gawain12/cinerecord
+
 jobs:
-  # ============================================
-  # Windows Build
-  # ============================================
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test workspace
+        run: cargo test --locked --workspace --all-targets
+      - name: Check browser JavaScript
+        run: node --check web/static/rust-v2.js
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build --tag cinerecord:ci .
+      - name: Smoke test Docker image
+        run: |
+          docker run --detach --rm \
+            --name cinerecord-smoke \
+            --publish 18001:18000 \
+            cinerecord:ci
+          trap "docker stop cinerecord-smoke >/dev/null 2>&1 || true" EXIT
+          for _ in $(seq 1 80); do
+            if curl --fail --silent http://127.0.0.1:18001/api/v2/health >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:18001/api/v2/health
+          curl --fail --silent http://127.0.0.1:18001/ >/dev/null
+          curl --fail --silent http://127.0.0.1:18001/static/rust-v2.js >/dev/null
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate image metadata
+        if: github.event_name == 'push'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Publish Docker image
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   build-windows:
-    permissions:
-      contents: write
+    if: github.event_name != 'pull_request'
+    needs: test
     runs-on: windows-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Windows client
+        env:
+          CINERECORD_VERSION: ${{ github.ref_name }}
+        shell: pwsh
+        run: scripts/package_rust_windows.ps1
+      - name: Validate Windows executable
+        shell: pwsh
         run: |
-          git config --global --add safe.directory "*"
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      
-      - name: Install dependencies
+          $exe = Join-Path $PWD "dist-rust\CineRecord-Windows-x64.exe"
+          $zip = Join-Path $PWD "dist-rust\CineRecord-Windows-x64.zip"
+          if (!(Test-Path $exe)) { throw "Standalone CineRecord.exe was not created" }
+          if (!(Test-Path $zip)) { throw "Windows ZIP was not created" }
+          if ((Get-Item $exe).Length -lt 1MB) { throw "Windows executable is unexpectedly small" }
+          if ((Get-Item $zip).Length -lt 1MB) { throw "Windows ZIP is unexpectedly small" }
+          $version = (Get-Item $exe).VersionInfo
+          if ($version.ProductName -ne "CineRecord") { throw "Windows ProductName resource is missing" }
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $icon) { throw "Windows executable icon is missing" }
+          $icon.Dispose()
+      - name: Smoke test Windows client
+        shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-build.txt
-          pip install pyinstaller pywebview pythonnet simple_websocket
-      
-      - name: Build Windows EXE
-        run: |
-          pyinstaller CineRecord_windows.spec --clean --noconfirm
-      
-      - name: Test EXE exists
-        run: |
-          if (!(Test-Path "dist\CineRecord\CineRecord.exe")) {
-            Write-Error "EXE not found!"
-            exit 1
+          $env:CINERECORD_HOME = Join-Path $env:RUNNER_TEMP "cinerecord-smoke"
+          $env:CINERECORD_PORT = "18001"
+          $env:CINERECORD_NO_BROWSER = "1"
+          $binary = Join-Path $PWD "dist-rust\CineRecord-Windows-x64.exe"
+          $process = Start-Process $binary -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 80; $i++) {
+              try {
+                Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:18001/api/v2/health" | Out-Null
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if (-not $ready) { throw "CineRecord did not become ready" }
+            Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:18001/" | Out-Null
+            Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:18001/static/rust-v2.js" | Out-Null
+          } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
-          $size = (Get-Item "dist\CineRecord\CineRecord.exe").Length / 1MB
-          Write-Host "✓ EXE built successfully. Size: $([math]::Round($size, 2)) MB"
-      
-      - name: Create ZIP archive
-        run: |
-          Compress-Archive -Path "dist\CineRecord\*" -DestinationPath "dist\CineRecord-Windows.zip"
-          Write-Host "✓ ZIP Size: $([math]::Round((Get-Item 'dist\CineRecord-Windows.zip').Length / 1MB, 2)) MB"
-      
-      - name: Upload Windows ZIP
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: CineRecord-Windows
-          path: dist/CineRecord-Windows.zip
+          name: CineRecord-Windows-x64
           retention-days: 30
-
-  # ============================================
-  # macOS Build
-  # ============================================
-  build-macos:
-    permissions:
-      contents: write
-    runs-on: macos-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git
-        run: |
-          git config --global --add safe.directory "*"
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-      
-      - name: Install UPX
-        run: |
-          brew install upx
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-build.txt
-          pip install pyinstaller pywebview pyobjc-framework-Cocoa
-      
-      - name: Build macOS App
-        run: |
-          pyinstaller CineRecord.spec --clean
-      
-      - name: Create DMG
-        run: |
-          mkdir -p dmg_temp
-          cp -r dist/CineRecord.app dmg_temp/
-          ln -s /Applications dmg_temp/Applications
-          hdiutil create -volname "CineRecord" -srcfolder dmg_temp -ov -format UDBZ dist/CineRecord.dmg
-          rm -rf dmg_temp
-          echo "✓ DMG Size: $(du -h dist/CineRecord.dmg | cut -f1)"
-      
-      - name: Upload macOS App
-        uses: actions/upload-artifact@v4
-        with:
-          name: CineRecord-macOS
+          if-no-files-found: error
           path: |
-            dist/CineRecord.dmg
-          retention-days: 30
+            dist-rust/CineRecord-Windows-x64.exe
+            dist-rust/CineRecord-Windows-x64.zip
+            dist-rust/CineRecord-Windows-x64.sha256
 
-  # ============================================
-  # Create Release (when tag pushed)
-  # ============================================
+  build-macos-arm:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build macOS ARM package
+        env:
+          CINERECORD_VERSION: ${{ github.ref_name }}
+        run: |
+          chmod +x scripts/package_rust_macos.sh
+          scripts/package_rust_macos.sh
+      - name: Validate macOS package
+        run: |
+          test -s dist-rust/CineRecord.app/Contents/Resources/CineRecord.icns
+          codesign --verify --deep --strict dist-rust/CineRecord.app
+          hdiutil verify dist-rust/CineRecord-macOS-arm64.dmg
+      - name: Smoke test macOS binary
+        run: |
+          export CINERECORD_HOME="$RUNNER_TEMP/cinerecord-smoke"
+          export CINERECORD_PORT=18001
+          cp dist-rust/CineRecord.app/Contents/Resources/cinerecord-server "$RUNNER_TEMP/cinerecord-server"
+          chmod +x "$RUNNER_TEMP/cinerecord-server"
+          xattr -c "$RUNNER_TEMP/cinerecord-server" || true
+          "$RUNNER_TEMP/cinerecord-server" &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          for _ in $(seq 1 80); do
+            if curl --fail --silent http://127.0.0.1:18001/api/v2/health >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:18001/api/v2/health
+          curl --fail --silent http://127.0.0.1:18001/ >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CineRecord-macOS-arm64
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            dist-rust/CineRecord-macOS-arm64.dmg
+            dist-rust/CineRecord-macOS-arm64.zip
+
+  build-macos-intel:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build macOS Intel package
+        env:
+          CINERECORD_VERSION: ${{ github.ref_name }}
+        run: |
+          chmod +x scripts/package_rust_macos.sh
+          scripts/package_rust_macos.sh
+      - name: Validate macOS package
+        run: |
+          test -s dist-rust/CineRecord.app/Contents/Resources/CineRecord.icns
+          codesign --verify --deep --strict dist-rust/CineRecord.app
+          hdiutil verify dist-rust/CineRecord-macOS-x86_64.dmg
+      - name: Smoke test macOS binary
+        run: |
+          export CINERECORD_HOME="$RUNNER_TEMP/cinerecord-smoke"
+          export CINERECORD_PORT=18001
+          cp dist-rust/CineRecord.app/Contents/Resources/cinerecord-server "$RUNNER_TEMP/cinerecord-server"
+          chmod +x "$RUNNER_TEMP/cinerecord-server"
+          xattr -c "$RUNNER_TEMP/cinerecord-server" || true
+          "$RUNNER_TEMP/cinerecord-server" &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          for _ in $(seq 1 80); do
+            if curl --fail --silent http://127.0.0.1:18001/api/v2/health >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:18001/api/v2/health
+          curl --fail --silent http://127.0.0.1:18001/ >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CineRecord-macOS-x86_64
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            dist-rust/CineRecord-macOS-x86_64.dmg
+            dist-rust/CineRecord-macOS-x86_64.zip
+
   release:
-    needs: [build-windows, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [docker, build-windows, build-macos-arm, build-macos-intel]
     permissions:
       contents: write
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    
     steps:
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: CineRecord-Windows
-          path: ./release/windows
-      
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
         with:
-          name: CineRecord-macOS
-          path: ./release/macos
-      
-      - name: List release files
-        run: |
-          ls -la ./release/
-          ls -la ./release/windows/ || true
-          ls -la ./release/macos/ || true
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/windows/CineRecord-Windows.zip
-            release/macos/CineRecord.dmg
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: release/*
+          generate_release_notes: true

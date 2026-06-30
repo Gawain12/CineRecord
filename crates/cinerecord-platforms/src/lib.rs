@@ -4,9 +4,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use chrono::{DateTime, Duration, Utc};
 use cinerecord_core::{
-    AppConfig, FetchResult, MovieIdentifiers, MovieRecord, PlatformValidationResult, SyncExecuteResult,
-    SyncExecutionItem, SyncPreviewItem, SyncPreviewRequest, SyncPreviewResult, TraktDeviceCode,
-    TraktDevicePollResult, WishlistRecord,
+    AppConfig, FetchResult, MovieIdentifiers, MovieRecord, PlatformValidationResult,
+    SyncExecuteResult, SyncExecutionItem, SyncPreviewItem, SyncPreviewRequest, SyncPreviewResult,
+    TraktDeviceCode, TraktDevicePollResult, WishlistRecord,
 };
 use reqwest::{Client, Method, StatusCode};
 use scraper::{Html, Selector};
@@ -14,11 +14,11 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
+use std::time::Duration as StdDuration;
 use tokio::process::Command;
 use uuid::Uuid;
 
 const DEFAULT_TMDB_API_KEY: &str = "8ffaf38032c0f85f4f421fb0cc1241a5";
-const COOKIECLOUD_ALLOWED_DOUBAN: &[&str] = &["dbcl2", "ck", "ap_v", "bid", "push_noty_num", "push_doumail_num"];
 const COOKIECLOUD_REQUIRED_DOUBAN: &[&str] = &["dbcl2"];
 const COOKIECLOUD_ALLOWED_IMDB: &[&str] = &[
     "ubid-main",
@@ -67,7 +67,10 @@ pub async fn start_trakt_device_auth(config: &AppConfig) -> Result<TraktDeviceCo
         .await
 }
 
-pub async fn poll_trakt_device_auth(config: &AppConfig, device_code: &str) -> Result<TraktDevicePollResult> {
+pub async fn poll_trakt_device_auth(
+    config: &AppConfig,
+    device_code: &str,
+) -> Result<TraktDevicePollResult> {
     trakt_client(&config.platforms.trakt)?
         .poll_device_auth(device_code)
         .await
@@ -99,7 +102,10 @@ pub async fn complete_tmdb_auth(config: &AppConfig) -> Result<Value> {
     let session_id = client.create_session(&request_token).await?;
     let account = client.fetch_account_with_session(&session_id).await?;
     let account_id = account.get("id").and_then(|v| v.as_i64());
-    let username = account.get("username").and_then(|v| v.as_str()).map(ToOwned::to_owned);
+    let username = account
+        .get("username")
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned);
     Ok(json!({
         "session_id": session_id,
         "account_id": account_id.map(|v| v.to_string()),
@@ -117,7 +123,8 @@ pub async fn test_platform(platform: &str, config: &AppConfig) -> Result<Platfor
         "letterboxd" => Ok(PlatformValidationResult {
             platform: "letterboxd".to_string(),
             success: true,
-            message: "Letterboxd import/export is file-based and will be implemented incrementally".to_string(),
+            message: "Letterboxd import/export is file-based and will be implemented incrementally"
+                .to_string(),
             profile: None,
         }),
         other => Err(anyhow!("unsupported platform: {other}")),
@@ -214,7 +221,11 @@ pub async fn sync_cookiecloud(
                 .and_then(|profile| profile.get("user_id"))
                 .and_then(|value| value.as_str())
                 .map(ToOwned::to_owned)
-                .or_else(|| current_platform_cookie_config(config, platform).user_id.clone());
+                .or_else(|| {
+                    current_platform_cookie_config(config, platform)
+                        .user_id
+                        .clone()
+                });
 
             let target = current_platform_cookie_config_mut(config, platform)?;
             target.cookie = Some(cookie);
@@ -234,7 +245,10 @@ pub async fn sync_cookiecloud(
                     PlatformValidationResult {
                         platform: validation.platform,
                         success: false,
-                        message: format!("关键 Cookie 已导入，但在线校验未通过：{}", validation.message),
+                        message: format!(
+                            "关键 Cookie 已导入，但在线校验未通过：{}",
+                            validation.message
+                        ),
                         profile: validation.profile,
                     }
                 },
@@ -252,7 +266,10 @@ pub async fn sync_cookiecloud(
     Ok(result)
 }
 
-pub async fn fetch_platform(platform: &str, config: &AppConfig) -> Result<(FetchResult, Vec<MovieRecord>)> {
+pub async fn fetch_platform(
+    platform: &str,
+    config: &AppConfig,
+) -> Result<(FetchResult, Vec<MovieRecord>)> {
     match platform {
         "tmdb" => fetch_tmdb_rated_movies(&config.platforms.tmdb).await,
         "trakt" => fetch_trakt_movies(&config.platforms.trakt).await,
@@ -263,7 +280,10 @@ pub async fn fetch_platform(platform: &str, config: &AppConfig) -> Result<(Fetch
     }
 }
 
-pub async fn fetch_platform_wishlist(platform: &str, config: &AppConfig) -> Result<(Value, Vec<WishlistRecord>)> {
+pub async fn fetch_platform_wishlist(
+    platform: &str,
+    config: &AppConfig,
+) -> Result<(Value, Vec<WishlistRecord>)> {
     match platform {
         "tmdb" => fetch_tmdb_watchlist(&config.platforms.tmdb).await,
         "trakt" => fetch_trakt_watchlist(&config.platforms.trakt).await,
@@ -294,7 +314,11 @@ pub fn build_sync_preview(
     }
 
     let mut sorted_source = source_items.to_vec();
-    sorted_source.sort_by(|a, b| b.rated_at.cmp(&a.rated_at).then_with(|| a.title.cmp(&b.title)));
+    sorted_source.sort_by(|a, b| {
+        b.rated_at
+            .cmp(&a.rated_at)
+            .then_with(|| a.title.cmp(&b.title))
+    });
     if request.recent_limit > 0 && sorted_source.len() > request.recent_limit {
         sorted_source.truncate(request.recent_limit);
     }
@@ -396,135 +420,144 @@ pub fn build_sync_preview(
     })
 }
 
-pub async fn execute_sync(config: &AppConfig, preview: &SyncPreviewResult) -> Result<SyncExecuteResult> {
+pub async fn execute_sync(
+    config: &AppConfig,
+    preview: &SyncPreviewResult,
+) -> Result<SyncExecuteResult> {
+    execute_sync_with_progress(config, preview, |_| {}).await
+}
+
+pub async fn execute_sync_with_progress<F>(
+    config: &AppConfig,
+    preview: &SyncPreviewResult,
+    mut progress: F,
+) -> Result<SyncExecuteResult>
+where
+    F: FnMut(Value),
+{
     let (source, target) = parse_direction(&preview.direction)?;
     if !supports_sync_pair(source, target) {
         return Err(anyhow!("暂不支持 {} 同步", preview.direction));
     }
 
-    let mut results = Vec::new();
-    let mut success_count = 0;
-    let mut failed_count = 0;
-    let mut skipped_count = 0;
+    enum SyncTarget<'a> {
+        Trakt(TraktClient),
+        Tmdb(TmdbClient),
+        Imdb(&'a str),
+        Douban(&'a str),
+    }
 
-    match target {
-        "trakt" => {
-            let client = trakt_client(&config.platforms.trakt)?;
-            for item in &preview.items {
-                if item.reason.is_some() {
-                    skipped_count += 1;
-                    results.push(skipped_item(item, item.reason.clone()));
-                    continue;
-                }
-                match sync_item_to_trakt(&client, item).await {
-                    Ok(result) => {
-                        if result.status == "success" {
-                            success_count += 1;
-                        } else if result.status == "skipped" {
-                            skipped_count += 1;
-                        } else {
-                            failed_count += 1;
-                        }
-                        results.push(result);
-                    }
-                    Err(error) => {
-                        failed_count += 1;
-                        results.push(failed_item(item, error.to_string()));
-                    }
-                }
-            }
-        }
-        "tmdb" => {
-            let client = tmdb_client(&config.platforms.tmdb)?;
-            for item in &preview.items {
-                if item.reason.is_some() {
-                    skipped_count += 1;
-                    results.push(skipped_item(item, item.reason.clone()));
-                    continue;
-                }
-                match sync_item_to_tmdb(&client, item).await {
-                    Ok(result) => {
-                        if result.status == "success" {
-                            success_count += 1;
-                        } else if result.status == "skipped" {
-                            skipped_count += 1;
-                        } else {
-                            failed_count += 1;
-                        }
-                        results.push(result);
-                    }
-                    Err(error) => {
-                        failed_count += 1;
-                        results.push(failed_item(item, error.to_string()));
-                    }
-                }
-            }
-        }
-        "imdb" => {
-            let cookie = config
+    let target_client = match target {
+        "trakt" => SyncTarget::Trakt(trakt_client(&config.platforms.trakt)?),
+        "tmdb" => SyncTarget::Tmdb(tmdb_client(&config.platforms.tmdb)?),
+        "imdb" => SyncTarget::Imdb(
+            config
                 .platforms
                 .imdb
                 .cookie
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
-                .context("IMDb Cookie is required for sync target")?;
-            for item in &preview.items {
-                if item.reason.is_some() {
-                    skipped_count += 1;
-                    results.push(skipped_item(item, item.reason.clone()));
-                    continue;
-                }
-                match sync_item_to_imdb(cookie, item).await {
-                    Ok(result) => {
-                        if result.status == "success" {
-                            success_count += 1;
-                        } else if result.status == "skipped" {
-                            skipped_count += 1;
-                        } else {
-                            failed_count += 1;
-                        }
-                        results.push(result);
-                    }
-                    Err(error) => {
-                        failed_count += 1;
-                        results.push(failed_item(item, error.to_string()));
-                    }
-                }
-            }
-        }
-        "douban" => {
-            let cookie = config
+                .context("IMDb Cookie is required for sync target")?,
+        ),
+        "douban" => SyncTarget::Douban(
+            config
                 .platforms
                 .douban
                 .cookie
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
-                .context("Douban Cookie is required for sync target")?;
-            for item in &preview.items {
-                if item.reason.is_some() {
-                    skipped_count += 1;
-                    results.push(skipped_item(item, item.reason.clone()));
-                    continue;
-                }
-                match sync_item_to_douban(cookie, item).await {
-                    Ok(result) => {
-                        if result.status == "success" {
-                            success_count += 1;
-                        } else if result.status == "skipped" {
-                            skipped_count += 1;
-                        } else {
-                            failed_count += 1;
-                        }
-                        results.push(result);
+                .context("Douban Cookie is required for sync target")?,
+        ),
+        _ => return Err(anyhow!("sync target {target} is not implemented")),
+    };
+
+    let mut results = Vec::new();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+    let mut skipped_count = 0;
+    let total = preview.items.len();
+    let mut douban_circuit_reason = None::<String>;
+
+    for (index, item) in preview.items.iter().enumerate() {
+        let current = index + 1;
+        progress(json!({
+            "phase": "item.started",
+            "direction": preview.direction,
+            "current": current,
+            "total": total,
+            "title": item.title,
+            "message": format!("正在同步 {current}/{total} · {}", item.title)
+        }));
+
+        let result = if let Some(reason) = &douban_circuit_reason {
+            skipped_item(item, Some(reason.clone()))
+        } else if item.reason.is_some() {
+            skipped_item(item, item.reason.clone())
+        } else {
+            let execution = match &target_client {
+                SyncTarget::Trakt(client) => sync_item_to_trakt(client, item).await,
+                SyncTarget::Tmdb(client) => sync_item_to_tmdb(client, item).await,
+                SyncTarget::Imdb(cookie) => sync_item_to_imdb(cookie, item).await,
+                SyncTarget::Douban(cookie) => sync_item_to_douban(cookie, item).await,
+            };
+            match execution {
+                Ok(result) => result,
+                Err(error) => {
+                    let reason = error.to_string();
+                    if matches!(&target_client, SyncTarget::Douban(_))
+                        && is_douban_protection_error(&reason)
+                    {
+                        douban_circuit_reason = Some(
+                            "豆瓣疑似触发频率保护，已停止本批次剩余写入；稍后可从未完成条目继续"
+                                .to_string(),
+                        );
                     }
-                    Err(error) => {
-                        failed_count += 1;
-                        results.push(failed_item(item, error.to_string()));
-                    }
+                    failed_item(item, reason)
                 }
             }
+        };
+
+        match result.status.as_str() {
+            "success" => success_count += 1,
+            "skipped" => skipped_count += 1,
+            _ => failed_count += 1,
         }
-        _ => return Err(anyhow!("sync target {target} is not implemented")),
+        let status_label = match result.status.as_str() {
+            "success" => "成功",
+            "skipped" => "跳过",
+            _ => "失败",
+        };
+        progress(json!({
+            "phase": "item.completed",
+            "direction": preview.direction,
+            "current": current,
+            "total": total,
+            "title": &result.title,
+            "status": &result.status,
+            "reason": &result.reason,
+            "success_count": success_count,
+            "skipped_count": skipped_count,
+            "failed_count": failed_count,
+            "item": &result,
+            "message": format!("{status_label} {current}/{total} · {}", item.title)
+        }));
+        results.push(result);
+
+        if matches!(&target_client, SyncTarget::Douban(_))
+            && douban_circuit_reason.is_none()
+            && current < total
+        {
+            let delay_ms = 8000 + (index as u64 % 3) * 2000;
+            progress(json!({
+                "phase": "rate_limit.wait",
+                "direction": preview.direction,
+                "current": current,
+                "total": total,
+                "wait_ms": delay_ms,
+                "message": format!("豆瓣低频保护 · {} 秒后继续", delay_ms as f64 / 1000.0)
+            }));
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
     }
 
     Ok(SyncExecuteResult {
@@ -536,6 +569,15 @@ pub async fn execute_sync(config: &AppConfig, preview: &SyncPreviewResult) -> Re
     })
 }
 
+fn is_douban_protection_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("douban write protection")
+        || message.contains("sec.douban.com")
+        || message.contains("404 not found")
+        || message.contains("403 forbidden")
+        || message.contains("429 too many requests")
+}
+
 pub fn supports_sync_pair(source: &str, target: &str) -> bool {
     source != target
         && matches!(source, "tmdb" | "trakt" | "imdb" | "douban")
@@ -545,7 +587,11 @@ pub fn supports_sync_pair(source: &str, target: &str) -> bool {
 async fn test_tmdb(config: &cinerecord_core::TmdbConfig) -> Result<PlatformValidationResult> {
     let client = tmdb_client(config)?;
     let auth = client.validate_api_key().await?;
-    if !auth.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if !auth
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         return Ok(PlatformValidationResult {
             platform: "tmdb".to_string(),
             success: false,
@@ -618,10 +664,17 @@ async fn test_tmdb(config: &cinerecord_core::TmdbConfig) -> Result<PlatformValid
                 .get("account")
                 .and_then(|account| account.get("username"))
                 .and_then(|value| value.as_str());
-            let rated_total = profile.get("rated_total").and_then(|value| value.as_i64()).unwrap_or(0);
+            let rated_total = profile
+                .get("rated_total")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
             match username {
-                Some(username) => format!("TMDB 已验证 · 用户 {username} · 可读取评分数据 ({rated_total} 条)"),
-                None => format!("TMDB API Key 和 Session 校验通过 · 可读取评分数据 ({rated_total} 条)"),
+                Some(username) => {
+                    format!("TMDB 已验证 · 用户 {username} · 可读取评分数据 ({rated_total} 条)")
+                }
+                None => {
+                    format!("TMDB API Key 和 Session 校验通过 · 可读取评分数据 ({rated_total} 条)")
+                }
             }
         } else {
             "TMDB API Key 校验通过；补充 Session 后即可抓取和同步评分".to_string()
@@ -631,8 +684,14 @@ async fn test_tmdb(config: &cinerecord_core::TmdbConfig) -> Result<PlatformValid
 }
 
 async fn test_trakt(config: &cinerecord_core::TraktConfig) -> Result<PlatformValidationResult> {
-    if config.client_id.as_deref().is_none_or(|value| value.trim().is_empty())
-        || config.client_secret.as_deref().is_none_or(|value| value.trim().is_empty())
+    if config
+        .client_id
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+        || config
+            .client_secret
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
     {
         return Ok(PlatformValidationResult {
             platform: "trakt".to_string(),
@@ -646,7 +705,9 @@ async fn test_trakt(config: &cinerecord_core::TraktConfig) -> Result<PlatformVal
         return Ok(PlatformValidationResult {
             platform: "trakt".to_string(),
             success: false,
-            message: "Trakt 基础配置已完成，但还没有 access token，请先在 CineRecord 页面完成设备授权".to_string(),
+            message:
+                "Trakt 基础配置已完成，但还没有 access token，请先在 CineRecord 页面完成设备授权"
+                    .to_string(),
             profile: None,
         });
     }
@@ -673,12 +734,22 @@ async fn test_trakt(config: &cinerecord_core::TraktConfig) -> Result<PlatformVal
     let username = profile
         .get("username")
         .and_then(|value| value.as_str())
-        .or_else(|| profile.get("ids").and_then(|ids| ids.get("slug")).and_then(|value| value.as_str()));
+        .or_else(|| {
+            profile
+                .get("ids")
+                .and_then(|ids| ids.get("slug"))
+                .and_then(|value| value.as_str())
+        });
     let ratings_total = stats
         .get("movies")
         .and_then(|value| value.get("ratings"))
         .and_then(|value| value.as_i64())
-        .or_else(|| stats.get("ratings").and_then(|value| value.get("total")).and_then(|value| value.as_i64()))
+        .or_else(|| {
+            stats
+                .get("ratings")
+                .and_then(|value| value.get("total"))
+                .and_then(|value| value.as_i64())
+        })
         .unwrap_or(0);
     let watchlist_total = stats
         .get("watchlist")
@@ -688,7 +759,9 @@ async fn test_trakt(config: &cinerecord_core::TraktConfig) -> Result<PlatformVal
         platform: "trakt".to_string(),
         success: true,
         message: match username {
-            Some(username) => format!("Trakt 已验证 · 用户 {username} · 可读取评分数据 ({ratings_total} 条)"),
+            Some(username) => {
+                format!("Trakt 已验证 · 用户 {username} · 可读取评分数据 ({ratings_total} 条)")
+            }
             None => format!("Trakt OAuth token 校验通过 · 可读取评分数据 ({ratings_total} 条)"),
         },
         profile: Some(json!({
@@ -708,7 +781,9 @@ async fn test_trakt(config: &cinerecord_core::TraktConfig) -> Result<PlatformVal
     })
 }
 
-async fn fetch_tmdb_rated_movies(config: &cinerecord_core::TmdbConfig) -> Result<(FetchResult, Vec<MovieRecord>)> {
+async fn fetch_tmdb_rated_movies(
+    config: &cinerecord_core::TmdbConfig,
+) -> Result<(FetchResult, Vec<MovieRecord>)> {
     let client = tmdb_client(config)?;
     let account = client.fetch_account().await?;
     let account_id = account
@@ -723,7 +798,10 @@ async fn fetch_tmdb_rated_movies(config: &cinerecord_core::TmdbConfig) -> Result
 
     while page <= total_pages {
         let payload = client.get_account_rated_movies(account_id, page).await?;
-        total_pages = payload.get("total_pages").and_then(|v| v.as_i64()).unwrap_or(1);
+        total_pages = payload
+            .get("total_pages")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1);
 
         for item in payload
             .get("results")
@@ -731,20 +809,32 @@ async fn fetch_tmdb_rated_movies(config: &cinerecord_core::TmdbConfig) -> Result
             .cloned()
             .unwrap_or_default()
         {
-            let tmdb_id = item.get("id").and_then(|v| v.as_i64()).context("TMDB movie id missing")?;
+            let tmdb_id = item
+                .get("id")
+                .and_then(|v| v.as_i64())
+                .context("TMDB movie id missing")?;
             let tmdb_key = tmdb_id.to_string();
             let legacy = legacy_cache.get(&tmdb_key);
-            let imdb_id = legacy.and_then(|row| legacy_row_value(row, &["imdb_id", "IMDb ID", "IMDB ID"]));
+            let imdb_id =
+                legacy.and_then(|row| legacy_row_value(row, &["imdb_id", "IMDb ID", "IMDB ID"]));
             let release_year = item
                 .get("release_date")
                 .and_then(|v| v.as_str())
                 .and_then(parse_year)
-                .or_else(|| legacy.and_then(|row| legacy_row_value(row, &["Year", "year"])).and_then(|value| value.parse::<i32>().ok()));
+                .or_else(|| {
+                    legacy
+                        .and_then(|row| legacy_row_value(row, &["Year", "year"]))
+                        .and_then(|value| value.parse::<i32>().ok())
+                });
             let rated_at = item
                 .get("rated_at")
                 .and_then(|v| v.as_str())
                 .and_then(parse_datetime)
-                .or_else(|| legacy.and_then(|row| legacy_row_value(row, &["Date Rated", "date"])).and_then(parse_datetime));
+                .or_else(|| {
+                    legacy
+                        .and_then(|row| legacy_row_value(row, &["Date Rated", "date"]))
+                        .and_then(parse_datetime)
+                });
             let mut raw_json = item.clone();
             if let Some(row) = legacy {
                 for (source_key, target_key) in [
@@ -756,7 +846,9 @@ async fn fetch_tmdb_rated_movies(config: &cinerecord_core::TmdbConfig) -> Result
                     ("URL", "URL"),
                 ] {
                     if raw_json.get(target_key).is_none() {
-                        if let Some(value) = row.get(source_key).filter(|value| !value.trim().is_empty()) {
+                        if let Some(value) =
+                            row.get(source_key).filter(|value| !value.trim().is_empty())
+                        {
                             raw_json[target_key] = json!(value);
                         }
                     }
@@ -801,7 +893,9 @@ async fn fetch_tmdb_rated_movies(config: &cinerecord_core::TmdbConfig) -> Result
     ))
 }
 
-async fn fetch_tmdb_watchlist(config: &cinerecord_core::TmdbConfig) -> Result<(Value, Vec<WishlistRecord>)> {
+async fn fetch_tmdb_watchlist(
+    config: &cinerecord_core::TmdbConfig,
+) -> Result<(Value, Vec<WishlistRecord>)> {
     let client = tmdb_client(config)?;
     let account = client.fetch_account().await?;
     let account_id = account
@@ -818,7 +912,10 @@ async fn fetch_tmdb_watchlist(config: &cinerecord_core::TmdbConfig) -> Result<(V
     let items = results
         .iter()
         .map(|item| {
-            let tmdb_id = item.get("id").and_then(|value| value.as_i64()).map(|value| value.to_string());
+            let tmdb_id = item
+                .get("id")
+                .and_then(|value| value.as_i64())
+                .map(|value| value.to_string());
             WishlistRecord {
                 id: Uuid::new_v4().to_string(),
                 platform: "tmdb".to_string(),
@@ -859,28 +956,42 @@ async fn fetch_tmdb_watchlist(config: &cinerecord_core::TmdbConfig) -> Result<(V
     ))
 }
 
-async fn fetch_trakt_movies(config: &cinerecord_core::TraktConfig) -> Result<(FetchResult, Vec<MovieRecord>)> {
+async fn fetch_trakt_movies(
+    config: &cinerecord_core::TraktConfig,
+) -> Result<(FetchResult, Vec<MovieRecord>)> {
     let client = trakt_client(config)?;
     let items = client.get_all_movies_with_ratings("me").await?;
     let records = items
         .into_iter()
         .map(|item| {
             let trakt_ids = item.get("ids").cloned().unwrap_or_else(|| json!({}));
-            let trakt_id = trakt_ids.get("trakt").and_then(|v| v.as_i64()).map(|v| v.to_string());
-            let tmdb_id = trakt_ids.get("tmdb").and_then(|v| v.as_i64()).map(|v| v.to_string());
-            let imdb_id = trakt_ids.get("imdb").and_then(|v| v.as_str()).map(ToOwned::to_owned);
+            let trakt_id = trakt_ids
+                .get("trakt")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string());
+            let tmdb_id = trakt_ids
+                .get("tmdb")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string());
+            let imdb_id = trakt_ids
+                .get("imdb")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
             let movie = item.get("movie").cloned().unwrap_or_else(|| json!({}));
             let title = movie
                 .get("title")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown title")
                 .to_string();
-            let year = movie
-                .get("year")
-                .and_then(|v| v.as_i64())
-                .map(|v| v as i32);
-            let rated_at = item.get("rated_at").and_then(|v| v.as_str()).and_then(parse_datetime);
-            let watched_at = item.get("watched_at").and_then(|v| v.as_str()).and_then(parse_datetime);
+            let year = movie.get("year").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let rated_at = item
+                .get("rated_at")
+                .and_then(|v| v.as_str())
+                .and_then(parse_datetime);
+            let watched_at = item
+                .get("watched_at")
+                .and_then(|v| v.as_str())
+                .and_then(parse_datetime);
             let source_url = trakt_ids
                 .get("slug")
                 .and_then(|v| v.as_str())
@@ -917,7 +1028,9 @@ async fn fetch_trakt_movies(config: &cinerecord_core::TraktConfig) -> Result<(Fe
     ))
 }
 
-async fn fetch_trakt_watchlist(config: &cinerecord_core::TraktConfig) -> Result<(Value, Vec<WishlistRecord>)> {
+async fn fetch_trakt_watchlist(
+    config: &cinerecord_core::TraktConfig,
+) -> Result<(Value, Vec<WishlistRecord>)> {
     let client = trakt_client(config)?;
     let response = client.get("users/me/watchlist/movies", None).await?;
     let records = response
@@ -927,9 +1040,18 @@ async fn fetch_trakt_watchlist(config: &cinerecord_core::TraktConfig) -> Result<
         .map(|item| {
             let movie = item.get("movie").cloned().unwrap_or_else(|| json!({}));
             let ids = movie.get("ids").cloned().unwrap_or_else(|| json!({}));
-            let trakt_id = ids.get("trakt").and_then(|value| value.as_i64()).map(|value| value.to_string());
-            let tmdb_id = ids.get("tmdb").and_then(|value| value.as_i64()).map(|value| value.to_string());
-            let imdb_id = ids.get("imdb").and_then(|value| value.as_str()).map(ToOwned::to_owned);
+            let trakt_id = ids
+                .get("trakt")
+                .and_then(|value| value.as_i64())
+                .map(|value| value.to_string());
+            let tmdb_id = ids
+                .get("tmdb")
+                .and_then(|value| value.as_i64())
+                .map(|value| value.to_string());
+            let imdb_id = ids
+                .get("imdb")
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
             let source_url = ids
                 .get("slug")
                 .and_then(|value| value.as_str())
@@ -942,7 +1064,10 @@ async fn fetch_trakt_watchlist(config: &cinerecord_core::TraktConfig) -> Result<
                     .and_then(|value| value.as_str())
                     .unwrap_or("Unknown title")
                     .to_string(),
-                year: movie.get("year").and_then(|value| value.as_i64()).map(|value| value as i32),
+                year: movie
+                    .get("year")
+                    .and_then(|value| value.as_i64())
+                    .map(|value| value as i32),
                 external_id: trakt_id.clone(),
                 source_url,
                 identifiers: MovieIdentifiers {
@@ -968,16 +1093,25 @@ async fn fetch_trakt_watchlist(config: &cinerecord_core::TraktConfig) -> Result<
     ))
 }
 
-async fn sync_item_to_trakt(client: &TraktClient, item: &SyncPreviewItem) -> Result<SyncExecutionItem> {
+async fn sync_item_to_trakt(
+    client: &TraktClient,
+    item: &SyncPreviewItem,
+) -> Result<SyncExecutionItem> {
     let mut ids = serde_json::Map::new();
     if let Some(imdb) = &item.identifiers.imdb {
         ids.insert("imdb".to_string(), json!(imdb));
     }
     if let Some(trakt) = &item.identifiers.trakt {
-        ids.insert("trakt".to_string(), json!(trakt.parse::<i64>().unwrap_or_default()));
+        ids.insert(
+            "trakt".to_string(),
+            json!(trakt.parse::<i64>().unwrap_or_default()),
+        );
     }
     if let Some(tmdb) = &item.identifiers.tmdb {
-        ids.insert("tmdb".to_string(), json!(tmdb.parse::<i64>().unwrap_or_default()));
+        ids.insert(
+            "tmdb".to_string(),
+            json!(tmdb.parse::<i64>().unwrap_or_default()),
+        );
     }
     if ids.is_empty() {
         return Ok(skipped_item(
@@ -1027,7 +1161,10 @@ async fn sync_item_to_trakt(client: &TraktClient, item: &SyncPreviewItem) -> Res
     })
 }
 
-async fn sync_item_to_tmdb(client: &TmdbClient, item: &SyncPreviewItem) -> Result<SyncExecutionItem> {
+async fn sync_item_to_tmdb(
+    client: &TmdbClient,
+    item: &SyncPreviewItem,
+) -> Result<SyncExecutionItem> {
     let rating = item
         .source_rating
         .filter(|value| *value > 0.0)
@@ -1047,7 +1184,10 @@ async fn sync_item_to_tmdb(client: &TmdbClient, item: &SyncPreviewItem) -> Resul
         _ => client.rate_movie(tmdb_id, rating).await?,
     };
     if !success {
-        return Ok(failed_item(item, "TMDB rating API returned unsuccessful response".to_string()));
+        return Ok(failed_item(
+            item,
+            "TMDB rating API returned unsuccessful response".to_string(),
+        ));
     }
 
     Ok(SyncExecutionItem {
@@ -1065,7 +1205,10 @@ async fn sync_item_to_tmdb(client: &TmdbClient, item: &SyncPreviewItem) -> Resul
     })
 }
 
-async fn sync_item_to_imdb(cookie_header: &str, item: &SyncPreviewItem) -> Result<SyncExecutionItem> {
+async fn sync_item_to_imdb(
+    cookie_header: &str,
+    item: &SyncPreviewItem,
+) -> Result<SyncExecutionItem> {
     let rating = item
         .source_rating
         .filter(|value| *value > 0.0)
@@ -1088,7 +1231,10 @@ async fn sync_item_to_imdb(cookie_header: &str, item: &SyncPreviewItem) -> Resul
     })
 }
 
-async fn sync_item_to_douban(cookie_header: &str, item: &SyncPreviewItem) -> Result<SyncExecutionItem> {
+async fn sync_item_to_douban(
+    cookie_header: &str,
+    item: &SyncPreviewItem,
+) -> Result<SyncExecutionItem> {
     let douban_id = if let Some(target_id) = item.target_linking_id.clone() {
         if target_id.starts_with("tt") {
             search_douban_id_by_imdb(cookie_header, &target_id).await?
@@ -1154,8 +1300,16 @@ async fn test_cookie_platform(
     config: &cinerecord_core::CookiePlatformConfig,
 ) -> Result<PlatformValidationResult> {
     if platform == "douban" {
-        if let Some(user_id) = config.user_id.as_deref().filter(|value| !value.trim().is_empty()) {
-            if let Some(cookie) = config.cookie.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(user_id) = config
+            .user_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            if let Some(cookie) = config
+                .cookie
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 return match validate_cookie_platform("douban", cookie, Some(user_id)).await {
                     Ok(result) => Ok(result),
                     Err(_) => validate_douban_public_profile(user_id, None).await,
@@ -1163,16 +1317,25 @@ async fn test_cookie_platform(
             }
             return validate_douban_public_profile(user_id, None).await;
         }
-        if config.cookie.as_deref().is_none_or(|value| value.trim().is_empty()) {
+        if config
+            .cookie
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
             return Ok(PlatformValidationResult {
                 platform: "douban".to_string(),
                 success: false,
-                message: "请填写 Douban User ID，Cookie 只在需要写入/同步到豆瓣时才必需".to_string(),
+                message: "请填写 Douban User ID，Cookie 只在需要写入/同步到豆瓣时才必需"
+                    .to_string(),
                 profile: None,
             });
         }
     }
-    let Some(cookie) = config.cookie.as_deref().filter(|value| !value.trim().is_empty()) else {
+    let Some(cookie) = config
+        .cookie
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
         return Ok(PlatformValidationResult {
             platform: platform.to_string(),
             success: false,
@@ -1187,9 +1350,15 @@ async fn test_cookie_platform(
     validate_cookie_platform(platform, cookie, config.user_id.as_deref()).await
 }
 
-async fn validate_douban_public_profile(user_id: &str, cookie: Option<&str>) -> Result<PlatformValidationResult> {
+async fn validate_douban_public_profile(
+    user_id: &str,
+    cookie: Option<&str>,
+) -> Result<PlatformValidationResult> {
     let snapshot = fetch_douban_public_snapshot(user_id, cookie).await?;
-    let display_name = snapshot.display_name.clone().unwrap_or_else(|| user_id.to_string());
+    let display_name = snapshot
+        .display_name
+        .clone()
+        .unwrap_or_else(|| user_id.to_string());
     let success = snapshot.watched_total.is_some() || snapshot.wish_total.is_some();
     Ok(PlatformValidationResult {
         platform: "douban".to_string(),
@@ -1226,135 +1395,67 @@ async fn validate_douban_cookie(
     cookie_names: Vec<String>,
 ) -> Result<PlatformValidationResult> {
     let client = Client::new();
-    let response = client
-        .get("https://www.douban.com/mine/")
-        .header("Cookie", cookie_header)
-        .header("User-Agent", browser_user_agent())
-        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-        .send()
-        .await?;
-    let final_url = response.url().to_string();
-    let body = response.text().await.unwrap_or_default();
-    let resolved_user_id = extract_douban_user_id(&final_url)
-        .or_else(|| extract_douban_user_id(&body))
-        .or_else(|| user_id.map(ToOwned::to_owned));
-    let login_ok = final_url.contains("/people/") && !final_url.contains("passport/login") && !final_url.contains("/sorry");
-    let mut display_name = extract_douban_display_name(&body);
+    let resolved_user_id = user_id
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let Some(resolved_user_id) = resolved_user_id else {
+        return Ok(PlatformValidationResult {
+            platform: "douban".to_string(),
+            success: false,
+            message: "请填写 Douban User ID；为降低风控，测试连接不会再访问 /mine 自动识别账号"
+                .to_string(),
+            profile: Some(json!({
+                "cookie_names": cookie_names,
+                "read_verified": false,
+                "write_ready": false,
+                "write_verified": null
+            })),
+        });
+    };
+
     let mut watched_total = None::<i64>;
     let mut wish_total = None::<i64>;
     let mut sample_title = None::<String>;
-    let mut profile_link = resolved_user_id
-        .as_ref()
-        .map(|user_id| format!("https://movie.douban.com/people/{user_id}/"));
-    let mut avatar = extract_douban_avatar(&body);
-    let mut fetch_verified = false;
+    let watched_probe =
+        fetch_douban_interest_probe(&client, cookie_header, &resolved_user_id, "done").await;
+    let wish_probe =
+        fetch_douban_interest_probe(&client, cookie_header, &resolved_user_id, "mark").await;
 
-    if login_ok {
-        if let Some(user_id) = resolved_user_id.as_deref() {
-            if let Ok(profile_response) = client
-                .get(format!("https://www.douban.com/people/{user_id}/"))
-                .header("Cookie", cookie_header)
-                .header("User-Agent", browser_user_agent())
-                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-                .send()
-                .await
-            {
-                let profile_html = profile_response.text().await.unwrap_or_default();
-                display_name = display_name.or_else(|| extract_douban_display_name(&profile_html));
-                avatar = avatar.or_else(|| extract_douban_avatar(&profile_html));
-            }
-
-            if let Ok(movie_response) = client
-                .get(format!("https://movie.douban.com/people/{user_id}/"))
-                .header("Cookie", cookie_header)
-                .header("User-Agent", browser_user_agent())
-                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-                .send()
-                .await
-            {
-                let movie_html = movie_response.text().await.unwrap_or_default();
-                watched_total = extract_html_counter(&movie_html, "/collect").or(watched_total);
-                wish_total = extract_html_counter(&movie_html, "/wish").or(wish_total);
-            }
-
-            if profile_link.is_none() {
-                profile_link = Some(format!("https://movie.douban.com/people/{user_id}/"));
-            }
-        }
+    if let Ok(probe) = &watched_probe {
+        watched_total = probe.total;
+        sample_title = probe.sample_title.clone();
+    }
+    if let Ok(probe) = &wish_probe {
+        wish_total = probe.total;
     }
 
-    if let Some(user_id) = resolved_user_id.as_deref() {
-        if let Ok(probe) = fetch_douban_interest_probe(&client, cookie_header, user_id, "done").await {
-            watched_total = probe.total.or(watched_total);
-            sample_title = probe.sample_title.or(sample_title);
-            fetch_verified = true;
-        }
-        if let Ok(probe) = fetch_douban_interest_probe(&client, cookie_header, user_id, "mark").await {
-            wish_total = probe.total.or(wish_total);
-            fetch_verified = true;
-        }
-        if profile_link.is_none() {
-            profile_link = Some(format!("https://movie.douban.com/people/{user_id}/"));
-        }
-    }
-
-    let public_snapshot = if let Some(user_id) = resolved_user_id.as_deref() {
-        fetch_douban_public_snapshot(user_id, Some(cookie_header)).await.ok()
-    } else {
-        None
-    };
-    watched_total = public_snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.watched_total)
-        .or(watched_total);
-    wish_total = public_snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.wish_total)
-        .or(wish_total);
-    display_name = public_snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.display_name.clone())
-        .or(display_name);
-    avatar = public_snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.avatar.clone())
-        .or(avatar);
-    sample_title = public_snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.sample_title.clone())
-        .or(sample_title);
-
-    if display_name
-        .as_deref()
-        .is_some_and(|value| value.contains("禁止访问") || value.contains("访问受限"))
-    {
-        display_name = resolved_user_id.clone();
-    }
-    if avatar
-        .as_deref()
-        .is_some_and(|value| value.contains("new_menu.gif"))
-    {
-        avatar = None;
-    }
-
-    let public_fetch_verified = watched_total.is_some() || wish_total.is_some();
-    let success = public_fetch_verified || (login_ok && fetch_verified);
-    let identity = display_name
-        .clone()
-        .or_else(|| resolved_user_id.clone())
-        .unwrap_or_else(|| "当前账户".to_string());
+    let read_verified = watched_probe.is_ok() || wish_probe.is_ok();
+    let write_ready = ["dbcl2", "ck"]
+        .iter()
+        .all(|required| cookie_names.iter().any(|name| name == required));
+    let success = read_verified;
+    let identity = resolved_user_id.clone();
     let message = if success {
-        format!(
-            "豆瓣已验证 · 用户 {identity} · 可读取数据（看过 {} · 想看 {}）",
-            watched_total.unwrap_or(0),
-            wish_total.unwrap_or(0)
-        )
-    } else if fetch_verified {
-        "豆瓣 Cookie 可读取电影数据，但主页请求被限制；抓取仍可继续".to_string()
-    } else if login_ok {
-        "豆瓣登录已建立，但还没验证到可读取电影数据；请确认 Cookie 和账号页权限".to_string()
+        if write_ready {
+            format!(
+                "豆瓣已连接 · 用户 {identity} · 低频读取验证通过（看过 {} · 想看 {}）· 写入凭据齐全",
+                watched_total.unwrap_or(0),
+                wish_total.unwrap_or(0)
+            )
+        } else {
+            format!(
+                "豆瓣已连接 · 用户 {identity} · 可读取数据（看过 {} · 想看 {}），同步写入还缺少 dbcl2/ck",
+                watched_total.unwrap_or(0),
+                wish_total.unwrap_or(0)
+            )
+        }
     } else {
-        format!("豆瓣 Cookie 无效或已过期 · final_url={final_url}")
+        let detail = watched_probe
+            .err()
+            .or_else(|| wish_probe.err())
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "未知错误".to_string());
+        format!("豆瓣读取验证失败 · {detail}")
     };
 
     Ok(PlatformValidationResult {
@@ -1363,18 +1464,19 @@ async fn validate_douban_cookie(
         message,
         profile: Some(json!({
             "user_id": resolved_user_id,
-            "final_url": final_url,
-            "display_name": display_name,
-            "avatar": avatar,
+            "display_name": identity,
             "cookie_names": cookie_names,
             "fetch_verified": success,
+            "read_verified": read_verified,
+            "write_ready": write_ready,
+            "write_verified": null,
             "watched_total": watched_total,
             "wish_total": wish_total,
             "watched": watched_total,
             "wish": wish_total,
             "sample_title": sample_title,
-            "profile_link": profile_link,
-            "read_mode": "public+cookie",
+            "profile_link": format!("https://movie.douban.com/people/{identity}/"),
+            "read_mode": "lightweight_api",
             "write_cookie_required": true
         })),
     })
@@ -1605,7 +1707,10 @@ async fn fetch_imdb_rated_movies(
             });
         }
 
-        let page_info = ratings.get("pageInfo").cloned().unwrap_or_else(|| json!({}));
+        let page_info = ratings
+            .get("pageInfo")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let has_next = page_info
             .get("hasNextPage")
             .and_then(|value| value.as_bool())
@@ -1630,7 +1735,12 @@ async fn fetch_imdb_rated_movies(
     ))
 }
 
-async fn imdb_user_ratings_page(client: &Client, cookie_header: &str, after: Option<&str>, first: usize) -> Result<Value> {
+async fn imdb_user_ratings_page(
+    client: &Client,
+    cookie_header: &str,
+    after: Option<&str>,
+    first: usize,
+) -> Result<Value> {
     let payload = json!({
         "operationName": "userRatings",
         "variables": { "first": first, "after": after },
@@ -1664,14 +1774,22 @@ async fn fetch_imdb_watchlist(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .context("IMDb Cookie is required for watchlist fetch")?;
-    let user_id = config.user_id.as_deref().filter(|value| !value.trim().is_empty());
+    let user_id = config
+        .user_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
     let mut records = if let Some(user_id) = user_id {
-        fetch_imdb_watchlist_from_base(cookie, &format!("https://www.imdb.com/user/{user_id}/watchlist/")).await?
+        fetch_imdb_watchlist_from_base(
+            cookie,
+            &format!("https://www.imdb.com/user/{user_id}/watchlist/"),
+        )
+        .await?
     } else {
         Vec::new()
     };
     if records.is_empty() {
-        records = fetch_imdb_watchlist_from_base(cookie, "https://www.imdb.com/list/watchlist/").await?;
+        records =
+            fetch_imdb_watchlist_from_base(cookie, "https://www.imdb.com/list/watchlist/").await?;
     }
     let item_count = records.len();
     Ok((
@@ -1685,7 +1803,10 @@ async fn fetch_imdb_watchlist(
     ))
 }
 
-async fn fetch_imdb_watchlist_from_base(cookie_header: &str, base_url: &str) -> Result<Vec<WishlistRecord>> {
+async fn fetch_imdb_watchlist_from_base(
+    cookie_header: &str,
+    base_url: &str,
+) -> Result<Vec<WishlistRecord>> {
     let mut page = 1usize;
     let mut records = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1767,8 +1888,19 @@ fn traverse_imdb_watchlist_value(
     match value {
         Value::Object(map) => {
             let mut next_date_added = date_added.clone();
-            for key in ["listItemCreatedAt", "createdAt", "created", "dateAdded", "addedAt", "listItemCreated"] {
-                if let Some(found) = map.get(key).and_then(|item| item.as_str()).filter(|item| !item.trim().is_empty()) {
+            for key in [
+                "listItemCreatedAt",
+                "createdAt",
+                "created",
+                "dateAdded",
+                "addedAt",
+                "listItemCreated",
+            ] {
+                if let Some(found) = map
+                    .get(key)
+                    .and_then(|item| item.as_str())
+                    .filter(|item| !item.trim().is_empty())
+                {
                     next_date_added = Some(found.trim().to_string());
                     break;
                 }
@@ -1789,7 +1921,9 @@ fn traverse_imdb_watchlist_value(
                 .any(|key| map.contains_key(*key));
 
             let title_candidate = if map.get("titleText").is_some()
-                && (map.get("id").is_some() || map.get("titleId").is_some() || map.get("const").is_some())
+                && (map.get("id").is_some()
+                    || map.get("titleId").is_some()
+                    || map.get("const").is_some())
             {
                 Some(value)
             } else {
@@ -1798,7 +1932,9 @@ fn traverse_imdb_watchlist_value(
 
             if let Some(title_value) = title_candidate {
                 if !require_list_context || list_context {
-                    if let Some(record) = imdb_watchlist_record_from_value(title_value, next_date_added.as_deref()) {
+                    if let Some(record) =
+                        imdb_watchlist_record_from_value(title_value, next_date_added.as_deref())
+                    {
                         if let Some(imdb_id) = record.external_id.clone() {
                             if seen.insert(imdb_id) {
                                 records.push(record);
@@ -1809,19 +1945,36 @@ fn traverse_imdb_watchlist_value(
             }
 
             for child in map.values() {
-                traverse_imdb_watchlist_value(child, records, seen, next_date_added.clone(), list_context, require_list_context);
+                traverse_imdb_watchlist_value(
+                    child,
+                    records,
+                    seen,
+                    next_date_added.clone(),
+                    list_context,
+                    require_list_context,
+                );
             }
         }
         Value::Array(items) => {
             for item in items {
-                traverse_imdb_watchlist_value(item, records, seen, date_added.clone(), in_list_context, require_list_context);
+                traverse_imdb_watchlist_value(
+                    item,
+                    records,
+                    seen,
+                    date_added.clone(),
+                    in_list_context,
+                    require_list_context,
+                );
             }
         }
         _ => {}
     }
 }
 
-fn imdb_watchlist_record_from_value(value: &Value, date_added: Option<&str>) -> Option<WishlistRecord> {
+fn imdb_watchlist_record_from_value(
+    value: &Value,
+    date_added: Option<&str>,
+) -> Option<WishlistRecord> {
     let imdb_id = value
         .get("id")
         .and_then(|item| item.as_str())
@@ -1832,7 +1985,12 @@ fn imdb_watchlist_record_from_value(value: &Value, date_added: Option<&str>) -> 
         .get("titleText")
         .and_then(|item| item.get("text"))
         .and_then(|item| item.as_str())
-        .or_else(|| value.get("originalTitleText").and_then(|item| item.get("text")).and_then(|item| item.as_str()))
+        .or_else(|| {
+            value
+                .get("originalTitleText")
+                .and_then(|item| item.get("text"))
+                .and_then(|item| item.as_str())
+        })
         .or_else(|| value.get("title").and_then(|item| item.as_str()))
         .unwrap_or("Unknown title")
         .to_string();
@@ -1841,12 +1999,22 @@ fn imdb_watchlist_record_from_value(value: &Value, date_added: Option<&str>) -> 
         .and_then(|item| item.get("year"))
         .and_then(|item| item.as_i64())
         .map(|year| year as i32)
-        .or_else(|| value.get("year").and_then(|item| item.as_i64()).map(|year| year as i32));
+        .or_else(|| {
+            value
+                .get("year")
+                .and_then(|item| item.as_i64())
+                .map(|year| year as i32)
+        });
     let cover_url = value
         .get("primaryImage")
         .and_then(|item| item.get("url"))
         .and_then(|item| item.as_str())
-        .or_else(|| value.get("image").and_then(|item| item.get("url")).and_then(|item| item.as_str()));
+        .or_else(|| {
+            value
+                .get("image")
+                .and_then(|item| item.get("url"))
+                .and_then(|item| item.as_str())
+        });
     let title_type = value
         .get("titleType")
         .map(|item| {
@@ -1906,7 +2074,10 @@ async fn fetch_douban_interest_probe(
         .header("User-Agent", browser_user_agent())
         .header("Accept", "application/json, text/plain, */*")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-        .header("Referer", format!("https://movie.douban.com/people/{user_id}/"))
+        .header(
+            "Referer",
+            format!("https://movie.douban.com/people/{user_id}/"),
+        )
         .query(&[
             ("type", "movie"),
             ("status", status),
@@ -1947,7 +2118,10 @@ async fn fetch_douban_interest_page(
         .header("User-Agent", browser_user_agent())
         .header("Accept", "application/json, text/plain, */*")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-        .header("Referer", format!("https://movie.douban.com/people/{user_id}/"))
+        .header(
+            "Referer",
+            format!("https://movie.douban.com/people/{user_id}/"),
+        )
         .query(&[
             ("type", "movie"),
             ("status", status),
@@ -1971,7 +2145,8 @@ async fn fetch_douban_interest_movie_records(
     let mut records = Vec::new();
     let mut seen = std::collections::HashSet::new();
     loop {
-        let payload = fetch_douban_interest_page(&client, cookie_header, user_id, status, start, 50).await?;
+        let payload =
+            fetch_douban_interest_page(&client, cookie_header, user_id, status, start, 50).await?;
         let interests = payload
             .get("interests")
             .and_then(|value| value.as_array())
@@ -1985,7 +2160,11 @@ async fn fetch_douban_interest_movie_records(
             let Some(record) = douban_movie_record_from_interest(&interest) else {
                 continue;
             };
-            let Some(key) = record.external_id.clone().or_else(|| record.identifiers.douban.clone()) else {
+            let Some(key) = record
+                .external_id
+                .clone()
+                .or_else(|| record.identifiers.douban.clone())
+            else {
                 continue;
             };
             if !seen.insert(key) {
@@ -1998,6 +2177,7 @@ async fn fetch_douban_interest_movie_records(
             break;
         }
         start += 50;
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
     }
     Ok(records)
 }
@@ -2012,7 +2192,8 @@ async fn fetch_douban_interest_wishlist_records(
     let mut records = Vec::new();
     let mut seen = std::collections::HashSet::new();
     loop {
-        let payload = fetch_douban_interest_page(&client, cookie_header, user_id, status, start, 50).await?;
+        let payload =
+            fetch_douban_interest_page(&client, cookie_header, user_id, status, start, 50).await?;
         let interests = payload
             .get("interests")
             .and_then(|value| value.as_array())
@@ -2026,7 +2207,11 @@ async fn fetch_douban_interest_wishlist_records(
             let Some(record) = douban_wishlist_record_from_interest(&interest) else {
                 continue;
             };
-            let Some(key) = record.external_id.clone().or_else(|| record.identifiers.douban.clone()) else {
+            let Some(key) = record
+                .external_id
+                .clone()
+                .or_else(|| record.identifiers.douban.clone())
+            else {
                 continue;
             };
             if !seen.insert(key) {
@@ -2039,13 +2224,17 @@ async fn fetch_douban_interest_wishlist_records(
             break;
         }
         start += 50;
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
     }
     Ok(records)
 }
 
 fn douban_movie_record_from_interest(interest: &Value) -> Option<MovieRecord> {
     let subject = interest.get("subject")?;
-    let subject_id = subject.get("id").and_then(|value| value.as_str()).map(ToOwned::to_owned);
+    let subject_id = subject
+        .get("id")
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned);
     let title = subject
         .get("title")
         .and_then(|value| value.as_str())
@@ -2056,7 +2245,13 @@ fn douban_movie_record_from_interest(interest: &Value) -> Option<MovieRecord> {
         .get("year")
         .and_then(|value| value.as_i64())
         .map(|value| value as i32)
-        .or_else(|| extract_year_from_text(subject.get("card_subtitle").and_then(|value| value.as_str())));
+        .or_else(|| {
+            extract_year_from_text(
+                subject
+                    .get("card_subtitle")
+                    .and_then(|value| value.as_str()),
+            )
+        });
     let rating = interest
         .get("rating")
         .and_then(|value| value.get("value"))
@@ -2066,17 +2261,31 @@ fn douban_movie_record_from_interest(interest: &Value) -> Option<MovieRecord> {
         .get("create_time")
         .and_then(|value| value.as_str())
         .and_then(parse_date_only)
-        .or_else(|| interest.get("create_time").and_then(|value| value.as_str()).and_then(parse_datetime));
+        .or_else(|| {
+            interest
+                .get("create_time")
+                .and_then(|value| value.as_str())
+                .and_then(parse_datetime)
+        });
     let source_url = subject
         .get("url")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned)
-        .or_else(|| subject_id.as_ref().map(|id| format!("https://movie.douban.com/subject/{id}/")));
+        .or_else(|| {
+            subject_id
+                .as_ref()
+                .map(|id| format!("https://movie.douban.com/subject/{id}/"))
+        });
     let poster = subject
         .get("pic")
         .and_then(|value| value.get("normal"))
         .and_then(|value| value.as_str())
-        .or_else(|| subject.get("pic").and_then(|value| value.get("large")).and_then(|value| value.as_str()));
+        .or_else(|| {
+            subject
+                .get("pic")
+                .and_then(|value| value.get("large"))
+                .and_then(|value| value.as_str())
+        });
 
     Some(MovieRecord {
         id: Uuid::new_v4().to_string(),
@@ -2107,7 +2316,10 @@ fn douban_movie_record_from_interest(interest: &Value) -> Option<MovieRecord> {
 
 fn douban_wishlist_record_from_interest(interest: &Value) -> Option<WishlistRecord> {
     let subject = interest.get("subject")?;
-    let subject_id = subject.get("id").and_then(|value| value.as_str()).map(ToOwned::to_owned);
+    let subject_id = subject
+        .get("id")
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned);
     let title = subject
         .get("title")
         .and_then(|value| value.as_str())
@@ -2118,17 +2330,32 @@ fn douban_wishlist_record_from_interest(interest: &Value) -> Option<WishlistReco
         .get("year")
         .and_then(|value| value.as_i64())
         .map(|value| value as i32)
-        .or_else(|| extract_year_from_text(subject.get("card_subtitle").and_then(|value| value.as_str())));
+        .or_else(|| {
+            extract_year_from_text(
+                subject
+                    .get("card_subtitle")
+                    .and_then(|value| value.as_str()),
+            )
+        });
     let source_url = subject
         .get("url")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned)
-        .or_else(|| subject_id.as_ref().map(|id| format!("https://movie.douban.com/subject/{id}/")));
+        .or_else(|| {
+            subject_id
+                .as_ref()
+                .map(|id| format!("https://movie.douban.com/subject/{id}/"))
+        });
     let poster = subject
         .get("pic")
         .and_then(|value| value.get("normal"))
         .and_then(|value| value.as_str())
-        .or_else(|| subject.get("pic").and_then(|value| value.get("large")).and_then(|value| value.as_str()));
+        .or_else(|| {
+            subject
+                .get("pic")
+                .and_then(|value| value.get("large"))
+                .and_then(|value| value.as_str())
+        });
 
     Some(WishlistRecord {
         id: Uuid::new_v4().to_string(),
@@ -2200,7 +2427,10 @@ async fn rate_imdb_title(cookie_header: &str, imdb_id: &str, rating: f64) -> Res
             Err(error) => {
                 last_error = Some(anyhow!(error.to_string()));
                 if attempt < 2 {
-                    tokio::time::sleep(std::time::Duration::from_millis(400 * (attempt as u64 + 1))).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        400 * (attempt as u64 + 1),
+                    ))
+                    .await;
                 }
             }
         }
@@ -2220,11 +2450,7 @@ async fn search_douban_id_by_imdb(cookie_header: &str, imdb_id: &str) -> Result<
         .header("User-Agent", browser_user_agent())
         .header("Accept", "application/json, text/plain, */*")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-        .query(&[
-            ("query", imdb_id),
-            ("type", "movie"),
-            ("count", "1"),
-        ])
+        .query(&[("query", imdb_id), ("type", "movie"), ("count", "1")])
         .send()
         .await?
         .error_for_status()?;
@@ -2263,8 +2489,14 @@ fn douban_imdb_cache() -> &'static HashMap<String, String> {
         };
         let mut map = HashMap::new();
         for row in reader.deserialize::<HashMap<String, String>>().flatten() {
-            let douban_id = row.get("douban_id").map(|value| value.trim()).unwrap_or_default();
-            let imdb_id = row.get("imdb").map(|value| value.trim()).unwrap_or_default();
+            let douban_id = row
+                .get("douban_id")
+                .map(|value| value.trim())
+                .unwrap_or_default();
+            let imdb_id = row
+                .get("imdb")
+                .map(|value| value.trim())
+                .unwrap_or_default();
             if !douban_id.is_empty() && !imdb_id.is_empty() {
                 map.insert(douban_id.to_string(), imdb_id.to_string());
             }
@@ -2313,9 +2545,15 @@ fn legacy_row_value<'a>(row: &'a HashMap<String, String>, keys: &[&str]) -> Opti
         .find(|value| !value.is_empty())
 }
 
-async fn mark_douban_collect(cookie_header: &str, douban_id: &str, rating: Option<f64>) -> Result<()> {
+async fn mark_douban_collect(
+    cookie_header: &str,
+    douban_id: &str,
+    rating: Option<f64>,
+) -> Result<()> {
     let ck = douban_ck_from_cookie(cookie_header).context("Douban ck token missing from cookie")?;
-    let client = Client::new();
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
     let mut form = vec![
         ("ck", ck),
         ("interest", "collect".to_string()),
@@ -2330,27 +2568,64 @@ async fn mark_douban_collect(cookie_header: &str, douban_id: &str, rating: Optio
     let mut last_error = None;
     for attempt in 0..3 {
         let response = client
-            .post(format!("https://movie.douban.com/j/subject/{douban_id}/interest"))
+            .post(format!(
+                "https://movie.douban.com/j/subject/{douban_id}/interest"
+            ))
             .header("Cookie", cookie_header)
             .header("User-Agent", browser_user_agent())
             .header("Accept", "application/json, text/plain, */*")
-            .header("Referer", format!("https://movie.douban.com/subject/{douban_id}/"))
+            .header(
+                "Referer",
+                format!("https://movie.douban.com/subject/{douban_id}/"),
+            )
             .form(&form)
             .send()
             .await;
         match response {
             Ok(response) => {
+                if response.status().is_redirection() {
+                    let location = response
+                        .headers()
+                        .get(reqwest::header::LOCATION)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    if location.contains("sec.douban.com") {
+                        return Err(anyhow!(
+                            "当前 Douban Cookie 只通过了公开读取；直连写入被 sec.douban.com 拦截。请在 movie.douban.com 页面重新同步完整 Cookie，或改用浏览器态完成豆瓣写入"
+                        ));
+                    }
+                    return Err(anyhow!("Douban interest request redirected to {location}"));
+                }
+                if matches!(
+                    response.status(),
+                    StatusCode::NOT_FOUND | StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
+                ) {
+                    return Err(anyhow!(
+                        "Douban write protection suspected (HTTP {})",
+                        response.status()
+                    ));
+                }
                 let payload: Value = response.error_for_status()?.json().await?;
-                let ok = payload.get("r").and_then(|value| value.as_i64()).unwrap_or(-1) == 0;
+                let ok = payload
+                    .get("r")
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(-1)
+                    == 0;
                 if !ok {
-                    return Err(anyhow!("Douban interest API returned unsuccessful response"));
+                    return Err(anyhow!(
+                        "Douban interest API returned unsuccessful response"
+                    ));
                 }
                 return Ok(());
             }
             Err(error) => {
                 last_error = Some(anyhow!(error.to_string()));
                 if attempt < 2 {
-                    tokio::time::sleep(std::time::Duration::from_millis(400 * (attempt as u64 + 1))).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        400 * (attempt as u64 + 1),
+                    ))
+                    .await;
                 }
             }
         }
@@ -2358,7 +2633,11 @@ async fn mark_douban_collect(cookie_header: &str, douban_id: &str, rating: Optio
     Err(last_error.unwrap_or_else(|| anyhow!("Douban interest request failed")))
 }
 
-async fn post_trakt_sync_with_retry(client: &TraktClient, path: &str, body: Value) -> Result<Value> {
+async fn post_trakt_sync_with_retry(
+    client: &TraktClient,
+    path: &str,
+    body: Value,
+) -> Result<Value> {
     let mut last_error = None;
     for attempt in 0..3 {
         match client.post(path, body.clone()).await {
@@ -2366,7 +2645,10 @@ async fn post_trakt_sync_with_retry(client: &TraktClient, path: &str, body: Valu
             Err(error) => {
                 last_error = Some(error);
                 if attempt < 2 {
-                    tokio::time::sleep(std::time::Duration::from_millis(400 * (attempt as u64 + 1))).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        400 * (attempt as u64 + 1),
+                    ))
+                    .await;
                 }
             }
         }
@@ -2388,7 +2670,10 @@ fn platform_display_name(platform: &str) -> &'static str {
 fn cookie_names_from_header(cookie_header: &str) -> Vec<String> {
     cookie_header
         .split(';')
-        .filter_map(|part| part.split_once('=').map(|(name, _)| name.trim().to_string()))
+        .filter_map(|part| {
+            part.split_once('=')
+                .map(|(name, _)| name.trim().to_string())
+        })
         .filter(|name| !name.is_empty())
         .collect()
 }
@@ -2403,7 +2688,6 @@ fn required_cookie_names(platform: &str) -> &'static [&'static str] {
 
 fn allowed_cookie_names(platform: &str) -> Option<&'static [&'static str]> {
     match platform {
-        "douban" => Some(COOKIECLOUD_ALLOWED_DOUBAN),
         "imdb" => Some(COOKIECLOUD_ALLOWED_IMDB),
         _ => None,
     }
@@ -2460,7 +2744,9 @@ fn decrypt_cookiecloud_blob(uuid: &str, password: &str, encrypted: &str) -> Resu
         .decode(encrypted)
         .map_err(|error| anyhow!("CookieCloud payload is not valid base64: {error}"))?;
     if raw.len() < 16 || &raw[..8] != b"Salted__" {
-        return Err(anyhow!("CookieCloud encrypted payload has invalid Salted__ header"));
+        return Err(anyhow!(
+            "CookieCloud encrypted payload has invalid Salted__ header"
+        ));
     }
 
     let salt = &raw[8..16];
@@ -2480,7 +2766,12 @@ fn decrypt_cookiecloud_blob(uuid: &str, password: &str, encrypted: &str) -> Resu
     Ok(value)
 }
 
-fn evp_bytes_to_key(password: &[u8], salt: &[u8], key_len: usize, iv_len: usize) -> (Vec<u8>, Vec<u8>) {
+fn evp_bytes_to_key(
+    password: &[u8],
+    salt: &[u8],
+    key_len: usize,
+    iv_len: usize,
+) -> (Vec<u8>, Vec<u8>) {
     let mut output = Vec::with_capacity(key_len + iv_len);
     let mut previous = Vec::new();
     while output.len() < key_len + iv_len {
@@ -2491,7 +2782,10 @@ fn evp_bytes_to_key(password: &[u8], salt: &[u8], key_len: usize, iv_len: usize)
         previous = md5::compute(material).0.to_vec();
         output.extend_from_slice(&previous);
     }
-    (output[..key_len].to_vec(), output[key_len..key_len + iv_len].to_vec())
+    (
+        output[..key_len].to_vec(),
+        output[key_len..key_len + iv_len].to_vec(),
+    )
 }
 
 fn extract_cookie_data(payload: &Value) -> Result<Value> {
@@ -2501,8 +2795,17 @@ fn extract_cookie_data(payload: &Value) -> Result<Value> {
         .context("CookieCloud payload missing cookie_data")
 }
 
-fn build_cookie_header(cookie_data: &Value, domain_keywords: &[&str], allowed_names: Option<&[&str]>) -> (String, usize) {
-    let allowed = allowed_names.map(|items| items.iter().map(|item| item.to_ascii_lowercase()).collect::<Vec<_>>());
+fn build_cookie_header(
+    cookie_data: &Value,
+    domain_keywords: &[&str],
+    allowed_names: Option<&[&str]>,
+) -> (String, usize) {
+    let allowed = allowed_names.map(|items| {
+        items
+            .iter()
+            .map(|item| item.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+    });
     let mut cookies = BTreeMap::new();
     let mut ordered_names = Vec::<String>::new();
     let mut matched = 0;
@@ -2514,7 +2817,10 @@ fn build_cookie_header(cookie_data: &Value, domain_keywords: &[&str], allowed_na
             .unwrap_or_default()
             .trim()
             .to_string();
-        let value = item.get("value").and_then(|value| value.as_str()).unwrap_or_default();
+        let value = item
+            .get("value")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
         if name.is_empty() || value.is_empty() {
             continue;
         }
@@ -2525,11 +2831,18 @@ fn build_cookie_header(cookie_data: &Value, domain_keywords: &[&str], allowed_na
             .unwrap_or(&domain)
             .trim_start_matches('.')
             .to_ascii_lowercase();
-        if !domain_keywords.is_empty() && !domain_keywords.iter().any(|keyword| actual_domain.contains(keyword)) {
+        if !domain_keywords.is_empty()
+            && !domain_keywords
+                .iter()
+                .any(|keyword| actual_domain.contains(keyword))
+        {
             continue;
         }
         if let Some(allowed) = &allowed {
-            if !allowed.iter().any(|candidate| candidate == &name.to_ascii_lowercase()) {
+            if !allowed
+                .iter()
+                .any(|candidate| candidate == &name.to_ascii_lowercase())
+            {
                 continue;
             }
         }
@@ -2588,10 +2901,6 @@ fn iter_cookie_records(cookie_data: &Value) -> Vec<(String, Value)> {
     }
 }
 
-fn extract_douban_user_id(text: &str) -> Option<String> {
-    extract_path_fragment(text, "/people/", &['/', '"', '?', '\''])
-}
-
 fn extract_imdb_user_id(text: &str) -> Option<String> {
     extract_path_fragment(text, "/user/", &['/', '"', '?', '\'', '&'])
         .filter(|value| value.starts_with("ur"))
@@ -2633,7 +2942,12 @@ fn extract_douban_avatar(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
     attr_for_first_selector(
         &document,
-        &[".userface img", ".side-info-avatar img", ".pic img", "img[alt][src]"],
+        &[
+            ".userface img",
+            ".side-info-avatar img",
+            ".pic img",
+            "img[alt][src]",
+        ],
         "src",
     )
     .map(normalize_image_url)
@@ -2643,22 +2957,37 @@ fn extract_imdb_avatar(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
     meta_content(
         &document,
-        &["meta[property=\"og:image\"]", "meta[name=\"twitter:image\"]"],
+        &[
+            "meta[property=\"og:image\"]",
+            "meta[name=\"twitter:image\"]",
+        ],
         "content",
     )
-    .or_else(|| attr_for_first_selector(&document, &["img.ipc-image", "img[srcset]", "img[src]"], "src"))
+    .or_else(|| {
+        attr_for_first_selector(
+            &document,
+            &["img.ipc-image", "img[srcset]", "img[src]"],
+            "src",
+        )
+    })
 }
 
 fn extract_trakt_avatar(profile: &Value) -> Option<String> {
     value_at_path(profile, &["images", "avatar", "full"])
         .and_then(|value| value.as_str())
-        .or_else(|| value_at_path(profile, &["images", "avatar", "medium"]).and_then(|value| value.as_str()))
-        .or_else(|| value_at_path(profile, &["images", "avatar", "thumb"]).and_then(|value| value.as_str()))
+        .or_else(|| {
+            value_at_path(profile, &["images", "avatar", "medium"]).and_then(|value| value.as_str())
+        })
+        .or_else(|| {
+            value_at_path(profile, &["images", "avatar", "thumb"]).and_then(|value| value.as_str())
+        })
         .map(ToOwned::to_owned)
 }
 
 fn extract_tmdb_avatar(account: &Value) -> Option<String> {
-    if let Some(path) = value_at_path(account, &["avatar", "tmdb", "avatar_path"]).and_then(|value| value.as_str()) {
+    if let Some(path) =
+        value_at_path(account, &["avatar", "tmdb", "avatar_path"]).and_then(|value| value.as_str())
+    {
         return Some(format!("https://image.tmdb.org/t/p/w185{path}"));
     }
     value_at_path(account, &["avatar", "gravatar", "hash"])
@@ -2677,11 +3006,7 @@ fn text_for_first_selector(document: &Html, selectors: &[&str]) -> Option<String
             .join(" ")
             .trim()
             .to_string();
-        if text.is_empty() {
-            None
-        } else {
-            Some(text)
-        }
+        if text.is_empty() { None } else { Some(text) }
     })
 }
 
@@ -2708,17 +3033,6 @@ fn normalize_image_url(url: String) -> String {
     } else {
         url
     }
-}
-
-fn extract_html_counter(html: &str, marker: &str) -> Option<i64> {
-    let start = html.find(marker)?;
-    let segment = &html[start..html.len().min(start + 200)];
-    let digit_start = segment.find(|character: char| character.is_ascii_digit())?;
-    let digits: String = segment[digit_start..]
-        .chars()
-        .take_while(|character| character.is_ascii_digit())
-        .collect();
-    digits.parse::<i64>().ok()
 }
 
 fn extract_number_before_keyword(text: &str, keyword: &str) -> Option<i64> {
@@ -2768,7 +3082,9 @@ fn value_at_path<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
 fn extract_path_fragment(text: &str, marker: &str, terminators: &[char]) -> Option<String> {
     let start = text.find(marker)? + marker.len();
     let rest = &text[start..];
-    let end = rest.find(|character| terminators.contains(&character)).unwrap_or(rest.len());
+    let end = rest
+        .find(|character| terminators.contains(&character))
+        .unwrap_or(rest.len());
     let value = rest[..end].trim();
     if value.is_empty() {
         None
@@ -2788,7 +3104,10 @@ fn cookie_value_from_header<'a>(cookie_header: &'a str, key: &str) -> Option<&'a
     })
 }
 
-fn current_platform_cookie_config<'a>(config: &'a AppConfig, platform: &str) -> &'a cinerecord_core::CookiePlatformConfig {
+fn current_platform_cookie_config<'a>(
+    config: &'a AppConfig,
+    platform: &str,
+) -> &'a cinerecord_core::CookiePlatformConfig {
     match platform {
         "douban" => &config.platforms.douban,
         "imdb" => &config.platforms.imdb,
@@ -2917,43 +3236,67 @@ async fn fetch_douban_public_page_html(
         url = format!("{url}?start={start}&sort=time&rating=all&filter=all&mode=grid");
     }
 
-    let mut command = Command::new("curl");
-    command
-        .arg("-fsSL")
-        .arg("--compressed")
-        .arg("-A")
-        .arg(browser_user_agent())
-        .arg("-H")
-        .arg("Accept-Language: zh-CN,zh;q=0.9,en;q=0.8")
-        .arg("-H")
-        .arg("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-        .arg("-e")
-        .arg(format!("https://movie.douban.com/people/{user_id}/"));
-    if let Some(cookie) = cookie.filter(|value| !value.trim().is_empty()) {
-        command.arg("-H").arg(format!("Cookie: {cookie}"));
-    }
-    let output = command.arg(&url).output().await?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.contains("403") {
-            return Err(anyhow!(
-                "Douban 公开页面当前触发了 sec.douban.com 风控；按逻辑 user_id 足够读取公开数据，但这个网络环境暂时被拦截"
-            ));
+    for attempt in 0..4 {
+        let mut command = Command::new("curl");
+        command
+            .arg("-fsSL")
+            .arg("--compressed")
+            .arg("-A")
+            .arg(browser_user_agent())
+            .arg("-H")
+            .arg("Accept-Language: zh-CN,zh;q=0.9,en;q=0.8")
+            .arg("-H")
+            .arg("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .arg("-e")
+            .arg(format!("https://movie.douban.com/people/{user_id}/"));
+        if let Some(cookie) = cookie.filter(|value| !value.trim().is_empty()) {
+            command.arg("-H").arg(format!("Cookie: {cookie}"));
         }
-        return Err(anyhow!("curl failed for Douban public page: {stderr}"));
+        let output = command.arg(&url).output().await?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if stderr.contains("403") && attempt < 3 {
+                tokio::time::sleep(StdDuration::from_secs(1 << attempt)).await;
+                continue;
+            }
+            return Err(anyhow!("curl failed for Douban public page: {stderr}"));
+        }
+        let html = String::from_utf8_lossy(&output.stdout).to_string();
+        if !is_douban_public_protection_page(&html) {
+            return Ok(html);
+        }
+        if attempt < 3 {
+            tokio::time::sleep(StdDuration::from_secs(1 << attempt)).await;
+        }
     }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Err(anyhow!(
+        "Douban 公开页面连续触发访问保护，备份未完成；请稍后再试"
+    ))
+}
+
+fn is_douban_public_protection_page(html: &str) -> bool {
+    html.contains("有异常请求从你的 IP 发出")
+        || html.contains("豆瓣 - 登录跳转页")
+        || html.contains("sec.douban.com")
+        || html.contains("captcha")
 }
 
 fn parse_douban_public_movies_page(html: &str) -> Result<Vec<DoubanPublicItem>> {
     let document = Html::parse_document(html);
-    let item_selector = Selector::parse(".grid-view .item").map_err(|error| anyhow!("selector parse failed: {error}"))?;
-    let title_selector = Selector::parse("li.title a").map_err(|error| anyhow!("selector parse failed: {error}"))?;
-    let intro_selector = Selector::parse("li.intro").map_err(|error| anyhow!("selector parse failed: {error}"))?;
-    let date_selector = Selector::parse("span.date").map_err(|error| anyhow!("selector parse failed: {error}"))?;
-    let comment_selector = Selector::parse("span.comment").map_err(|error| anyhow!("selector parse failed: {error}"))?;
-    let poster_selector = Selector::parse(".pic img").map_err(|error| anyhow!("selector parse failed: {error}"))?;
-    let rating_selector = Selector::parse("span").map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let item_selector = Selector::parse(".grid-view .item")
+        .map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let title_selector =
+        Selector::parse("li.title a").map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let intro_selector =
+        Selector::parse("li.intro").map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let date_selector =
+        Selector::parse("span.date").map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let comment_selector = Selector::parse("span.comment")
+        .map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let poster_selector =
+        Selector::parse(".pic img").map_err(|error| anyhow!("selector parse failed: {error}"))?;
+    let rating_selector =
+        Selector::parse("span").map_err(|error| anyhow!("selector parse failed: {error}"))?;
 
     let mut items = Vec::new();
     for item in document.select(&item_selector) {
@@ -3045,7 +3388,11 @@ fn extract_first_year(text: &str) -> Option<i32> {
 }
 
 fn normalize_whitespace(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string()
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
 }
 
 fn extract_between(text: &str, start_marker: &str, end_marker: &str) -> Option<String> {
@@ -3067,7 +3414,9 @@ fn is_valid_rating(rating: Option<f64>) -> bool {
 
 fn ratings_match(left: Option<f64>, right: Option<f64>) -> bool {
     match (left, right) {
-        (Some(left), Some(right)) if left.is_finite() && right.is_finite() => (left - right).abs() < 0.001,
+        (Some(left), Some(right)) if left.is_finite() && right.is_finite() => {
+            (left - right).abs() < 0.001
+        }
         _ => false,
     }
 }
@@ -3169,20 +3518,18 @@ async fn fetch_douban_movies(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .context("Douban User ID is required for public fetch")?;
-    let cookie = config.cookie.as_deref().filter(|value| !value.trim().is_empty());
-    let items = match fetch_douban_public_items(user_id, "collect", None).await {
-        Ok(items) if !items.is_empty() => items,
-        _ => {
-            if let Some(cookie) = cookie {
-                match fetch_douban_public_items(user_id, "collect", Some(cookie)).await {
-                    Ok(items) if !items.is_empty() => items,
-                    _ => fetch_douban_interest_movie_records(user_id, cookie, "done").await?,
-                }
-            } else {
-                fetch_douban_public_items(user_id, "collect", None).await?
-            }
-        }
-    };
+    let cookie = config
+        .cookie
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let items =
+        match fetch_douban_interest_movie_records(user_id, cookie.unwrap_or(""), "done").await {
+            Ok(items) if !items.is_empty() => items,
+            _ => match fetch_douban_public_items(user_id, "collect", cookie).await {
+                Ok(items) if !items.is_empty() => items,
+                _ => fetch_douban_public_items(user_id, "collect", None).await?,
+            },
+        };
     let count = items.len();
     Ok((
         FetchResult {
@@ -3202,20 +3549,21 @@ async fn fetch_douban_wishlist(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .context("Douban User ID is required for public wishlist fetch")?;
-    let cookie = config.cookie.as_deref().filter(|value| !value.trim().is_empty());
-    let (items, read_mode) = match fetch_douban_public_wishlist_items(user_id, None).await {
-        Ok(items) if !items.is_empty() => (items, "public"),
-        _ => {
-            if let Some(cookie) = cookie {
-                match fetch_douban_public_wishlist_items(user_id, Some(cookie)).await {
-                    Ok(items) if !items.is_empty() => (items, "public+cookie"),
-                    _ => (fetch_douban_interest_wishlist_records(user_id, cookie, "mark").await?, "api+cookie"),
-                }
-            } else {
-                (fetch_douban_public_wishlist_items(user_id, None).await?, "public")
-            }
-        }
-    };
+    let cookie = config
+        .cookie
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let (items, read_mode) =
+        match fetch_douban_interest_wishlist_records(user_id, cookie.unwrap_or(""), "mark").await {
+            Ok(items) if !items.is_empty() => (items, "public-api"),
+            _ => match fetch_douban_public_wishlist_items(user_id, cookie).await {
+                Ok(items) if !items.is_empty() => (items, "public-html"),
+                _ => (
+                    fetch_douban_public_wishlist_items(user_id, None).await?,
+                    "public-html",
+                ),
+            },
+        };
     let item_count = items.len();
     Ok((
         json!({
@@ -3229,16 +3577,21 @@ async fn fetch_douban_wishlist(
     ))
 }
 
-async fn fetch_douban_public_snapshot(user_id: &str, cookie: Option<&str>) -> Result<DoubanPublicSnapshot> {
+async fn fetch_douban_public_snapshot(
+    user_id: &str,
+    cookie: Option<&str>,
+) -> Result<DoubanPublicSnapshot> {
     let client = Client::new();
     let profile_html = fetch_douban_public_page_html(&client, user_id, "", 0, cookie).await?;
-    let collect_html = fetch_douban_public_page_html(&client, user_id, "collect", 0, cookie).await?;
+    let collect_html =
+        fetch_douban_public_page_html(&client, user_id, "collect", 0, cookie).await?;
     let wish_html = fetch_douban_public_page_html(&client, user_id, "wish", 0, cookie).await?;
     Ok(DoubanPublicSnapshot {
         display_name: extract_douban_display_name(&profile_html)
             .or_else(|| extract_douban_display_name(&collect_html))
             .or_else(|| Some(user_id.to_string())),
-        avatar: extract_douban_avatar(&profile_html).or_else(|| extract_douban_avatar(&collect_html)),
+        avatar: extract_douban_avatar(&profile_html)
+            .or_else(|| extract_douban_avatar(&collect_html)),
         watched_total: extract_douban_page_total(&collect_html),
         wish_total: extract_douban_page_total(&wish_html),
         sample_title: parse_douban_public_movies_page(&collect_html)
@@ -3272,34 +3625,35 @@ async fn fetch_douban_public_items(
             }
             new_items += 1;
             Some(MovieRecord {
-            id: Uuid::new_v4().to_string(),
-            platform: "douban".to_string(),
-            title: item.title,
-            year: item.year,
-            rating: item.rating,
-            rated_at: item.rated_at,
-            external_id: item.subject_id.clone(),
-            source_url: item.source_url.clone(),
-            identifiers: MovieIdentifiers {
-                imdb: None,
-                tmdb: None,
-                trakt: None,
-                douban: item.subject_id.clone(),
-                letterboxd: None,
-            },
-            raw_json: json!({
-                "intro": item.intro,
-                "date": item.date,
-                "comment": item.comment,
-                "poster": item.poster,
-                "public_path": path
-            }),
+                id: Uuid::new_v4().to_string(),
+                platform: "douban".to_string(),
+                title: item.title,
+                year: item.year,
+                rating: item.rating,
+                rated_at: item.rated_at,
+                external_id: item.subject_id.clone(),
+                source_url: item.source_url.clone(),
+                identifiers: MovieIdentifiers {
+                    imdb: None,
+                    tmdb: None,
+                    trakt: None,
+                    douban: item.subject_id.clone(),
+                    letterboxd: None,
+                },
+                raw_json: json!({
+                    "intro": item.intro,
+                    "date": item.date,
+                    "comment": item.comment,
+                    "poster": item.poster,
+                    "public_path": path
+                }),
             })
         }));
         start += page_size;
         if new_items == 0 || !douban_page_has_next(&html) || start > 6000 {
             break;
         }
+        tokio::time::sleep(StdDuration::from_millis(250)).await;
     }
     Ok(items)
 }
@@ -3328,32 +3682,33 @@ async fn fetch_douban_public_wishlist_items(
             }
             new_items += 1;
             Some(WishlistRecord {
-            id: Uuid::new_v4().to_string(),
-            platform: "douban".to_string(),
-            title: item.title,
-            year: item.year,
-            external_id: item.subject_id.clone(),
-            source_url: item.source_url.clone(),
-            identifiers: MovieIdentifiers {
-                imdb: None,
-                tmdb: None,
-                trakt: None,
-                douban: item.subject_id.clone(),
-                letterboxd: None,
-            },
-            raw_json: json!({
-                "intro": item.intro,
-                "date": item.date,
-                "comment": item.comment,
-                "poster": item.poster,
-                "public_path": "wish"
-            }),
+                id: Uuid::new_v4().to_string(),
+                platform: "douban".to_string(),
+                title: item.title,
+                year: item.year,
+                external_id: item.subject_id.clone(),
+                source_url: item.source_url.clone(),
+                identifiers: MovieIdentifiers {
+                    imdb: None,
+                    tmdb: None,
+                    trakt: None,
+                    douban: item.subject_id.clone(),
+                    letterboxd: None,
+                },
+                raw_json: json!({
+                    "intro": item.intro,
+                    "date": item.date,
+                    "comment": item.comment,
+                    "poster": item.poster,
+                    "public_path": "wish"
+                }),
             })
         }));
         start += page_size;
         if new_items == 0 || !douban_page_has_next(&html) || start > 6000 {
             break;
         }
+        tokio::time::sleep(StdDuration::from_millis(250)).await;
     }
     Ok(items)
 }
@@ -3392,8 +3747,14 @@ impl TraktClient {
                 .and_then(|v| v.as_str())
                 .context("Trakt verification_url missing")?
                 .to_string(),
-            expires_in: payload.get("expires_in").and_then(|v| v.as_i64()).unwrap_or(600),
-            interval: payload.get("interval").and_then(|v| v.as_i64()).unwrap_or(5),
+            expires_in: payload
+                .get("expires_in")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(600),
+            interval: payload
+                .get("interval")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(5),
         })
     }
 
@@ -3414,8 +3775,14 @@ impl TraktClient {
         match response.status() {
             StatusCode::OK => {
                 let payload: Value = response.json().await?;
-                let access_token = payload.get("access_token").and_then(|v| v.as_str()).map(ToOwned::to_owned);
-                let refresh_token = payload.get("refresh_token").and_then(|v| v.as_str()).map(ToOwned::to_owned);
+                let access_token = payload
+                    .get("access_token")
+                    .and_then(|v| v.as_str())
+                    .map(ToOwned::to_owned);
+                let refresh_token = payload
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .map(ToOwned::to_owned);
                 let token_expires = payload
                     .get("expires_in")
                     .and_then(|v| v.as_i64())
@@ -3438,7 +3805,10 @@ impl TraktClient {
             }
             StatusCode::BAD_REQUEST => {
                 let payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
-                let error_code = payload.get("error").and_then(|value| value.as_str()).unwrap_or("authorization_pending");
+                let error_code = payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("authorization_pending");
                 let error_description = payload
                     .get("error_description")
                     .and_then(|value| value.as_str())
@@ -3450,7 +3820,10 @@ impl TraktClient {
                     ),
                     "slow_down" => (
                         "slow_down".to_string(),
-                        Some("Trakt asked for slower polling; wait a few seconds and try again".to_string()),
+                        Some(
+                            "Trakt asked for slower polling; wait a few seconds and try again"
+                                .to_string(),
+                        ),
                     ),
                     "access_denied" => (
                         "denied".to_string(),
@@ -3462,11 +3835,20 @@ impl TraktClient {
                     ),
                     "invalid_grant" => (
                         "error".to_string(),
-                        Some("Trakt did not accept this device code; please start OAuth again".to_string()),
+                        Some(
+                            "Trakt did not accept this device code; please start OAuth again"
+                                .to_string(),
+                        ),
                     ),
                     _ => (
                         "error".to_string(),
-                        Some(format!("Trakt returned {error_code}{}", error_description.as_deref().map(|text| format!(" · {text}")).unwrap_or_default())),
+                        Some(format!(
+                            "Trakt returned {error_code}{}",
+                            error_description
+                                .as_deref()
+                                .map(|text| format!(" · {text}"))
+                                .unwrap_or_default()
+                        )),
                     ),
                 };
                 Ok(TraktDevicePollResult {
@@ -3541,8 +3923,14 @@ impl TraktClient {
         match response.status() {
             StatusCode::OK => {
                 let payload: Value = response.json().await?;
-                let access_token = payload.get("access_token").and_then(|v| v.as_str()).map(ToOwned::to_owned);
-                let next_refresh_token = payload.get("refresh_token").and_then(|v| v.as_str()).map(ToOwned::to_owned);
+                let access_token = payload
+                    .get("access_token")
+                    .and_then(|v| v.as_str())
+                    .map(ToOwned::to_owned);
+                let next_refresh_token = payload
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .map(ToOwned::to_owned);
                 let token_expires = payload
                     .get("expires_in")
                     .and_then(|v| v.as_i64())
@@ -3564,7 +3952,10 @@ impl TraktClient {
             }
             StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED => {
                 let payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
-                let error_code = payload.get("error").and_then(|value| value.as_str()).unwrap_or("invalid_grant");
+                let error_code = payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("invalid_grant");
                 let error_description = payload
                     .get("error_description")
                     .and_then(|value| value.as_str())
@@ -3574,7 +3965,9 @@ impl TraktClient {
                     access_token: None,
                     refresh_token: None,
                     token_expires: None,
-                    message: Some(format!("Trakt token refresh failed: {error_code} · {error_description}")),
+                    message: Some(format!(
+                        "Trakt token refresh failed: {error_code} · {error_description}"
+                    )),
                     profile: None,
                 })
             }
@@ -3586,7 +3979,10 @@ impl TraktClient {
                     access_token: None,
                     refresh_token: None,
                     token_expires: None,
-                    message: Some(format!("Trakt token refresh failed: HTTP {} · {}", status, body)),
+                    message: Some(format!(
+                        "Trakt token refresh failed: HTTP {} · {}",
+                        status, body
+                    )),
                     profile: None,
                 })
             }
@@ -3594,8 +3990,12 @@ impl TraktClient {
     }
 
     async fn get_user_profile(&self) -> Result<Value> {
-        self.get_user_profile_with_token(self.access_token.as_deref().context("Trakt access token missing")?)
-            .await
+        self.get_user_profile_with_token(
+            self.access_token
+                .as_deref()
+                .context("Trakt access token missing")?,
+        )
+        .await
     }
 
     async fn get_user_profile_with_token(&self, token: &str) -> Result<Value> {
@@ -3687,7 +4087,11 @@ impl TraktClient {
             .header("User-Agent", browser_user_agent())
             .header("trakt-api-version", "2")
             .header("trakt-api-key", &self.client_id)
-            .bearer_auth(self.access_token.as_deref().context("Trakt access token missing")?)
+            .bearer_auth(
+                self.access_token
+                    .as_deref()
+                    .context("Trakt access token missing")?,
+            )
             .query(&[
                 ("page", page.to_string()),
                 ("limit", "100".to_string()),
@@ -3720,7 +4124,13 @@ impl TraktClient {
         if let Some(query) = query {
             request = request.query(query);
         }
-        request.send().await?.error_for_status()?.json().await.map_err(Into::into)
+        request
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+            .map_err(Into::into)
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value> {
@@ -3741,7 +4151,13 @@ impl TraktClient {
             .map_err(Into::into)
     }
 
-    async fn request(&self, method: Method, path: &str, auth_required: bool, body: Option<Value>) -> Result<reqwest::Response> {
+    async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        auth_required: bool,
+        body: Option<Value>,
+    ) -> Result<reqwest::Response> {
         let mut request = self
             .client
             .request(method, format!("https://api.trakt.tv{path}"))
@@ -3750,7 +4166,10 @@ impl TraktClient {
             .header("trakt-api-version", "2")
             .header("trakt-api-key", &self.client_id);
         if auth_required {
-            let token = self.access_token.as_deref().context("Trakt access token missing")?;
+            let token = self
+                .access_token
+                .as_deref()
+                .context("Trakt access token missing")?;
             request = request.bearer_auth(token);
         }
         if let Some(body) = body {
@@ -3791,11 +4210,20 @@ impl TmdbClient {
     async fn validate_api_key(&self) -> Result<Value> {
         let mut url = reqwest::Url::parse("https://api.themoviedb.org/3/authentication")?;
         url.query_pairs_mut().append_pair("api_key", &self.api_key);
-        self.client.get(url).send().await?.json().await.map_err(Into::into)
+        self.client
+            .get(url)
+            .send()
+            .await?
+            .json()
+            .await
+            .map_err(Into::into)
     }
 
     async fn fetch_account(&self) -> Result<Value> {
-        let session_id = self.session_id.as_deref().context("TMDB session_id is required")?;
+        let session_id = self
+            .session_id
+            .as_deref()
+            .context("TMDB session_id is required")?;
         self.fetch_account_with_session(session_id).await
     }
 
@@ -3817,7 +4245,14 @@ impl TmdbClient {
     async fn create_request_token(&self) -> Result<String> {
         let mut url = reqwest::Url::parse("https://api.themoviedb.org/3/authentication/token/new")?;
         url.query_pairs_mut().append_pair("api_key", &self.api_key);
-        let payload: Value = self.client.get(url).send().await?.error_for_status()?.json().await?;
+        let payload: Value = self
+            .client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
         payload
             .get("request_token")
             .and_then(|v| v.as_str())
@@ -3826,7 +4261,8 @@ impl TmdbClient {
     }
 
     async fn create_session(&self, request_token: &str) -> Result<String> {
-        let mut url = reqwest::Url::parse("https://api.themoviedb.org/3/authentication/session/new")?;
+        let mut url =
+            reqwest::Url::parse("https://api.themoviedb.org/3/authentication/session/new")?;
         url.query_pairs_mut().append_pair("api_key", &self.api_key);
         let payload: Value = self
             .client
@@ -3845,7 +4281,10 @@ impl TmdbClient {
     }
 
     async fn get_account_rated_movies(&self, account_id: i64, page: i64) -> Result<Value> {
-        let session_id = self.session_id.as_deref().context("TMDB session_id is required")?;
+        let session_id = self
+            .session_id
+            .as_deref()
+            .context("TMDB session_id is required")?;
         let mut url = reqwest::Url::parse(&format!(
             "https://api.themoviedb.org/3/account/{account_id}/rated/movies"
         ))?;
@@ -3865,7 +4304,10 @@ impl TmdbClient {
     }
 
     async fn get_account_watchlist(&self, account_id: i64, page: i64) -> Result<Value> {
-        let session_id = self.session_id.as_deref().context("TMDB session_id is required")?;
+        let session_id = self
+            .session_id
+            .as_deref()
+            .context("TMDB session_id is required")?;
         let mut url = reqwest::Url::parse(&format!(
             "https://api.themoviedb.org/3/account/{account_id}/watchlist/movies"
         ))?;
@@ -3884,13 +4326,18 @@ impl TmdbClient {
     }
 
     async fn find_by_imdb(&self, imdb_id: &str) -> Result<(i64, String)> {
-        let mut url = reqwest::Url::parse(&format!(
-            "https://api.themoviedb.org/3/find/{imdb_id}"
-        ))?;
+        let mut url = reqwest::Url::parse(&format!("https://api.themoviedb.org/3/find/{imdb_id}"))?;
         url.query_pairs_mut()
             .append_pair("api_key", &self.api_key)
             .append_pair("external_source", "imdb_id");
-        let payload: Value = self.client.get(url).send().await?.error_for_status()?.json().await?;
+        let payload: Value = self
+            .client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
         if let Some(id) = payload
             .get("movie_results")
             .and_then(|v| v.as_array())
@@ -3921,7 +4368,10 @@ impl TmdbClient {
     }
 
     async fn rate(&self, prefix: &str, item_id: i64, rating: f64) -> Result<bool> {
-        let session_id = self.session_id.as_deref().context("TMDB session_id is required")?;
+        let session_id = self
+            .session_id
+            .as_deref()
+            .context("TMDB session_id is required")?;
         let mut url = reqwest::Url::parse(&format!(
             "https://api.themoviedb.org/3{prefix}/{item_id}/rating"
         ))?;
@@ -3939,12 +4389,18 @@ impl TmdbClient {
             match response {
                 Ok(response) => {
                     let payload: Value = response.json().await?;
-                    return Ok(payload.get("success").and_then(|v| v.as_bool()).unwrap_or(false));
+                    return Ok(payload
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false));
                 }
                 Err(error) => {
                     last_error = Some(anyhow!(error.to_string()));
                     if attempt < 2 {
-                        tokio::time::sleep(std::time::Duration::from_millis(400 * (attempt as u64 + 1))).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            400 * (attempt as u64 + 1),
+                        ))
+                        .await;
                     }
                 }
             }
@@ -3961,7 +4417,12 @@ fn normalize_tmdb_rating(rating: f64) -> f64 {
 mod tests {
     use super::*;
 
-    fn sample_movie(platform: &str, title: &str, rating: Option<f64>, ids: MovieIdentifiers) -> MovieRecord {
+    fn sample_movie(
+        platform: &str,
+        title: &str,
+        rating: Option<f64>,
+        ids: MovieIdentifiers,
+    ) -> MovieRecord {
         MovieRecord {
             id: Uuid::new_v4().to_string(),
             platform: platform.to_string(),
@@ -4002,11 +4463,15 @@ mod tests {
             only_new: true,
             overwrite: false,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("tmdb", "trakt", &source, &target, &request).unwrap();
         assert_eq!(preview.preview_count, 1);
-        assert_eq!(preview.items[0].target_linking_id.as_deref(), Some("tt1234567"));
+        assert_eq!(
+            preview.items[0].target_linking_id.as_deref(),
+            Some("tt1234567")
+        );
         assert_eq!(preview.items[0].reason, None);
     }
 
@@ -4039,6 +4504,7 @@ mod tests {
             only_new: true,
             overwrite: false,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("tmdb", "trakt", &source, &target, &request).unwrap();
@@ -4064,11 +4530,15 @@ mod tests {
             only_new: true,
             overwrite: false,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("imdb", "trakt", &source, &target, &request).unwrap();
         assert_eq!(preview.preview_count, 1);
-        assert_eq!(preview.items[0].target_linking_id.as_deref(), Some("tt1234567"));
+        assert_eq!(
+            preview.items[0].target_linking_id.as_deref(),
+            Some("tt1234567")
+        );
         assert_eq!(preview.items[0].reason, None);
     }
 
@@ -4091,11 +4561,15 @@ mod tests {
             only_new: true,
             overwrite: false,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("imdb", "tmdb", &source, &target, &request).unwrap();
         assert_eq!(preview.preview_count, 1);
-        assert_eq!(preview.items[0].target_linking_id.as_deref(), Some("tt1234567"));
+        assert_eq!(
+            preview.items[0].target_linking_id.as_deref(),
+            Some("tt1234567")
+        );
         assert_eq!(preview.items[0].reason, None);
     }
 
@@ -4118,15 +4592,18 @@ mod tests {
             only_new: true,
             overwrite: false,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("trakt", "tmdb", &source, &target, &request).unwrap();
         assert_eq!(preview.preview_count, 1);
-        assert!(preview.items[0]
-            .reason
-            .as_deref()
-            .unwrap_or_default()
-            .contains("TMDB does not support watched-only sync"));
+        assert!(
+            preview.items[0]
+                .reason
+                .as_deref()
+                .unwrap_or_default()
+                .contains("TMDB does not support watched-only sync")
+        );
     }
 
     #[test]
@@ -4158,17 +4635,20 @@ mod tests {
             only_new: false,
             overwrite: true,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("trakt", "douban", &source, &target, &request).unwrap();
         assert_eq!(preview.preview_count, 1);
         assert_eq!(preview.items[0].action, "keep");
         assert_eq!(preview.items[0].target_existing_rating, Some(8.0));
-        assert!(preview.items[0]
-            .reason
-            .as_deref()
-            .unwrap_or_default()
-            .contains("目标平台已有评分"));
+        assert!(
+            preview.items[0]
+                .reason
+                .as_deref()
+                .unwrap_or_default()
+                .contains("目标平台已有评分")
+        );
     }
 
     #[test]
@@ -4200,16 +4680,29 @@ mod tests {
             only_new: false,
             overwrite: true,
             default_rating: None,
+            refresh_before_sync: false,
         };
 
         let preview = build_sync_preview("trakt", "douban", &source, &target, &request).unwrap();
         assert_eq!(preview.preview_count, 1);
         assert_eq!(preview.items[0].action, "keep");
         assert_eq!(preview.items[0].target_existing_rating, Some(8.0));
-        assert!(preview.items[0]
-            .reason
-            .as_deref()
-            .unwrap_or_default()
-            .contains("无需重复覆盖"));
+        assert!(
+            preview.items[0]
+                .reason
+                .as_deref()
+                .unwrap_or_default()
+                .contains("无需重复覆盖")
+        );
+    }
+
+    #[test]
+    fn detects_douban_login_jump_as_protection_page() {
+        assert!(is_douban_public_protection_page(
+            "<title>豆瓣 - 登录跳转页</title><p>有异常请求从你的 IP 发出</p>"
+        ));
+        assert!(!is_douban_public_protection_page(
+            "<title>好友想看的影视(42)</title><div class=\"grid-view\"></div>"
+        ));
     }
 }

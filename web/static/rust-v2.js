@@ -48,29 +48,41 @@ const state = {
         page: 1,
         total: 0,
         items: [],
-        view: localStorage.getItem("cinerecord_library_view") || "list",
+        view: localStorage.getItem("cinerecord_library_view_v3") || "list",
+        platformsInitialized: false,
     },
     wishlist: {
         items: [],
         filteredItems: [],
         page: 1,
-        view: localStorage.getItem("cinerecord_wishlist_view") || "list",
+        view: localStorage.getItem("cinerecord_legacy_wishlist_view") || "list",
         sources: new Set(["douban", "imdb", "trakt", "tmdb", "letterboxd"]),
+        onlyUnmatched: localStorage.getItem("cinerecord_wishlist_unmatched") === "1",
     },
     sync: {
         preview: null,
         result: null,
         selectedTargetIds: new Set(),
+        liveItems: [],
     },
     scheduled: {
         tasks: [],
         logs: [],
         editingId: null,
     },
+    backups: {
+        items: [],
+        selected: null,
+        previewKind: "watched",
+    },
     downloadSites: {
         enabledIds: new Set(),
         customSites: [],
         deletedDefaults: new Set(),
+    },
+    logs: {
+        recent: new Map(),
+        lastSseErrorAt: 0,
     },
     theme: localStorage.getItem("theme") || "dark",
 };
@@ -99,6 +111,9 @@ const ui = {
     syncPreviewEmpty: document.getElementById("sync-preview-empty"),
     syncSummaryText: document.getElementById("sync-summary-text"),
     syncSelectionSummary: document.getElementById("sync-selection-summary"),
+    syncLiveProgress: document.getElementById("sync-live-progress"),
+    syncLiveProgressBar: document.getElementById("sync-live-progress-bar"),
+    syncLiveProgressText: document.getElementById("sync-live-progress-text"),
     selectAllSyncBtn: document.getElementById("select-all-sync-btn"),
     clearSyncSelectionBtn: document.getElementById("clear-sync-selection-btn"),
     tmdbAuthStatus: document.getElementById("tmdb-auth-status"),
@@ -115,6 +130,14 @@ const ui = {
     scheduledTasksEmpty: document.getElementById("scheduled-tasks-empty"),
     scheduledTaskForm: document.getElementById("scheduled-task-form"),
     scheduledTaskFormPanel: document.getElementById("scheduled-task-form-panel"),
+    backupsList: document.getElementById("backups-list"),
+    backupsEmpty: document.getElementById("backups-empty"),
+    backupsSummary: document.getElementById("backups-summary"),
+    backupPreviewPanel: document.getElementById("backup-preview-panel"),
+    backupPreviewList: document.getElementById("backup-preview-list"),
+    friendBackupForm: document.getElementById("friend-backup-form"),
+    friendBackupStatus: document.getElementById("friend-backup-status"),
+    systemInfoGrid: document.getElementById("system-info-grid"),
     mobileMenuBtn: document.getElementById("mobile-menu-btn"),
     mobileSidebarOverlay: document.getElementById("mobile-sidebar-overlay"),
     sidebar: document.querySelector(".main-layout-sidebar"),
@@ -154,7 +177,9 @@ function escapeHtml(value) {
     return String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
 }
 
 function normalizeImdbId(rawValue) {
@@ -267,6 +292,17 @@ function statusText(task) {
         failed: "失败",
         cancelled: "已取消",
     }[task?.status] || (task?.status || "--");
+}
+
+function taskTypeLabel(kind) {
+    return {
+        fetch_platform: "更新看过",
+        fetch_wishlist: "更新想看",
+        import_legacy: "导入旧版数据",
+        sync_preview: "同步预览",
+        sync_execute: "执行同步",
+        maintenance: "维护任务",
+    }[kind] || String(kind || "任务");
 }
 
 function statusBadgeClass(configured, platformId, configPresent = false, lastValidatedAt = null) {
@@ -434,13 +470,17 @@ function appendLog(title, payload = {}) {
     if (!ui.eventsLog) return;
     const empty = ui.eventsLog.querySelector(".rust-empty");
     if (empty) empty.remove();
-    const el = document.createElement(ui.eventsLog.classList.contains("log-container-sidebar") ? "p" : "div");
     const time = new Date().toLocaleTimeString("zh-CN");
     const safePayload = redactPayload(payload);
     let message = safePayload?.message || safePayload?.error || "";
     if (!message && safePayload?.result?.direction) {
         const result = safePayload.result;
-        message = `${result.direction} · 候选 ${result.preview_count ?? 0} · 源 ${result.source_count ?? 0} · 目标 ${result.target_count ?? 0}`;
+        message = result.success_count !== undefined
+            ? `${result.direction} · 成功 ${result.success_count} · 跳过 ${result.skipped_count} · 失败 ${result.failed_count}`
+            : `${result.direction} · 候选 ${result.preview_count ?? 0} · 源 ${result.source_count ?? 0} · 目标 ${result.target_count ?? 0}`;
+    }
+    if (!message && safePayload?.direction && safePayload?.preview_count !== undefined) {
+        message = `${safePayload.direction} · 候选 ${safePayload.preview_count ?? 0} · 源 ${safePayload.source_count ?? 0} · 目标 ${safePayload.target_count ?? 0}`;
     }
     if (!message && safePayload?.direction && safePayload?.success_count !== undefined) {
         message = `${safePayload.direction} · 成功 ${safePayload.success_count} · 跳过 ${safePayload.skipped_count} · 失败 ${safePayload.failed_count}`;
@@ -449,7 +489,18 @@ function appendLog(title, payload = {}) {
         message = `${platformLabel(safePayload.platform)} 已更新 ${safePayload.stored_count} 条`;
     }
     const level = safePayload?.level || title;
-    const body = message ? message : JSON.stringify(safePayload, null, 2);
+    const body = message ? message : compactEventMessage(title, safePayload);
+    const signature = body;
+    const now = Date.now();
+    const lastSeen = state.logs.recent.get(signature) || 0;
+    if (now - lastSeen < 6000) return;
+    state.logs.recent.set(signature, now);
+    if (state.logs.recent.size > 120) {
+        for (const [key, value] of state.logs.recent.entries()) {
+            if (now - value > 60000) state.logs.recent.delete(key);
+        }
+    }
+    const el = document.createElement(ui.eventsLog.classList.contains("log-container-sidebar") ? "p" : "div");
     const tone = String(level).includes("error") || String(level).includes("failed")
         ? "error"
         : String(level).includes("success") || String(level).includes("completed")
@@ -469,6 +520,21 @@ function appendLog(title, payload = {}) {
     if (nodes.length > 80) {
         nodes.slice(80).forEach((node) => node.remove());
     }
+}
+
+function compactEventMessage(title, payload = {}) {
+    if (payload?.task_type) {
+        return `${taskTypeLabel(payload.task_type)} · ${statusText(payload)}${payload.summary ? ` · ${payload.summary}` : ""}`;
+    }
+    if (payload?.event_type && payload?.payload?.message) return payload.payload.message;
+    if (payload?.platform && payload?.success !== undefined) {
+        return `${platformLabel(payload.platform)} ${payload.success ? "验证通过" : "验证失败"}`;
+    }
+    const keys = Object.keys(payload || {}).filter((key) => !["payload", "id", "task_id"].includes(key));
+    if (keys.length) {
+        return keys.slice(0, 4).map((key) => `${key}: ${JSON.stringify(payload[key])}`).join(" · ");
+    }
+    return title;
 }
 
 function bindClick(id, handler) {
@@ -773,21 +839,24 @@ function updateCounts() {
     const library = counts.library || {};
     const wishlist = counts.wishlist || {};
 
-    document.getElementById("metric-library-total").textContent = counts.library_total || 0;
-    document.getElementById("metric-wishlist-total").textContent = counts.wishlist_total || 0;
-    document.getElementById("metric-platform-configured").textContent = (state.platforms || []).filter(
-        (platform) => platform.status?.configured
-    ).length;
-    document.getElementById("metric-task-total").textContent = (state.tasks || []).length;
-    document.getElementById("sidebar-library-total").textContent = counts.library_total || 0;
-    document.getElementById("sidebar-wishlist-total").textContent = counts.wishlist_total || 0;
-    document.getElementById("sidebar-task-total").textContent = (state.tasks || []).length;
+    const metricLibraryTotal = document.getElementById("metric-library-total");
+    const metricWishlistTotal = document.getElementById("metric-wishlist-total");
+    const metricPlatformConfigured = document.getElementById("metric-platform-configured");
+    const metricTaskTotal = document.getElementById("metric-task-total");
+    if (metricLibraryTotal) metricLibraryTotal.textContent = counts.library_total || 0;
+    if (metricWishlistTotal) metricWishlistTotal.textContent = counts.wishlist_total || 0;
+    if (metricPlatformConfigured) {
+        metricPlatformConfigured.textContent = (state.platforms || []).filter((platform) => platform.status?.configured).length;
+    }
+    if (metricTaskTotal) metricTaskTotal.textContent = (state.tasks || []).length;
+    const sidebarLibraryTotal = document.getElementById("sidebar-library-total");
+    const sidebarWishlistTotal = document.getElementById("sidebar-wishlist-total");
+    const sidebarTaskTotal = document.getElementById("sidebar-task-total");
+    if (sidebarLibraryTotal) sidebarLibraryTotal.textContent = counts.library_total || 0;
+    if (sidebarWishlistTotal) sidebarWishlistTotal.textContent = counts.wishlist_total || 0;
+    if (sidebarTaskTotal) sidebarTaskTotal.textContent = (state.tasks || []).length;
 
-    document.getElementById("count-all").textContent = counts.library_total || 0;
-    PLATFORM_IDS.forEach((platform) => {
-        const el = document.getElementById(`count-${platform}`);
-        if (el) el.textContent = library[platform] || 0;
-    });
+    updateLibraryFilterCounts({ shared: counts.library_shared ?? counts.library_total, ...library }, counts.library_total || 0);
 
     PLATFORM_IDS.forEach((platform) => {
         setPlatformUi(
@@ -801,6 +870,33 @@ function updateCounts() {
     document.getElementById("summary-stats-letterboxd").textContent = `看过 ${library.letterboxd || 0} · 想看 ${
         wishlist.letterboxd || 0
     }`;
+}
+
+function updateLibraryFilterCounts(platformCounts = {}, totalFallback = 0) {
+    const shared = platformCounts.shared ?? totalFallback;
+    const countAll = document.getElementById("count-all");
+    if (countAll) countAll.textContent = shared || 0;
+    PLATFORM_IDS.forEach((platform) => {
+        const el = document.getElementById(`count-${platform}`);
+        if (el) el.textContent = platformCounts[platform] || 0;
+    });
+}
+
+function selectedLibraryPlatforms() {
+    if (!state.library.platformsInitialized) return "";
+    const checked = $$('.filter-checkbox input[type="checkbox"]:checked');
+    if (!checked.length) return "";
+    return checked.map((checkbox) => checkbox.value).filter(Boolean).join(",");
+}
+
+function initializeLibraryPlatformCheckboxes(platformsWithData = []) {
+    if (state.library.platformsInitialized || !platformsWithData.length) return false;
+    const available = new Set(platformsWithData);
+    $$('.filter-checkbox input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = available.has(checkbox.value);
+    });
+    state.library.platformsInitialized = true;
+    return true;
 }
 
 function taskSummary(task) {
@@ -914,6 +1010,133 @@ function renderScheduledTasks() {
     `
         )
         .join("");
+}
+
+function renderScheduledTaskLogs() {
+    const container = document.getElementById("scheduled-task-logs");
+    if (!container) return;
+    const logs = state.scheduled.logs || [];
+    container.innerHTML = logs.length
+        ? logs
+              .map(
+                  (log) => `
+            <div class="rust-list-row">
+                <div>
+                    <div class="rust-movie-title">${escapeHtml(log.task_name || "定时任务")}</div>
+                    <div class="rust-movie-meta">${escapeHtml(
+                        [log.source_platform?.toUpperCase(), log.target_platform?.toUpperCase()]
+                            .filter(Boolean)
+                            .join(" -> ")
+                    )} · ${escapeHtml(log.message || "")}</div>
+                </div>
+                <div class="rust-movie-meta">${escapeHtml(formatDate(log.created_at))}</div>
+                <span class="rust-tag">${escapeHtml(log.log_type || "info")}</span>
+            </div>
+        `
+              )
+              .join("")
+        : '<div class="rust-empty">暂无执行日志。任务首次执行后会显示开始、完成或失败状态。</div>';
+}
+
+function renderBackups() {
+    const backups = state.backups.items || [];
+    if (!ui.backupsList || !ui.backupsEmpty) return;
+    if (ui.backupsSummary) ui.backupsSummary.textContent = `${backups.length} 份`;
+    ui.backupsEmpty.style.display = backups.length ? "none" : "";
+    ui.backupsList.style.display = backups.length ? "" : "none";
+    ui.backupsList.innerHTML = backups
+        .map(
+            (backup) => `
+        <article class="backup-list-item">
+            <div>
+                <div class="rust-movie-title">${escapeHtml(backup.user_id)}</div>
+                <div class="rust-movie-meta">豆瓣 · 看过 ${backup.watched_count} · 想看 ${backup.wishlist_count}</div>
+                <div class="rust-movie-meta">${escapeHtml(formatDate(backup.created_at))}</div>
+            </div>
+            <div class="backup-list-actions">
+                <button class="btn btn-outline btn-sm backup-preview-btn" type="button" data-id="${escapeHtml(backup.id)}">预览</button>
+                <button class="btn btn-outline btn-sm backup-delete-btn" type="button" data-id="${escapeHtml(backup.id)}">删除</button>
+            </div>
+        </article>
+    `
+        )
+        .join("");
+}
+
+function renderBackupPreview() {
+    const backup = state.backups.selected;
+    if (!backup || !ui.backupPreviewList) return;
+    const kind = state.backups.previewKind;
+    const items = backup[kind] || [];
+    const title = document.getElementById("backup-preview-title");
+    const summary = document.getElementById("backup-preview-summary");
+    if (title) title.textContent = `${backup.user_id} 的豆瓣备份`;
+    if (summary) {
+        summary.textContent = `看过 ${backup.watched_count} · 想看 ${backup.wishlist_count} · ${formatDate(backup.created_at)}`;
+    }
+    document.querySelectorAll("[data-backup-preview-kind]").forEach((button) => {
+        const active = button.dataset.backupPreviewKind === kind;
+        button.classList.toggle("active", active);
+        button.classList.toggle("btn-secondary", active);
+        button.classList.toggle("btn-outline", !active);
+    });
+    ui.backupPreviewList.innerHTML = items.length
+        ? items
+              .slice(0, 200)
+              .map((item) => {
+                  const rating = kind === "watched" && item.rating != null ? ` · ${item.rating} 分` : "";
+                  return `
+                <div class="backup-preview-item">
+                    <strong>${escapeHtml(item.title || "未命名")}</strong>
+                    <span>${escapeHtml(item.year || "年份未知")}${escapeHtml(rating)}</span>
+                </div>
+            `;
+              })
+              .join("")
+        : `<div class="rust-empty">这份备份没有${kind === "watched" ? "看过" : "想看"}条目</div>`;
+}
+
+function renderSystemInfo(payload) {
+    if (!ui.systemInfoGrid) return;
+    const storage = payload.storage || {};
+    const counts = payload.counts || {};
+    const entries = [
+        ["服务", `${payload.version || "--"} · ${payload.os || "--"} ${payload.arch || ""}`],
+        ["配置", storage.config || "--"],
+        ["数据库", storage.database || "--"],
+        ["好友备份", `${counts.backups || 0} 份 · ${storage.backups || "--"}`],
+        ["定时任务", `${counts.scheduled_tasks || 0} 个`],
+        ["后台任务", `${counts.tasks || 0} 条`],
+        ["日志", storage.logs || "--"],
+    ];
+    ui.systemInfoGrid.innerHTML = entries
+        .map(([label, value]) => `<div class="system-info-item"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`)
+        .join("");
+}
+
+function switchSettingsPanel(targetId) {
+    document.querySelectorAll(".settings-sub-tab").forEach((button) => {
+        button.classList.toggle("active", button.dataset.settingsTarget === targetId);
+    });
+    document.querySelectorAll(".settings-sub-panel").forEach((panel) => {
+        const active = panel.id === targetId;
+        panel.classList.toggle("active", active);
+        panel.style.display = active ? "" : "none";
+    });
+    if (targetId === "settings-backup-panel") loadBackups().catch(handleError);
+    if (targetId === "settings-system-panel") loadSystemInfo().catch(handleError);
+}
+
+function switchScheduledPanel(targetId) {
+    document.querySelectorAll(".scheduled-tab-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.scheduledTarget === targetId);
+    });
+    document.querySelectorAll(".scheduled-tab-panel").forEach((panel) => {
+        const active = panel.id === targetId;
+        panel.classList.toggle("active", active);
+        panel.style.display = active ? "" : "none";
+    });
+    if (targetId === "scheduled-task-log-panel") loadScheduledTaskLogs().catch(handleError);
 }
 
 function renderPlatformGrid() {
@@ -1086,13 +1309,61 @@ function renderLegacyLibraryItem(item) {
     `;
 }
 
+function renderLegacyWishlistItem(item) {
+    const posterUrl = proxyImageUrl(item.poster_url || "");
+    const title = item.title || "Unknown title";
+    const year = item.year ? `<span class="movie-year">${escapeHtml(item.year)}</span>` : "";
+    const dateValue = item.added_at || item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
+    const poster = posterUrl
+        ? `<div class="movie-cover-wrapper"><img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');"></div>`
+        : `<div class="movie-cover-wrapper"><div class="movie-cover-placeholder large">🎬</div></div>`;
+    const badges = (item.sources || []).map(renderPlatformBadge).join("");
+    const downloadLinks = !item.library_matched
+        ? buildDownloadLinks(item)
+              .slice(0, 8)
+              .map((link) => `<a class="download-pill" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)} ↗</a>`)
+              .join("")
+        : "";
+    const matched = item.library_matched ? `<span class="status-pill matched">已在片库</span>` : `<span class="status-pill">待检索</span>`;
+
+    return `
+        <div class="movie-item">
+            ${poster}
+            <div class="movie-info">
+                <div class="movie-title-row">
+                    <div class="movie-title">${escapeHtml(title)} ${year}</div>
+                    <div class="platform-badges-inline">${badges}${matched}</div>
+                </div>
+                <div class="movie-metadata-grid">
+                    ${item.identifiers?.imdb ? `<div class="meta-item"><span class="meta-icon">🔎</span><span class="meta-text">IMDb ${escapeHtml(item.identifiers.imdb)}</span></div>` : ""}
+                    ${item.library_matched && item.library_url ? `<div class="meta-item"><span class="meta-icon">✅</span><span class="meta-text">已匹配片库</span></div>` : ""}
+                </div>
+                <div class="movie-bottom">
+                    <div class="score-display">
+                        ${dateValue ? `<div class="rating-date"><span class="date-label">加入于</span><span class="date-value">${escapeHtml(formatShortDate(dateValue))}</span></div>` : ""}
+                    </div>
+                    <div class="unified-media-links">${downloadLinks}${item.library_matched && item.library_url ? `<a class="download-pill" href="${escapeHtml(item.library_url)}" target="_blank" rel="noopener noreferrer">片库条目 ↗</a>` : ""}</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function updateLibraryInsight() {
     if (!ui.libraryInsightBar) return;
     const items = state.library.items || [];
     const currentShown = items.length;
     const withPoster = items.filter((item) => item.poster_url).length;
     const multiSource = items.filter((item) => (item.source_platforms || []).length > 1).length;
-    const filterText = state.library.filter === "all" ? "整合片库" : `${platformLabel(state.library.filter)} 原始记录`;
+    const selected = selectedLibraryPlatforms()
+        .split(",")
+        .filter(Boolean)
+        .map(platformLabel)
+        .join(" / ");
+    const filterText =
+        state.library.filter === "all"
+            ? `共有交集${selected ? ` · ${selected}` : " · 全部并集"}`
+            : `${platformLabel(state.library.filter)} 差异项`;
     ui.libraryInsightBar.innerHTML = `
         <span class="status-pill">${escapeHtml(filterText)}</span>
         <span class="status-pill">当前页 ${currentShown} 条</span>
@@ -1104,6 +1375,9 @@ function updateLibraryInsight() {
 function renderMovieCard(item, mode = "library", view = "grid") {
     if (mode === "library" && view === "list") {
         return renderLegacyLibraryItem(item);
+    }
+    if (mode === "wishlist" && view === "list") {
+        return renderLegacyWishlistItem(item);
     }
     const posterUrl = proxyImageUrl(item.poster_url || "");
     const title = item.title || "Unknown title";
@@ -1197,6 +1471,7 @@ function renderLibrary() {
 function filteredWishlistItems() {
     const active = state.wishlist.sources;
     return (state.wishlist.items || []).filter((item) => {
+        if (state.wishlist.onlyUnmatched && item.library_matched) return false;
         const platforms = item.source_platforms || item.sources?.map((source) => source.platform) || [];
         return !active.size || platforms.some((platform) => active.has(platform));
     });
@@ -1210,7 +1485,7 @@ function renderWishlist() {
     const start = (state.wishlist.page - 1) * WISHLIST_PAGE_SIZE;
     const pageItems = items.slice(start, start + WISHLIST_PAGE_SIZE);
 
-    ui.wishlistList.className = state.wishlist.view === "list" ? "rust-list" : "rust-card-grid";
+    ui.wishlistList.className = state.wishlist.view === "list" ? "library-list library-list-view" : "rust-card-grid library-grid-view";
     if (!pageItems.length) {
         ui.wishlistEmpty.style.display = "";
         ui.wishlistList.style.display = "none";
@@ -1227,11 +1502,32 @@ function renderWishlist() {
     ui.wishlistPagination.style.display = totalPages > 1 ? "flex" : "none";
 }
 
+function syncActionLabel(status) {
+    const labels = {
+        new: "新增",
+        overwrite: "覆盖",
+        keep: "跳过",
+        success: "成功",
+        skipped: "跳过",
+        failed: "失败",
+        error: "失败",
+    };
+    return labels[status] || status || "待处理";
+}
+
+function isExecutablePreviewItem(item) {
+    return Boolean(item?.target_linking_id && !item.reason && ["new", "overwrite"].includes(item.action));
+}
+
 function renderSyncItems(items, mode) {
     if (!items?.length) {
         ui.syncPreviewEmpty.style.display = "";
+        ui.syncPreviewEmpty.textContent = mode === "preview"
+            ? "没有发现可同步条目。可以调整同步方向、覆盖规则或最近条目数后重新预览。"
+            : "本次执行没有返回条目。";
         ui.syncPreviewList.style.display = "none";
         if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = "待预览";
+        document.getElementById("execute-sync-btn").disabled = true;
         return;
     }
     ui.syncPreviewEmpty.style.display = "none";
@@ -1239,61 +1535,99 @@ function renderSyncItems(items, mode) {
     if (mode !== "preview") {
         state.sync.selectedTargetIds = new Set();
     }
+
+    const resultCounts = items.reduce(
+        (acc, item) => {
+            const key = mode === "preview" ? (isExecutablePreviewItem(item) ? "ready" : "skipped") : item.status || "skipped";
+            acc[key] = (acc[key] || 0) + 1;
+            return acc;
+        },
+        { ready: 0, success: 0, skipped: 0, failed: 0 }
+    );
+    const preview = state.sync.preview || {};
+    const overview =
+        mode === "preview"
+            ? [
+                  ["源库", preview.source_count ?? "--"],
+                  ["目标库", preview.target_count ?? "--"],
+                  ["可执行", resultCounts.ready || 0],
+                  ["已跳过", resultCounts.skipped || 0],
+              ]
+            : [
+                  ["成功", resultCounts.success || 0],
+                  ["跳过", resultCounts.skipped || 0],
+                  ["失败", resultCounts.failed || 0],
+                  ["返回项", items.length],
+              ];
+
     const rows = items
         .map((item) => {
             const status = mode === "preview" ? item.action || "preview" : item.status || "result";
             const hasRating = item.source_rating !== null && item.source_rating !== undefined;
-            const hint =
-                mode === "preview" && !hasRating && !item.reason
-                    ? "需要评分的平台请设置默认分数后重新预览"
-                    : "";
-            const reason = item.reason || hint || "";
-            const rating = hasRating ? item.source_rating : "未评分";
+            const sourceRating = hasRating ? item.source_rating : "未评分";
             const targetRating =
                 item.target_existing_rating !== null && item.target_existing_rating !== undefined
                     ? item.target_existing_rating
-                    : "";
-            const selectable = mode === "preview" && item.target_linking_id && !item.reason;
-            const checked =
-                selectable && state.sync.selectedTargetIds.has(item.target_linking_id) ? "checked" : "";
+                    : "无";
+            const reason =
+                item.reason ||
+                (mode === "preview" && !hasRating ? "目标平台需要评分时，可在高级选项启用默认分后重新预览。" : "");
+            const selectable = mode === "preview" && isExecutablePreviewItem(item);
+            const checked = selectable && state.sync.selectedTargetIds.has(item.target_linking_id) ? "checked" : "";
             const checkbox = selectable
-                ? `<input type="checkbox" class="sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" aria-label="选择 ${escapeHtml(item.title || "条目")}" ${checked}>`
-                : "--";
+                ? `<input type="checkbox" class="sync-preview-checkbox sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" aria-label="选择 ${escapeHtml(item.title || "条目")}" ${checked}>`
+                : `<span class="sync-action-pill ${escapeHtml(status)}">${escapeHtml(syncActionLabel(status))}</span>`;
             const sourceLabel = item.source_platform
                 ? `${platformLabel(item.source_platform)} → ${platformLabel(item.target_platform)}`
-                : state.sync.preview?.direction || "";
+                : state.sync.preview?.direction || state.sync.result?.direction || "";
+            const idLabel = item.target_linking_id ? `目标 ID ${item.target_linking_id}` : "缺少目标平台 ID";
+            const rowClass = selectable ? "" : " class=\"is-skipped\"";
             return `
-                <tr>
+                <tr${rowClass}>
                     <td>${checkbox}</td>
                     <td>
                         <strong>${escapeHtml(item.title || "Unknown title")}</strong>
-                        <div class="rust-movie-meta">${escapeHtml([item.year || "", item.target_linking_id || ""].filter(Boolean).join(" · "))}</div>
+                        <div class="rust-movie-meta">${escapeHtml([item.year || "", idLabel].filter(Boolean).join(" · "))}</div>
+                        <div class="sync-preview-links">
+                            ${item.source_url ? `<a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">源页面 ↗</a>` : ""}
+                            ${item.target_url ? `<a href="${escapeHtml(item.target_url)}" target="_blank" rel="noopener noreferrer">目标页面 ↗</a>` : ""}
+                        </div>
                     </td>
                     <td>${escapeHtml(sourceLabel)}</td>
-                    <td>${escapeHtml(rating)}</td>
-                    <td>${escapeHtml(targetRating || "--")}</td>
-                    <td>${escapeHtml(status)}</td>
-                    <td>${escapeHtml(reason || "--")}</td>
+                    <td><span class="sync-rating-badge">${escapeHtml(sourceRating)}</span></td>
+                    <td><span class="sync-rating-badge">${escapeHtml(targetRating)}</span></td>
+                    <td><span class="sync-action-pill ${escapeHtml(status)}">${escapeHtml(syncActionLabel(status))}</span></td>
+                    <td>${reason ? `<span class="sync-reason">${escapeHtml(reason)}</span>` : "--"}</td>
                 </tr>
             `;
         })
         .join("");
+
     ui.syncPreviewList.innerHTML = `
-        <table>
-            <thead>
-                <tr>
-                    <th>选择</th>
-                    <th>电影</th>
-                    <th>流向</th>
-                    <th>源评分</th>
-                    <th>目标评分</th>
-                    <th>动作</th>
-                    <th>说明</th>
-                </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-        </table>
+        <div class="sync-preview-overview">
+            ${overview
+                .map(([label, value]) => `<div class="sync-preview-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`)
+                .join("")}
+        </div>
+        <div class="sync-preview-table-wrap">
+            <table class="sync-preview-table">
+                <thead>
+                    <tr>
+                        <th>选择</th>
+                        <th>电影</th>
+                        <th>流向</th>
+                        <th>源评分</th>
+                        <th>目标评分</th>
+                        <th>动作</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
     `;
+    document.getElementById("execute-sync-btn").disabled =
+        mode !== "preview" || (state.sync.selectedTargetIds?.size || 0) === 0;
     updateSyncSelectionSummary();
 }
 
@@ -1487,14 +1821,29 @@ function gatherConfigPayload() {
     };
 }
 
-function gatherSyncPayload() {
+function gatherSyncPayload(options = {}) {
+    const source = document.getElementById("sync-source-select").value;
+    const target = document.getElementById("sync-target-select").value;
+    if (source === target) {
+        throw new Error("源平台和目标平台不能相同");
+    }
+    const mode = document.querySelector('input[name="rust-sync-mode"]:checked')?.value || "new";
+    const recentLimit = Math.min(500, Math.max(1, Number(document.getElementById("sync-recent-limit").value || 100)));
+    const useDefaultRating = document.getElementById("sync-default-rating-enabled")?.checked;
+    const defaultRating = Number(document.getElementById("sync-default-rating").value || 0);
+    if (useDefaultRating && (defaultRating < 1 || defaultRating > 10)) {
+        throw new Error("默认评分需要在 1 到 10 之间");
+    }
     return {
-        source_platform: document.getElementById("sync-source-select").value,
-        target_platform: document.getElementById("sync-target-select").value,
-        recent_limit: Number(document.getElementById("sync-recent-limit").value || 100),
-        only_new: true,
-        overwrite: false,
-        default_rating: Number(document.getElementById("sync-default-rating").value || 0) || null,
+        source_platform: source,
+        target_platform: target,
+        recent_limit: recentLimit,
+        only_new: mode === "new",
+        overwrite: mode === "overwrite",
+        default_rating: useDefaultRating ? defaultRating : null,
+        refresh_before_sync: options.forceRefresh === true
+            ? true
+            : document.getElementById("sync-refresh-before")?.checked === true,
         selected_target_ids: Array.from(state.sync.selectedTargetIds || []),
     };
 }
@@ -1506,14 +1855,32 @@ function updateSyncSelectionSummary() {
         ui.syncSelectionSummary.textContent = "待预览";
         return;
     }
-    const selectableCount = previewItems.filter((item) => item.target_linking_id && !item.reason).length;
+    const selectableCount = previewItems.filter(isExecutablePreviewItem).length;
     const selectedCount = Array.from(state.sync.selectedTargetIds || []).filter(Boolean).length;
     ui.syncSelectionSummary.textContent = `已选 ${selectedCount} / ${selectableCount}`;
+    document.getElementById("execute-sync-btn").disabled = selectedCount === 0;
+}
+
+function markSyncPreviewStale() {
+    state.sync.preview = null;
+    state.sync.result = null;
+    state.sync.selectedTargetIds = new Set();
+    if (ui.syncPreviewList) {
+        ui.syncPreviewList.style.display = "none";
+        ui.syncPreviewList.innerHTML = "";
+    }
+    if (ui.syncPreviewEmpty) {
+        ui.syncPreviewEmpty.style.display = "";
+        ui.syncPreviewEmpty.textContent = "同步方向或规则已变化，请重新预览。";
+    }
+    if (ui.syncSummaryText) ui.syncSummaryText.textContent = "尚未生成同步预览";
+    if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = "待预览";
+    document.getElementById("execute-sync-btn").disabled = true;
 }
 
 async function loadHealth() {
     const payload = await api("/health");
-    ui.healthStatus.textContent = `服务正常 · ${formatDate(payload.timestamp)}`;
+    ui.healthStatus.textContent = `CineRecord ${payload.version || ""} · ${payload.os || ""} ${payload.arch || ""} · 服务正常`;
 }
 
 async function loadConfig() {
@@ -1587,13 +1954,20 @@ async function loadOverview() {
 
 async function loadLibrary() {
     const offset = (state.library.page - 1) * LIBRARY_PAGE_SIZE;
+    const platforms = selectedLibraryPlatforms();
+    const platformQuery = `&platforms=${encodeURIComponent(platforms)}`;
     const path =
         state.library.filter === "all"
-            ? `/library?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}`
-            : `/library/${state.library.filter}?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}`;
+            ? `/library?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${platformQuery}`
+            : `/library/${state.library.filter}?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${platformQuery}`;
     const payload = await api(path);
+    if (initializeLibraryPlatformCheckboxes(payload.platforms_with_data || [])) {
+        state.library.page = 1;
+        return loadLibrary();
+    }
     state.library.items = payload.items || [];
     state.library.total = payload.total || 0;
+    updateLibraryFilterCounts(payload.platform_counts || {}, payload.total || 0);
     renderLibrary();
 }
 
@@ -1619,6 +1993,65 @@ async function loadScheduledTaskLogs() {
     if (!document.getElementById("scheduled-task-logs")) return;
     const payload = await api("/scheduled-tasks/logs?limit=200");
     state.scheduled.logs = payload.logs || [];
+    renderScheduledTaskLogs();
+}
+
+async function loadBackups() {
+    const payload = await api("/backups");
+    state.backups.items = payload.backups || [];
+    renderBackups();
+}
+
+async function createFriendBackup(event) {
+    event?.preventDefault();
+    const userId = document.getElementById("friend-backup-user-id")?.value.trim() || "";
+    const includeWatched = Boolean(document.getElementById("friend-backup-watched")?.checked);
+    const includeWishlist = Boolean(document.getElementById("friend-backup-wishlist")?.checked);
+    if (!userId) throw new Error("请输入好友豆瓣 ID");
+    if (!includeWatched && !includeWishlist) throw new Error("至少选择看过或想看");
+    if (ui.friendBackupStatus) ui.friendBackupStatus.textContent = `正在读取 ${userId} 的公开数据，请稍候...`;
+    setActionStatus(`正在备份 ${userId}...`, "loading", { persist: true });
+    const payload = await api("/backups", {
+        method: "POST",
+        body: JSON.stringify({
+            user_id: userId,
+            include_watched: includeWatched,
+            include_wishlist: includeWishlist,
+        }),
+    });
+    const backup = payload.backup;
+    if (ui.friendBackupStatus) {
+        ui.friendBackupStatus.textContent = `备份完成：看过 ${backup.watched_count} · 想看 ${backup.wishlist_count}`;
+    }
+    setActionStatus(`${userId} 的好友备份已完成`, "success");
+    await loadBackups();
+}
+
+async function openBackupPreview(backupId) {
+    setActionStatus("正在加载备份预览...", "loading", { persist: true });
+    const payload = await api(`/backups/${encodeURIComponent(backupId)}`);
+    state.backups.selected = payload.backup;
+    state.backups.previewKind = payload.backup.watched_count ? "watched" : "wishlist";
+    if (ui.backupPreviewPanel) ui.backupPreviewPanel.style.display = "";
+    renderBackupPreview();
+    setActionStatus("备份预览已加载", "success");
+}
+
+async function deleteBackup(backupId) {
+    const backup = state.backups.items.find((item) => item.id === backupId);
+    if (!window.confirm(`确定删除 ${backup?.user_id || "这份"} 好友备份？`)) return;
+    await api(`/backups/${encodeURIComponent(backupId)}`, { method: "DELETE" });
+    if (state.backups.selected?.id === backupId) {
+        state.backups.selected = null;
+        if (ui.backupPreviewPanel) ui.backupPreviewPanel.style.display = "none";
+    }
+    setActionStatus("好友备份已删除", "success");
+    await loadBackups();
+}
+
+async function loadSystemInfo() {
+    const payload = await api("/system");
+    renderSystemInfo(payload);
 }
 
 async function runPlatformTest(platform, options = {}) {
@@ -1667,31 +2100,134 @@ async function runFetchWishlist(platform) {
     await Promise.all([loadOverview(), loadWishlist(), loadTasks()]);
 }
 
-async function importLegacy() {
-    const preferred =
-        state.library.filter === "all" ? "tmdb" : state.library.filter;
-    const payload = await api(`/platforms/${preferred}/import-legacy`, { method: "POST" });
-    appendLog(`platform.import_legacy.${preferred}`, payload);
-    await Promise.all([loadOverview(), loadLibrary(), loadTasks()]);
+async function importLegacy(platformOverride = null) {
+    const preferred = platformOverride || (state.library.filter === "all" ? "all" : state.library.filter);
+    const platforms = preferred === "all" ? PLATFORM_IDS : [preferred];
+    setActionStatus(`正在导入 ${preferred === "all" ? "全部旧版 CSV" : platformLabel(preferred)}...`, "loading", { persist: true });
+    const results = await Promise.allSettled(
+        platforms.map(async (platform) => {
+            const payload = await api(`/platforms/${platform}/import-legacy`, { method: "POST" });
+            appendLog(`platform.import_legacy.${platform}`, payload);
+            return { platform, payload };
+        })
+    );
+    const succeeded = results.filter((result) => result.status === "fulfilled").length;
+    const failed = results.length - succeeded;
+    results.forEach((result, index) => {
+        if (result.status === "rejected") {
+            appendLog(`platform.import_legacy.failed.${platforms[index]}`, { message: result.reason?.message || String(result.reason) });
+        }
+    });
+    await Promise.all([loadOverview(), loadLibrary(), loadWishlist(), loadTasks()]);
+    setActionStatus(
+        failed ? `旧版 CSV 导入完成：成功 ${succeeded}，失败 ${failed}` : `旧版 CSV 导入完成：${succeeded} 个平台已更新`,
+        failed ? "warning" : "success"
+    );
+}
+
+function csvCell(value) {
+    const text = String(value ?? "");
+    return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function libraryItemToExportRow(item) {
+    const sources = item.sources || [];
+    const firstSource = sources[0] || {};
+    const sourcePlatforms = item.source_platforms || sources.map((source) => source.platform).filter(Boolean);
+    const identifiers = item.identifiers || {};
+    return {
+        title: item.title || "",
+        year: item.year || "",
+        personal_rating: item.personal_rating ?? item.rating ?? firstSource.rating ?? "",
+        rated_at: item.rated_at || firstSource.rated_at || "",
+        public_rating: item.public_rating ?? "",
+        imdb_id: identifiers.imdb_id || item.imdb_id || "",
+        tmdb_id: identifiers.tmdb_id || item.tmdb_id || "",
+        douban_id: identifiers.douban_id || item.douban_id || "",
+        source_platforms: sourcePlatforms.join("|"),
+        source_url: item.source_url || firstSource.source_url || "",
+    };
+}
+
+function downloadCsv(filename, rows) {
+    const columns = ["title", "year", "personal_rating", "rated_at", "public_rating", "imdb_id", "tmdb_id", "douban_id", "source_platforms", "source_url"];
+    const csv = [
+        columns.join(","),
+        ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(",")),
+    ].join("\n");
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function fetchAllLibraryForExport(source) {
+    const limit = 500;
+    let offset = 0;
+    let total = Infinity;
+    const items = [];
+    while (offset < total) {
+        const path = source === "merged"
+            ? `/library?view=full&limit=${limit}&offset=${offset}`
+            : `/library/${source}?view=full&limit=${limit}&offset=${offset}`;
+        const payload = await api(path);
+        const pageItems = payload.items || [];
+        items.push(...pageItems);
+        total = payload.total ?? items.length;
+        if (!pageItems.length) break;
+        offset += pageItems.length;
+    }
+    return items;
+}
+
+async function exportLibrary() {
+    const source = document.getElementById("export-source")?.value || "merged";
+    setActionStatus(`正在导出 ${source === "merged" ? "合并数据" : platformLabel(source)}...`, "loading", { persist: true });
+    const items = await fetchAllLibraryForExport(source);
+    const rows = items.map(libraryItemToExportRow);
+    const date = new Date().toISOString().slice(0, 10);
+    downloadCsv(`cinerecord-${source}-${date}.csv`, rows);
+    appendLog("library.export", { source, count: rows.length });
+    setActionStatus(`已导出 ${rows.length} 条 ${source === "merged" ? "合并数据" : platformLabel(source)} CSV`, "success");
 }
 
 async function previewSync() {
+    const requestPayload = gatherSyncPayload();
+    state.sync.preview = null;
+    state.sync.result = null;
+    state.sync.selectedTargetIds = new Set();
+    if (ui.syncSummaryText) ui.syncSummaryText.textContent = "正在生成同步预览";
+    if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = "刷新中";
+    if (ui.syncPreviewList) {
+        ui.syncPreviewList.style.display = "none";
+        ui.syncPreviewList.innerHTML = "";
+    }
+    if (ui.syncPreviewEmpty) {
+        ui.syncPreviewEmpty.style.display = "";
+        ui.syncPreviewEmpty.textContent = "正在用本地库生成预览，完成后会显示可执行条目与跳过原因。";
+    }
+    document.getElementById("execute-sync-btn").disabled = true;
     setActionStatus("正在生成同步预览...", "loading", { persist: true });
     const payload = await api("/sync/preview", {
         method: "POST",
-        body: JSON.stringify(gatherSyncPayload()),
+        body: JSON.stringify(requestPayload),
     });
     state.sync.preview = payload.result;
     state.sync.result = null;
     state.sync.selectedTargetIds = new Set(
         (payload.result.items || [])
-            .filter((item) => item.target_linking_id && !item.reason)
+            .filter(isExecutablePreviewItem)
             .map((item) => item.target_linking_id)
     );
     ui.syncSummaryText.textContent = `${payload.result.direction} · 共 ${payload.result.preview_count} 项`;
     renderSyncItems(payload.result.items, "preview");
     appendLog("sync.preview", payload);
-    setActionStatus(`同步预览已更新 · ${payload.result.preview_count} 项`, "success");
+    setActionStatus(`同步预览已更新 · 可执行 ${state.sync.selectedTargetIds.size} / ${payload.result.preview_count} 项`, "success");
     loadTasks().catch(handleError);
 }
 
@@ -1704,12 +2240,17 @@ async function executeSync() {
         setActionStatus("先在预览里至少选中一项再执行同步", "warning");
         return;
     }
+    state.sync.liveItems = [];
+    if (ui.syncLiveProgress) ui.syncLiveProgress.hidden = false;
+    if (ui.syncLiveProgressBar) ui.syncLiveProgressBar.style.width = "0%";
+    if (ui.syncLiveProgressText) ui.syncLiveProgressText.textContent = "正在刷新两边数据并确认执行清单";
     setActionStatus("正在执行同步...", "loading", { persist: true });
     const payload = await api("/sync/execute", {
         method: "POST",
-        body: JSON.stringify(gatherSyncPayload()),
+        body: JSON.stringify(gatherSyncPayload({ forceRefresh: true })),
     });
     state.sync.result = payload.result;
+    state.sync.liveItems = payload.result.items || [];
     ui.syncSummaryText.textContent = `${payload.result.direction} · 成功 ${payload.result.success_count} · 跳过 ${payload.result.skipped_count} · 失败 ${payload.result.failed_count}`;
     renderSyncItems(payload.result.items, "result");
     appendLog("sync.execute", payload);
@@ -1806,15 +2347,6 @@ async function completeTmdbAuth() {
     await Promise.all([loadConfig(), loadOverview()]);
 }
 
-async function placeholderFeature(feature) {
-    await saveConfig(null, { validate: false });
-    ui.cookieCloudStatus.textContent = feature === "cookiecloud" ? "入口已保留" : ui.cookieCloudStatus.textContent;
-    appendLog(`placeholder.${feature}`, {
-        message: "入口已保留，底层能力会逐步接到真正实现。",
-        feature,
-    });
-}
-
 async function syncCookieCloud() {
     await saveConfig(null, { validate: false });
     ui.cookieCloudStatus.textContent = "同步中...";
@@ -1889,7 +2421,10 @@ async function saveScheduledTask(event) {
         method,
         body: JSON.stringify(payload),
     });
-    appendLog("scheduled.task.saved", result);
+    appendLog("scheduled.task.saved", {
+        level: "success",
+        message: taskId ? `定时任务“${payload.name}”已更新` : `定时任务“${payload.name}”已创建`,
+    });
     setActionStatus(taskId ? "定时任务已更新" : "定时任务已创建", "success");
     hideScheduledTaskForm();
     await loadScheduledTasks();
@@ -1926,17 +2461,16 @@ async function deleteScheduledTask(taskId) {
 
 async function runScheduledTask(taskId) {
     setActionStatus("正在执行定时任务...", "loading", { persist: true });
-    const payload = await api(`/scheduled-tasks/${taskId}/run`, {
+    await api(`/scheduled-tasks/${taskId}/run`, {
         method: "POST",
     });
-    appendLog("scheduled.task.run", payload);
     setActionStatus("定时任务已开始执行", "success");
     await Promise.all([loadScheduledTasks(), loadTasks()]);
 }
 
 function setLibraryView(view) {
     state.library.view = view;
-    localStorage.setItem("cinerecord_library_view", view);
+    localStorage.setItem("cinerecord_library_view_v3", view);
     document.getElementById("library-view-grid").classList.toggle("active", view === "grid");
     document.getElementById("library-view-list").classList.toggle("active", view === "list");
     renderLibrary();
@@ -1944,7 +2478,7 @@ function setLibraryView(view) {
 
 function setWishlistView(view) {
     state.wishlist.view = view;
-    localStorage.setItem("cinerecord_wishlist_view", view);
+    localStorage.setItem("cinerecord_legacy_wishlist_view", view);
     document.getElementById("wishlist-view-grid").classList.toggle("active", view === "grid");
     document.getElementById("wishlist-view-list").classList.toggle("active", view === "list");
     renderWishlist();
@@ -1953,6 +2487,12 @@ function setWishlistView(view) {
 function bindEvents() {
     $$(".nav-tab").forEach((button) => {
         button.addEventListener("click", () => openTab(button.dataset.tab));
+    });
+    $$(".settings-sub-tab").forEach((button) => {
+        button.addEventListener("click", () => switchSettingsPanel(button.dataset.settingsTarget));
+    });
+    $$(".scheduled-tab-button").forEach((button) => {
+        button.addEventListener("click", () => switchScheduledPanel(button.dataset.scheduledTarget));
     });
 
     bindClick("theme-btn", toggleTheme);
@@ -2024,7 +2564,21 @@ function bindEvents() {
     bindClick("import-legacy-btn", (event) => {
         const button = event.currentTarget;
         setButtonBusy(button, true, "导入中...");
-        importLegacy()
+        importLegacy(button.dataset.platform || null)
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("export-library-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "导出中...");
+        exportLibrary()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("import-letterboxd-library-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "导入中...");
+        importLegacy("letterboxd")
             .catch(handleError)
             .finally(() => setButtonBusy(button, false));
     });
@@ -2052,9 +2606,32 @@ function bindEvents() {
             loadLibrary().catch(handleError);
         });
     });
+    $$('.filter-checkbox input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+            state.library.page = 1;
+            loadLibrary().catch(handleError);
+        });
+    });
 
     bindClick("wishlist-view-grid", () => setWishlistView("grid"));
     bindClick("wishlist-view-list", () => setWishlistView("list"));
+    bindClick("import-letterboxd-legacy-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "导入中...");
+        importLegacy("letterboxd")
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    const wishlistUnmatched = document.getElementById("wishlist-filter-unmatched");
+    if (wishlistUnmatched) {
+        wishlistUnmatched.checked = state.wishlist.onlyUnmatched;
+        wishlistUnmatched.addEventListener("change", () => {
+            state.wishlist.onlyUnmatched = wishlistUnmatched.checked;
+            localStorage.setItem("cinerecord_wishlist_unmatched", wishlistUnmatched.checked ? "1" : "0");
+            state.wishlist.page = 1;
+            renderWishlist();
+        });
+    }
     ui.wishlistPrevBtn.addEventListener("click", () => {
         if (state.wishlist.page > 1) {
             state.wishlist.page -= 1;
@@ -2108,7 +2685,7 @@ function bindEvents() {
         const previewItems = state.sync.preview?.items || [];
         state.sync.selectedTargetIds = new Set(
             previewItems
-                .filter((item) => item.target_linking_id && !item.reason)
+                .filter(isExecutablePreviewItem)
                 .map((item) => item.target_linking_id)
         );
         renderSyncItems(previewItems, "preview");
@@ -2117,6 +2694,19 @@ function bindEvents() {
         state.sync.selectedTargetIds = new Set();
         renderSyncItems(state.sync.preview?.items || [], "preview");
     });
+    ["sync-source-select", "sync-target-select", "sync-recent-limit", "sync-refresh-before"].forEach((id) => {
+        document.getElementById(id)?.addEventListener("change", markSyncPreviewStale);
+    });
+    document.querySelectorAll('input[name="rust-sync-mode"]').forEach((input) => {
+        input.addEventListener("change", markSyncPreviewStale);
+    });
+    const defaultRatingEnabled = document.getElementById("sync-default-rating-enabled");
+    const defaultRatingInput = document.getElementById("sync-default-rating");
+    defaultRatingEnabled?.addEventListener("change", () => {
+        if (defaultRatingInput) defaultRatingInput.disabled = !defaultRatingEnabled.checked;
+        markSyncPreviewStale();
+    });
+    defaultRatingInput?.addEventListener("change", markSyncPreviewStale);
     bindClick("refresh-tasks-btn", (event) => {
         const button = event.currentTarget;
         setButtonBusy(button, true, "刷新中...");
@@ -2131,6 +2721,13 @@ function bindEvents() {
             .catch(handleError)
             .finally(() => setButtonBusy(button, false));
     });
+    bindClick("refresh-scheduled-logs-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "刷新中...");
+        loadScheduledTaskLogs()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
     bindClick("show-scheduled-task-form-btn", () => populateScheduledTaskForm(null));
     bindClick("hide-scheduled-task-form-btn", hideScheduledTaskForm);
     ui.scheduledTaskForm.addEventListener("submit", (event) => saveScheduledTask(event).catch(handleError));
@@ -2139,9 +2736,42 @@ function bindEvents() {
             document.getElementById("scheduled-task-cron").value = button.dataset.cron || "";
         });
     });
+    ui.friendBackupForm?.addEventListener("submit", (event) => {
+        const button = document.getElementById("create-friend-backup-btn");
+        setButtonBusy(button, true, "备份中...");
+        createFriendBackup(event)
+            .catch((error) => {
+                if (ui.friendBackupStatus) ui.friendBackupStatus.textContent = error.message;
+                handleError(error);
+            })
+            .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("refresh-backups-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "刷新中...");
+        loadBackups()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("close-backup-preview-btn", () => {
+        if (ui.backupPreviewPanel) ui.backupPreviewPanel.style.display = "none";
+    });
+    bindClick("refresh-system-info-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "刷新中...");
+        loadSystemInfo()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    $$("[data-backup-preview-kind]").forEach((button) => {
+        button.addEventListener("click", () => {
+            state.backups.previewKind = button.dataset.backupPreviewKind;
+            renderBackupPreview();
+        });
+    });
 
     document.addEventListener("click", (event) => {
-        const target = event.target.closest(".rust-fetch-btn, .rust-test-btn, .rust-wishlist-btn, .rust-placeholder-btn, .rust-auth-action-btn, .rust-open-tab-btn");
+        const target = event.target.closest(".rust-fetch-btn, .rust-test-btn, .rust-wishlist-btn, .rust-auth-action-btn, .rust-open-tab-btn");
         if (!target) return;
         if (target.classList.contains("rust-open-tab-btn")) {
             openTab(target.dataset.tab || "settings");
@@ -2165,14 +2795,19 @@ function bindEvents() {
             handleAuthAction(target.dataset.action)
                 .catch(handleError)
                 .finally(() => setButtonBusy(target, false));
-        } else if (target.classList.contains("rust-placeholder-btn")) {
-            if (target.dataset.feature === "scheduled-sync") {
-                openTab("sync");
-                populateScheduledTaskForm(null);
-                document.getElementById("scheduled-task-name")?.focus();
-            } else {
-                placeholderFeature(target.dataset.feature).catch(handleError);
-            }
+        }
+    });
+
+    document.addEventListener("click", (event) => {
+        const target = event.target.closest(".backup-preview-btn, .backup-delete-btn");
+        if (!target) return;
+        if (target.classList.contains("backup-preview-btn")) {
+            setButtonBusy(target, true, "加载中...");
+            openBackupPreview(target.dataset.id)
+                .catch(handleError)
+                .finally(() => setButtonBusy(target, false));
+        } else {
+            deleteBackup(target.dataset.id).catch(handleError);
         }
     });
 
@@ -2236,13 +2871,19 @@ function connectEvents() {
     });
     source.addEventListener("fetch.completed", (event) => {
         const payload = JSON.parse(event.data);
-        appendLog("fetch.completed", payload.payload || payload);
+        const result = payload.payload || payload;
+        if (!result.sync_refresh) appendLog("fetch.completed", result);
         Promise.all([loadOverview(), loadLibrary(), loadWishlist(), loadTasks()]).catch(handleError);
     });
     source.addEventListener("sync.preview.ready", (event) => {
         const payload = JSON.parse(event.data);
         if (payload.payload) {
             state.sync.preview = payload.payload;
+            state.sync.selectedTargetIds = new Set(
+                (payload.payload.items || [])
+                    .filter(isExecutablePreviewItem)
+                    .map((item) => item.target_linking_id)
+            );
             ui.syncSummaryText.textContent = `${payload.payload.direction} · 共 ${payload.payload.preview_count} 项`;
             renderSyncItems(payload.payload.items, "preview");
         }
@@ -2250,24 +2891,73 @@ function connectEvents() {
     });
     source.addEventListener("sync.completed", (event) => {
         const payload = JSON.parse(event.data);
+        const isScheduledTask = String(payload.task_id || "").startsWith("scheduled-");
         if (payload.payload) {
             state.sync.result = payload.payload;
             ui.syncSummaryText.textContent = `${payload.payload.direction} · 成功 ${payload.payload.success_count} · 跳过 ${payload.payload.skipped_count} · 失败 ${payload.payload.failed_count}`;
             renderSyncItems(payload.payload.items, "result");
         }
-        appendLog("sync.completed", payload.payload || payload);
-        loadTasks().catch(handleError);
+        if (!isScheduledTask) appendLog("sync.completed", payload.payload || payload);
+        if (ui.syncLiveProgressBar) ui.syncLiveProgressBar.style.width = "100%";
+        if (ui.syncLiveProgressText) {
+            ui.syncLiveProgressText.textContent = `完成 · 成功 ${payload.payload?.success_count || 0} · 跳过 ${payload.payload?.skipped_count || 0} · 失败 ${payload.payload?.failed_count || 0}`;
+        }
+        Promise.all([loadOverview(), loadLibrary(), loadTasks()]).catch(handleError);
     });
-    source.addEventListener("scheduled.task.updated", (event) => {
+    source.addEventListener("sync.progress", (event) => {
         const payload = JSON.parse(event.data);
-        appendLog("scheduled.task.updated", payload.payload || payload);
+        const progress = payload.payload || payload;
+        const current = Number(progress.current || 0);
+        const total = Number(progress.total || 0);
+        const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 8;
+        if (ui.syncLiveProgress) ui.syncLiveProgress.hidden = false;
+        if (ui.syncLiveProgressBar) ui.syncLiveProgressBar.style.width = `${percent}%`;
+        if (ui.syncLiveProgressText) ui.syncLiveProgressText.textContent = progress.message || "同步处理中";
+        if (ui.syncSummaryText) {
+            const counts = [
+                progress.success_count !== undefined ? `成功 ${progress.success_count}` : "",
+                progress.skipped_count !== undefined ? `跳过 ${progress.skipped_count}` : "",
+                progress.failed_count !== undefined ? `失败 ${progress.failed_count}` : "",
+            ].filter(Boolean);
+            ui.syncSummaryText.textContent = total > 0
+                ? `${current} / ${total}${counts.length ? ` · ${counts.join(" · ")}` : ""}`
+                : progress.message || "同步处理中";
+        }
+        if (progress.phase === "item.completed" && progress.item) {
+            state.sync.liveItems.push(progress.item);
+            state.sync.result = {
+                direction: progress.direction,
+                success_count: progress.success_count || 0,
+                skipped_count: progress.skipped_count || 0,
+                failed_count: progress.failed_count || 0,
+                items: state.sync.liveItems,
+            };
+            renderSyncItems(state.sync.liveItems, "result");
+        }
+        const shouldLog =
+            progress.phase === "execution.prepared" ||
+            progress.phase === "rate_limit.wait" ||
+            progress.status === "failed" ||
+            (total > 0 && current === total) ||
+            (progress.phase === "item.completed" && current % 10 === 0);
+        if (shouldLog) appendLog("sync.progress", progress);
+        setActionStatus(progress.message || "同步处理中", progress.status === "failed" ? "warning" : "loading", {
+            persist: true,
+        });
+    });
+    source.addEventListener("scheduled.task.updated", () => {
         loadScheduledTasks().catch(handleError);
     });
     source.addEventListener("scheduled.task.log", (event) => {
         const payload = JSON.parse(event.data);
         appendLog("scheduled.task.log", payload.payload || payload);
     });
-    source.onerror = () => appendLog("sse.error", { message: "事件流暂时断开，浏览器会自动重连。" });
+    source.onerror = () => {
+        const now = Date.now();
+        if (now - state.logs.lastSseErrorAt < 30000) return;
+        state.logs.lastSseErrorAt = now;
+        appendLog("sse.error", { message: "事件流暂时断开，浏览器会自动重连。" });
+    };
 }
 
 function handleError(error) {
@@ -2276,16 +2966,30 @@ function handleError(error) {
     setActionStatus(error?.message || String(error), "error");
 }
 
+async function refreshStep(label, loader) {
+    try {
+        await loader();
+        return true;
+    } catch (error) {
+        appendLog("error", { message: `${label}加载失败：${error?.message || String(error)}` });
+        return false;
+    }
+}
+
 async function refreshAll() {
-    await Promise.all([
-        loadHealth(),
-        loadConfig(),
-        loadOverview(),
-        loadLibrary(),
-        loadWishlist(),
-        loadTasks(),
-        loadScheduledTasks(),
+    const results = await Promise.all([
+        refreshStep("服务状态", loadHealth),
+        refreshStep("配置", loadConfig),
+        refreshStep("概览", loadOverview),
+        refreshStep("片库", loadLibrary),
+        refreshStep("想看", loadWishlist),
+        refreshStep("任务", loadTasks),
+        refreshStep("定时任务", loadScheduledTasks),
     ]);
+    if (results.some((ok) => !ok)) {
+        setActionStatus("部分数据加载失败，已保留可用页面；请查看左侧日志", "warning");
+    }
+    return results.every(Boolean);
 }
 
 async function init() {
@@ -2298,8 +3002,17 @@ async function init() {
     bindEvents();
     connectEvents();
     try {
-        await refreshAll();
-        setActionStatus("已加载最新账号和片库状态", "success", { reset: true, timeout: 2500 });
+        const loaded = await refreshAll();
+        if (loaded) {
+            const configuredCount = (state.platforms || []).filter(
+                (platform) => platform.auth_type !== "csv" && platform.status?.config_present
+            ).length;
+            if (configuredCount === 0) {
+                setActionStatus("欢迎使用 CineRecord · 请先在设置中连接至少一个平台", "warning");
+            } else {
+                setActionStatus("已加载最新账号和片库状态", "success", { reset: true, timeout: 2500 });
+            }
+        }
     } catch (error) {
         handleError(error);
     } finally {

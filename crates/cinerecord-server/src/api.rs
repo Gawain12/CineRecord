@@ -1,8 +1,7 @@
-use std::{convert::Infallible, process::Command};
+use std::{collections::HashMap, convert::Infallible, process::Command};
 
 use axum::{
-    Form,
-    Json, Router,
+    Form, Json, Router,
     extract::{Path, Query, State},
     response::{
         Html, IntoResponse, Redirect, Response, Sse,
@@ -12,18 +11,27 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use cinerecord_core::{
-    AppConfig, AppEvent, ScheduledTask, SyncExecuteRequest, SyncPreviewRequest, SyncTask, TaskKind, TaskStatus,
+    AppConfig, AppEvent, ScheduledTask, SyncExecuteRequest, SyncPreviewRequest, SyncTask, TaskKind,
+    TaskStatus,
 };
-use cinerecord_jobs::{run_fetch_platform, run_fetch_wishlist, run_import_legacy, run_platform_test, run_sync_execute, run_sync_preview};
+use cinerecord_jobs::{
+    run_fetch_platform, run_fetch_wishlist, run_import_legacy, run_platform_test, run_sync_execute,
+    run_sync_preview,
+};
 use cinerecord_platforms::{
-    complete_tmdb_auth, poll_trakt_device_auth, refresh_trakt_access_token, start_tmdb_auth, start_trakt_device_auth, sync_cookiecloud,
+    complete_tmdb_auth, fetch_platform as fetch_platform_records,
+    fetch_platform_wishlist as fetch_platform_wishlist_records, poll_trakt_device_auth,
+    refresh_trakt_access_token, start_tmdb_auth, start_trakt_device_auth, sync_cookiecloud,
     validate_cookie_platform,
 };
 use cinerecord_storage::{
-    count_library_groups, count_library_items, count_wishlist_groups, count_wishlist_items, delete_scheduled_task,
-    delete_task, get_scheduled_task, get_task, insert_task, list_library_items_aggregated_paginated,
-    list_library_items_paginated, list_platforms, list_scheduled_task_logs, list_scheduled_tasks, list_tasks,
-    list_wishlist_items_aggregated_paginated, list_wishlist_items_paginated, platform_item_counts, save_config,
+    FriendBackup, count_library_groups, count_library_items, count_library_view_groups,
+    count_wishlist_groups, count_wishlist_items, delete_friend_backup, delete_scheduled_task,
+    delete_task, get_friend_backup, get_scheduled_task, get_task, insert_task, library_view_counts,
+    list_friend_backups, list_library_items_aggregated_paginated, list_library_items_paginated,
+    list_library_items_view_paginated, list_platforms, list_scheduled_task_logs,
+    list_scheduled_tasks, list_tasks, list_wishlist_items_aggregated_paginated,
+    list_wishlist_items_paginated, platform_item_counts, save_config, save_friend_backup,
     upsert_platform_state, upsert_scheduled_task,
 };
 use futures::stream::Stream;
@@ -32,7 +40,10 @@ use serde_json::json;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 use uuid::Uuid;
 
-use crate::{AppState, PendingBrowserAuth, scheduler::{calculate_next_run_at, trigger_scheduled_task_now}};
+use crate::{
+    AppState, PendingBrowserAuth,
+    scheduler::{calculate_next_run_at, trigger_scheduled_task_now},
+};
 
 const BROWSER_AUTH_TTL_SECONDS: i64 = 10 * 60;
 
@@ -49,32 +60,81 @@ pub fn router() -> Router<AppState> {
         .route("/api/v2/overview", get(get_overview))
         .route("/api/v2/config", get(get_config).put(put_config))
         .route("/api/v2/auth/callback", post(auth_callback))
-        .route("/api/v2/auth/bookmarklet/callback", post(auth_bookmarklet_callback))
+        .route(
+            "/api/v2/auth/bookmarklet/callback",
+            post(auth_bookmarklet_callback),
+        )
         .route("/api/v2/cookiecloud/sync", post(sync_cookiecloud_handler))
         .route("/api/v2/platforms", get(get_platforms))
-        .route("/api/v2/platforms/{platform}/browser-auth/start", post(start_browser_auth))
+        .route(
+            "/api/v2/platforms/{platform}/browser-auth/start",
+            post(start_browser_auth),
+        )
         .route("/api/v2/platforms/{platform}/test", post(test_platform))
         .route("/api/v2/platforms/{platform}/fetch", post(fetch_platform))
-        .route("/api/v2/platforms/{platform}/fetch-wishlist", post(fetch_wishlist))
-        .route("/api/v2/platforms/{platform}/import-legacy", post(import_legacy))
-        .route("/api/v2/platforms/tmdb/auth/start", post(start_tmdb_auth_handler))
-        .route("/api/v2/platforms/tmdb/auth/complete", post(complete_tmdb_auth_handler))
-        .route("/api/v2/platforms/trakt/device-auth/start", post(start_trakt_auth))
-        .route("/api/v2/platforms/trakt/device-auth/poll", post(poll_trakt_auth))
+        .route(
+            "/api/v2/platforms/{platform}/fetch-wishlist",
+            post(fetch_wishlist),
+        )
+        .route(
+            "/api/v2/platforms/{platform}/import-legacy",
+            post(import_legacy),
+        )
+        .route(
+            "/api/v2/platforms/tmdb/auth/start",
+            post(start_tmdb_auth_handler),
+        )
+        .route(
+            "/api/v2/platforms/tmdb/auth/complete",
+            post(complete_tmdb_auth_handler),
+        )
+        .route(
+            "/api/v2/platforms/trakt/device-auth/start",
+            post(start_trakt_auth),
+        )
+        .route(
+            "/api/v2/platforms/trakt/device-auth/poll",
+            post(poll_trakt_auth),
+        )
         .route("/api/v2/library", get(get_library))
         .route("/api/v2/library/{platform}", get(get_library_for_platform))
         .route("/api/v2/wishlist", get(get_wishlist))
-        .route("/api/v2/wishlist/{platform}", get(get_wishlist_for_platform))
+        .route(
+            "/api/v2/wishlist/{platform}",
+            get(get_wishlist_for_platform),
+        )
         .route("/api/v2/sync/preview", post(sync_preview))
         .route("/api/v2/sync/execute", post(sync_execute))
         .route("/api/v2/tasks", get(get_tasks).post(create_task))
-        .route("/api/v2/tasks/{task_id}", get(get_task_by_id).patch(update_task).delete(delete_task_by_id))
-        .route("/api/v2/scheduled-tasks", get(get_scheduled_tasks).post(create_scheduled_task))
+        .route(
+            "/api/v2/tasks/{task_id}",
+            get(get_task_by_id)
+                .patch(update_task)
+                .delete(delete_task_by_id),
+        )
+        .route(
+            "/api/v2/backups",
+            get(get_backups).post(create_friend_backup),
+        )
+        .route(
+            "/api/v2/backups/{backup_id}",
+            get(get_backup_by_id).delete(delete_backup_by_id),
+        )
+        .route("/api/v2/system", get(get_system_info))
+        .route(
+            "/api/v2/scheduled-tasks",
+            get(get_scheduled_tasks).post(create_scheduled_task),
+        )
         .route("/api/v2/scheduled-tasks/logs", get(get_scheduled_task_logs))
-        .route("/api/v2/scheduled-tasks/{task_id}/run", post(run_scheduled_task_now))
+        .route(
+            "/api/v2/scheduled-tasks/{task_id}/run",
+            post(run_scheduled_task_now),
+        )
         .route(
             "/api/v2/scheduled-tasks/{task_id}",
-            get(get_scheduled_task_by_id).patch(update_scheduled_task).delete(delete_scheduled_task_by_id),
+            get(get_scheduled_task_by_id)
+                .patch(update_scheduled_task)
+                .delete(delete_scheduled_task_by_id),
         )
         .route("/api/v2/events", get(sse_events))
 }
@@ -108,23 +168,39 @@ async fn proxy_remote_image(url: &str) -> Result<Response, ApiError> {
     if url.is_empty() {
         return Err(ApiError::BadRequest("No URL provided".to_string()));
     }
-    let parsed = reqwest::Url::parse(url).map_err(|_| ApiError::BadRequest("Invalid image URL".to_string()))?;
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| ApiError::BadRequest("Invalid image URL".to_string()))?;
     let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-    let allowed_domains = ["doubanio.com", "douban.com", "trakt.tv", "imdb.com", "media-amazon.com", "tmdb.org"];
-    if !allowed_domains.iter().any(|domain| host == *domain || host.ends_with(&format!(".{domain}"))) {
+    let allowed_domains = [
+        "doubanio.com",
+        "douban.com",
+        "trakt.tv",
+        "imdb.com",
+        "media-amazon.com",
+        "tmdb.org",
+    ];
+    if !allowed_domains
+        .iter()
+        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    {
         return Err(ApiError::BadRequest("Domain not allowed".to_string()));
     }
 
     let response = reqwest::Client::new()
         .get(parsed)
-        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        )
         .header("Referer", "https://www.douban.com/")
         .send()
         .await
         .map_err(|error| ApiError::Internal(error.into()))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(ApiError::BadRequest(format!("Failed to fetch image ({status})")));
+        return Err(ApiError::BadRequest(format!(
+            "Failed to fetch image ({status})"
+        )));
     }
     let content_type = response
         .headers()
@@ -136,17 +212,16 @@ async fn proxy_remote_image(url: &str) -> Result<Response, ApiError> {
         .bytes()
         .await
         .map_err(|error| ApiError::Internal(error.into()))?;
-    Ok((
-        [(axum::http::header::CONTENT_TYPE, content_type)],
-        bytes,
-    )
-        .into_response())
+    Ok(([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response())
 }
 
 async fn health() -> impl IntoResponse {
     Json(json!({
         "ok": true,
         "service": "cinerecord",
+        "version": env!("CARGO_PKG_VERSION"),
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
         "timestamp": Utc::now(),
     }))
 }
@@ -170,13 +245,17 @@ async fn get_overview(State(state): State<AppState>) -> Result<Json<serde_json::
             "library_total": total_library,
             "wishlist_total": total_wishlist,
             "library": library_counts,
+            "library_raw": library_counts,
             "wishlist": wishlist_counts
         },
         "tasks": tasks.into_iter().take(12).collect::<Vec<_>>()
     })))
 }
 
-async fn put_config(State(state): State<AppState>, Json(payload): Json<AppConfig>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn put_config(
+    State(state): State<AppState>,
+    Json(payload): Json<AppConfig>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     save_config(&state.paths, &payload).await?;
     {
         let mut current = state.config.write().await;
@@ -205,7 +284,9 @@ async fn start_browser_auth(
     Path(platform): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if !matches!(platform.as_str(), "douban" | "imdb") {
-        return Err(ApiError::BadRequest("browser auth only supports douban and imdb".to_string()));
+        return Err(ApiError::BadRequest(
+            "browser auth only supports douban and imdb".to_string(),
+        ));
     }
 
     let token = Uuid::new_v4().to_string();
@@ -247,8 +328,13 @@ async fn auth_callback(
     State(state): State<AppState>,
     Json(payload): Json<BrowserAuthCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if payload.platform.trim().is_empty() || payload.cookie.trim().is_empty() || payload.token.trim().is_empty() {
-        return Err(ApiError::BadRequest("missing platform, cookie, or token".to_string()));
+    if payload.platform.trim().is_empty()
+        || payload.cookie.trim().is_empty()
+        || payload.token.trim().is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "missing platform, cookie, or token".to_string(),
+        ));
     }
 
     let session = {
@@ -258,7 +344,9 @@ async fn auth_callback(
     .ok_or_else(|| ApiError::BadRequest("invalid or expired auth token".to_string()))?;
 
     if session.platform != payload.platform {
-        return Err(ApiError::BadRequest("auth token platform mismatch".to_string()));
+        return Err(ApiError::BadRequest(
+            "auth token platform mismatch".to_string(),
+        ));
     }
     if (Utc::now() - session.created_at).num_seconds() > BROWSER_AUTH_TTL_SECONDS {
         state.auth_sessions.write().await.remove(&payload.token);
@@ -274,10 +362,13 @@ async fn auth_bookmarklet_callback(
     State(state): State<AppState>,
     Json(payload): Json<BookmarkletAuthRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let platform = detect_bookmarklet_platform(payload.platform.as_deref(), payload.page_url.as_deref())
-        .ok_or_else(|| ApiError::BadRequest("请在豆瓣或 IMDb 页面点击这个书签".to_string()))?;
+    let platform =
+        detect_bookmarklet_platform(payload.platform.as_deref(), payload.page_url.as_deref())
+            .ok_or_else(|| ApiError::BadRequest("请在豆瓣或 IMDb 页面点击这个书签".to_string()))?;
     if payload.cookie.trim().is_empty() {
-        return Err(ApiError::BadRequest("当前页面没有可用 Cookie，请先确认已登录".to_string()));
+        return Err(ApiError::BadRequest(
+            "当前页面没有可用 Cookie，请先确认已登录".to_string(),
+        ));
     }
     let response = persist_cookie_login(&state, &platform, &payload.cookie, true).await?;
     Ok(Json(response))
@@ -287,13 +378,19 @@ async fn auth_bookmarklet_submit(
     State(state): State<AppState>,
     Form(payload): Form<BookmarkletAuthRequest>,
 ) -> Result<Html<String>, ApiError> {
-    let platform = detect_bookmarklet_platform(payload.platform.as_deref(), payload.page_url.as_deref())
-        .ok_or_else(|| ApiError::BadRequest("请在豆瓣或 IMDb 页面点击这个书签".to_string()))?;
+    let platform =
+        detect_bookmarklet_platform(payload.platform.as_deref(), payload.page_url.as_deref())
+            .ok_or_else(|| ApiError::BadRequest("请在豆瓣或 IMDb 页面点击这个书签".to_string()))?;
     if payload.cookie.trim().is_empty() {
-        return Err(ApiError::BadRequest("当前页面没有可用 Cookie，请先确认已登录".to_string()));
+        return Err(ApiError::BadRequest(
+            "当前页面没有可用 Cookie，请先确认已登录".to_string(),
+        ));
     }
     let response = persist_cookie_login(&state, &platform, &payload.cookie, true).await?;
-    let success = response.get("success").and_then(|value| value.as_bool()).unwrap_or(false);
+    let success = response
+        .get("success")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     let message = response
         .get("validation")
         .and_then(|value| value.get("message"))
@@ -329,7 +426,12 @@ async fn sync_cookiecloud_handler(
             imported.validation.profile.as_ref(),
         )
         .await?;
-        publish_event(&state, "platform.validated", None, json!(imported.validation.clone()));
+        publish_event(
+            &state,
+            "platform.validated",
+            None,
+            json!(imported.validation.clone()),
+        );
     }
 
     if !result.imported.is_empty() {
@@ -338,9 +440,17 @@ async fn sync_cookiecloud_handler(
             .iter()
             .map(|item| {
                 if item.imported_without_validation {
-                    format!("{} ({} 项，待验证)", item.platform.to_uppercase(), item.matched_count)
+                    format!(
+                        "{} ({} 项，待验证)",
+                        item.platform.to_uppercase(),
+                        item.matched_count
+                    )
                 } else {
-                    format!("{} ({} 项)", item.platform.to_uppercase(), item.matched_count)
+                    format!(
+                        "{} ({} 项)",
+                        item.platform.to_uppercase(),
+                        item.matched_count
+                    )
                 }
             })
             .collect::<Vec<_>>()
@@ -474,9 +584,16 @@ async fn fetch_platform(
     State(state): State<AppState>,
     Path(platform): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let task = new_task(format!("Fetch {}", platform.to_uppercase()), TaskKind::FetchPlatform, json!({ "platform": platform }));
+    let task = new_task(
+        format!("Fetch {}", platform.to_uppercase()),
+        TaskKind::FetchPlatform,
+        json!({ "platform": platform }),
+    );
     insert_task(&state.pool, &task).await?;
-    let platform = task.payload["platform"].as_str().unwrap_or_default().to_string();
+    let platform = task.payload["platform"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     if platform == "trakt" {
         ensure_fresh_trakt_auth(&state).await?;
     }
@@ -515,31 +632,69 @@ async fn import_legacy(
         json!({ "platform": platform }),
     );
     insert_task(&state.pool, &task).await?;
-    let platform = task.payload["platform"].as_str().unwrap_or_default().to_string();
+    let platform = task.payload["platform"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     let config = state.config.read().await.clone();
-    let result = run_import_legacy(&state.paths, &state.pool, &state.events, &config, &platform, &task).await?;
+    let result = run_import_legacy(
+        &state.paths,
+        &state.pool,
+        &state.events,
+        &config,
+        &platform,
+        &task,
+    )
+    .await?;
     let task = get_task(&state.pool, &task.id).await?.unwrap_or(task);
     Ok(Json(json!({ "task": task, "result": result })))
 }
 
-async fn get_library(State(state): State<AppState>, Query(query): Query<LibraryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_library(
+    State(state): State<AppState>,
+    Query(query): Query<LibraryQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let raw = query.mode.as_deref() == Some("raw");
+    let full_view = query.view.as_deref() == Some("full");
+    let selected_platforms = selected_library_platforms(&query);
     let total = if raw {
         count_library_items(&state.pool, None).await?
-    } else {
+    } else if full_view {
         count_library_groups(&state.pool, None).await?
+    } else {
+        count_library_view_groups(&state.pool, None, &selected_platforms).await?
     };
     let items = if raw {
         json!(list_library_items_paginated(&state.pool, None, query.limit, query.offset).await?)
+    } else if full_view {
+        json!(
+            list_library_items_aggregated_paginated(&state.pool, None, query.limit, query.offset)
+                .await?
+        )
     } else {
-        json!(list_library_items_aggregated_paginated(&state.pool, None, query.limit, query.offset).await?)
+        json!(
+            list_library_items_view_paginated(
+                &state.pool,
+                None,
+                &selected_platforms,
+                query.limit,
+                query.offset
+            )
+            .await?
+        )
     };
+    let raw_counts = platform_item_counts(&state.pool, "library_items").await?;
+    let platform_counts = library_view_counts(&state.pool, &selected_platforms).await?;
+    let platforms_with_data = platforms_with_data(&raw_counts);
     Ok(Json(json!({
         "items": items,
         "total": total,
         "limit": query.limit,
         "offset": query.offset,
-        "mode": if raw { "raw" } else { "aggregate" }
+        "mode": if raw { "raw" } else { "aggregate" },
+        "filter": "all",
+        "platform_counts": platform_counts,
+        "platforms_with_data": platforms_with_data
     })))
 }
 
@@ -549,23 +704,55 @@ async fn get_library_for_platform(
     Query(query): Query<LibraryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let raw = query.mode.as_deref() == Some("raw");
+    let full_view = query.view.as_deref() == Some("full");
+    let selected_platforms = selected_library_platforms(&query);
     let total = if raw {
         count_library_items(&state.pool, Some(&platform)).await?
-    } else {
+    } else if full_view {
         count_library_groups(&state.pool, Some(&platform)).await?
+    } else {
+        count_library_view_groups(&state.pool, Some(&platform), &selected_platforms).await?
     };
     let items = if raw {
-        json!(list_library_items_paginated(&state.pool, Some(&platform), query.limit, query.offset).await?)
+        json!(
+            list_library_items_paginated(&state.pool, Some(&platform), query.limit, query.offset)
+                .await?
+        )
+    } else if full_view {
+        json!(
+            list_library_items_aggregated_paginated(
+                &state.pool,
+                Some(&platform),
+                query.limit,
+                query.offset
+            )
+            .await?
+        )
     } else {
-        json!(list_library_items_aggregated_paginated(&state.pool, Some(&platform), query.limit, query.offset).await?)
+        json!(
+            list_library_items_view_paginated(
+                &state.pool,
+                Some(&platform),
+                &selected_platforms,
+                query.limit,
+                query.offset
+            )
+            .await?
+        )
     };
+    let raw_counts = platform_item_counts(&state.pool, "library_items").await?;
+    let platform_counts = library_view_counts(&state.pool, &selected_platforms).await?;
+    let platforms_with_data = platforms_with_data(&raw_counts);
     Ok(Json(json!({
         "platform": platform,
         "items": items,
         "total": total,
         "limit": query.limit,
         "offset": query.offset,
-        "mode": if raw { "raw" } else { "aggregate" }
+        "mode": if raw { "raw" } else { "aggregate" },
+        "filter": platform,
+        "platform_counts": platform_counts,
+        "platforms_with_data": platforms_with_data
     })))
 }
 
@@ -582,7 +769,10 @@ async fn get_wishlist(
     let items = if raw {
         json!(list_wishlist_items_paginated(&state.pool, None, query.limit, query.offset).await?)
     } else {
-        json!(list_wishlist_items_aggregated_paginated(&state.pool, None, query.limit, query.offset).await?)
+        json!(
+            list_wishlist_items_aggregated_paginated(&state.pool, None, query.limit, query.offset)
+                .await?
+        )
     };
     Ok(Json(json!({
         "items": items,
@@ -605,9 +795,20 @@ async fn get_wishlist_for_platform(
         count_wishlist_groups(&state.pool, Some(&platform)).await?
     };
     let items = if raw {
-        json!(list_wishlist_items_paginated(&state.pool, Some(&platform), query.limit, query.offset).await?)
+        json!(
+            list_wishlist_items_paginated(&state.pool, Some(&platform), query.limit, query.offset)
+                .await?
+        )
     } else {
-        json!(list_wishlist_items_aggregated_paginated(&state.pool, Some(&platform), query.limit, query.offset).await?)
+        json!(
+            list_wishlist_items_aggregated_paginated(
+                &state.pool,
+                Some(&platform),
+                query.limit,
+                query.offset
+            )
+            .await?
+        )
     };
     Ok(Json(json!({
         "platform": platform,
@@ -619,7 +820,10 @@ async fn get_wishlist_for_platform(
     })))
 }
 
-async fn sync_preview(State(state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn sync_preview(
+    State(state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let request: SyncPreviewRequest = serde_json::from_value(payload.clone())?;
     let task = new_task("Sync preview".to_string(), TaskKind::SyncPreview, payload);
     insert_task(&state.pool, &task).await?;
@@ -627,12 +831,16 @@ async fn sync_preview(State(state): State<AppState>, Json(payload): Json<serde_j
         ensure_fresh_trakt_auth(&state).await?;
     }
     let config = state.config.read().await.clone();
-    let result = run_sync_preview(&state.pool, &state.events, &config, &request, Some(&task)).await?;
+    let result =
+        run_sync_preview(&state.pool, &state.events, &config, &request, Some(&task)).await?;
     let task = get_task(&state.pool, &task.id).await?.unwrap_or(task);
     Ok(Json(json!({ "task": task, "result": result })))
 }
 
-async fn sync_execute(State(state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn sync_execute(
+    State(state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let request: SyncExecuteRequest = serde_json::from_value(payload.clone())?;
     let task = new_task("Sync execute".to_string(), TaskKind::SyncExecute, payload);
     insert_task(&state.pool, &task).await?;
@@ -650,12 +858,159 @@ async fn get_tasks(State(state): State<AppState>) -> Result<Json<serde_json::Val
     Ok(Json(json!({ "tasks": tasks })))
 }
 
-async fn get_scheduled_tasks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_backups(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    let backups = list_friend_backups(&state.paths).await?;
+    Ok(Json(json!({ "backups": backups })))
+}
+
+async fn create_friend_backup(
+    State(state): State<AppState>,
+    Json(payload): Json<FriendBackupRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let user_id = validate_douban_user_id(&payload.user_id)?;
+    if !payload.include_watched && !payload.include_wishlist {
+        return Err(ApiError::BadRequest("至少选择看过或想看".to_string()));
+    }
+
+    let mut config = state.config.read().await.clone();
+    config.platforms.douban.user_id = Some(user_id.clone());
+    // Friend backups only read public profile data and never reuse the owner's authenticated session.
+    config.platforms.douban.cookie = None;
+
+    let watched = if payload.include_watched {
+        fetch_platform_records("douban", &config).await?.1
+    } else {
+        Vec::new()
+    };
+    let wishlist = if payload.include_wishlist {
+        fetch_platform_wishlist_records("douban", &config).await?.1
+    } else {
+        Vec::new()
+    };
+    let backup = FriendBackup {
+        id: Uuid::new_v4().to_string(),
+        platform: "douban".to_string(),
+        user_id,
+        watched,
+        wishlist,
+        created_at: Utc::now(),
+    };
+    save_friend_backup(&state.paths, &backup).await?;
+    publish_event(
+        &state,
+        "backup.completed",
+        Some(backup.id.clone()),
+        json!({
+            "backup_id": backup.id,
+            "user_id": backup.user_id,
+            "watched_count": backup.watched.len(),
+            "wishlist_count": backup.wishlist.len()
+        }),
+    );
+    Ok(Json(json!({
+        "backup": {
+            "id": backup.id,
+            "platform": backup.platform,
+            "user_id": backup.user_id,
+            "watched_count": backup.watched.len(),
+            "wishlist_count": backup.wishlist.len(),
+            "created_at": backup.created_at
+        }
+    })))
+}
+
+async fn get_backup_by_id(
+    State(state): State<AppState>,
+    Path(backup_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let backup = get_friend_backup(&state.paths, &backup_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("backup {backup_id} not found")))?;
+    let watched = backup
+        .watched
+        .iter()
+        .take(200)
+        .map(|item| {
+            json!({
+                "title": item.title,
+                "year": item.year,
+                "rating": item.rating,
+                "source_url": item.source_url
+            })
+        })
+        .collect::<Vec<_>>();
+    let wishlist = backup
+        .wishlist
+        .iter()
+        .take(200)
+        .map(|item| {
+            json!({
+                "title": item.title,
+                "year": item.year,
+                "source_url": item.source_url
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(json!({
+        "backup": {
+            "id": backup.id,
+            "platform": backup.platform,
+            "user_id": backup.user_id,
+            "watched_count": backup.watched.len(),
+            "wishlist_count": backup.wishlist.len(),
+            "created_at": backup.created_at,
+            "watched": watched,
+            "wishlist": wishlist
+        }
+    })))
+}
+
+async fn delete_backup_by_id(
+    State(state): State<AppState>,
+    Path(backup_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if !delete_friend_backup(&state.paths, &backup_id).await? {
+        return Err(ApiError::NotFound(format!("backup {backup_id} not found")));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn get_system_info(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let tasks = list_tasks(&state.pool).await?;
+    let scheduled_tasks = list_scheduled_tasks(&state.pool).await?;
+    let backups = list_friend_backups(&state.paths).await?;
+    Ok(Json(json!({
+        "service": "cinerecord",
+        "version": env!("CARGO_PKG_VERSION"),
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "storage": {
+            "config": state.paths.config_path.display().to_string(),
+            "database": state.paths.db_path.display().to_string(),
+            "backups": state.paths.backups_dir.display().to_string(),
+            "logs": state.paths.log_path.display().to_string()
+        },
+        "counts": {
+            "tasks": tasks.len(),
+            "scheduled_tasks": scheduled_tasks.len(),
+            "backups": backups.len()
+        }
+    })))
+}
+
+async fn get_scheduled_tasks(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let tasks = list_scheduled_tasks(&state.pool).await?;
     Ok(Json(json!({ "tasks": tasks })))
 }
 
-async fn get_scheduled_task_logs(State(state): State<AppState>, Query(query): Query<ScheduledTaskLogsQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_scheduled_task_logs(
+    State(state): State<AppState>,
+    Query(query): Query<ScheduledTaskLogsQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let logs = list_scheduled_task_logs(&state.pool, query.limit.unwrap_or(200)).await?;
     Ok(Json(json!({ "logs": logs })))
 }
@@ -666,7 +1021,12 @@ async fn create_scheduled_task(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let task = build_scheduled_task(None, payload)?;
     upsert_scheduled_task(&state.pool, &task).await?;
-    publish_event(&state, "scheduled.task.updated", Some(task.id.clone()), json!(task.clone()));
+    publish_event(
+        &state,
+        "scheduled.task.updated",
+        Some(task.id.clone()),
+        json!(task.clone()),
+    );
     Ok(Json(json!({ "task": task })))
 }
 
@@ -685,11 +1045,18 @@ async fn update_scheduled_task(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let existing = get_scheduled_task(&state.pool, &task_id).await?;
     let Some(existing) = existing else {
-        return Err(ApiError::NotFound(format!("scheduled task {task_id} not found")));
+        return Err(ApiError::NotFound(format!(
+            "scheduled task {task_id} not found"
+        )));
     };
     let task = build_scheduled_task(Some(existing), payload)?;
     upsert_scheduled_task(&state.pool, &task).await?;
-    publish_event(&state, "scheduled.task.updated", Some(task.id.clone()), json!(task.clone()));
+    publish_event(
+        &state,
+        "scheduled.task.updated",
+        Some(task.id.clone()),
+        json!(task.clone()),
+    );
     Ok(Json(json!({ "task": task })))
 }
 
@@ -714,7 +1081,12 @@ async fn run_scheduled_task_now(
     let task = trigger_scheduled_task_now(state.clone(), &task_id)
         .await
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    publish_event(&state, "scheduled.task.updated", Some(task.id.clone()), json!(task.clone()));
+    publish_event(
+        &state,
+        "scheduled.task.updated",
+        Some(task.id.clone()),
+        json!(task.clone()),
+    );
     Ok(Json(json!({ "ok": true, "task": task })))
 }
 
@@ -722,9 +1094,18 @@ async fn create_task(
     State(state): State<AppState>,
     Json(payload): Json<CreateTaskRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let task = new_task(payload.name, payload.kind, payload.payload.unwrap_or_else(|| json!({})));
+    let task = new_task(
+        payload.name,
+        payload.kind,
+        payload.payload.unwrap_or_else(|| json!({})),
+    );
     insert_task(&state.pool, &task).await?;
-    publish_event(&state, "task.updated", Some(task.id.clone()), json!(task.clone()));
+    publish_event(
+        &state,
+        "task.updated",
+        Some(task.id.clone()),
+        json!(task.clone()),
+    );
     Ok(Json(json!({ "task": task })))
 }
 
@@ -756,8 +1137,19 @@ async fn update_task(
     }
     task.updated_at = Utc::now();
 
-    cinerecord_storage::update_task_status(&state.pool, &task.id, task.status.clone(), task.payload.clone()).await?;
-    publish_event(&state, "task.updated", Some(task.id.clone()), json!(task.clone()));
+    cinerecord_storage::update_task_status(
+        &state.pool,
+        &task.id,
+        task.status.clone(),
+        task.payload.clone(),
+    )
+    .await?;
+    publish_event(
+        &state,
+        "task.updated",
+        Some(task.id.clone()),
+        json!(task.clone()),
+    );
     Ok(Json(json!({ "task": task })))
 }
 
@@ -766,11 +1158,18 @@ async fn delete_task_by_id(
     Path(task_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     delete_task(&state.pool, &task_id).await?;
-    publish_event(&state, "task.updated", Some(task_id.clone()), json!({ "deleted": true, "task_id": task_id }));
+    publish_event(
+        &state,
+        "task.updated",
+        Some(task_id.clone()),
+        json!({ "deleted": true, "task_id": task_id }),
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn start_trakt_auth(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn start_trakt_auth(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let config = state.config.read().await.clone();
     let result = start_trakt_device_auth(&config)
         .await
@@ -787,7 +1186,9 @@ async fn start_trakt_auth(State(state): State<AppState>) -> Result<Json<serde_js
     Ok(Json(json!({ "auth": result })))
 }
 
-async fn start_tmdb_auth_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn start_tmdb_auth_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let config = state.config.read().await.clone();
     let result = start_tmdb_auth(&config)
         .await
@@ -813,7 +1214,9 @@ async fn start_tmdb_auth_handler(State(state): State<AppState>) -> Result<Json<s
     Ok(Json(json!({ "auth": result })))
 }
 
-async fn complete_tmdb_auth_handler(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn complete_tmdb_auth_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let config = state.config.read().await.clone();
     let result = complete_tmdb_auth(&config)
         .await
@@ -947,11 +1350,42 @@ struct LibraryQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub mode: Option<String>,
+    pub view: Option<String>,
+    pub platforms: Option<String>,
+}
+
+fn selected_library_platforms(query: &LibraryQuery) -> Vec<String> {
+    query
+        .platforms
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn platforms_with_data(counts: &HashMap<String, i64>) -> Vec<String> {
+    ["douban", "imdb", "trakt", "letterboxd", "tmdb"]
+        .into_iter()
+        .filter(|platform| counts.get(*platform).copied().unwrap_or_default() > 0)
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct ScheduledTaskLogsQuery {
     pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FriendBackupRequest {
+    pub user_id: String,
+    #[serde(default = "default_true")]
+    pub include_watched: bool,
+    #[serde(default = "default_true")]
+    pub include_wishlist: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -965,6 +1399,25 @@ struct ScheduledTaskUpsertRequest {
     pub overwrite: Option<bool>,
     pub default_rating: Option<f64>,
     pub paused: Option<bool>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn validate_douban_user_id(value: &str) -> Result<String, ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ApiError::BadRequest("请输入好友豆瓣 ID".to_string()));
+    }
+    if value.len() > 80
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err(ApiError::BadRequest("豆瓣 ID 格式不正确".to_string()));
+    }
+    Ok(value.to_string())
 }
 
 #[derive(Debug)]
@@ -1020,7 +1473,12 @@ fn new_task(name: String, kind: TaskKind, payload: serde_json::Value) -> SyncTas
     }
 }
 
-fn publish_event(state: &AppState, event_type: &str, task_id: Option<String>, payload: serde_json::Value) {
+fn publish_event(
+    state: &AppState,
+    event_type: &str,
+    task_id: Option<String>,
+    payload: serde_json::Value,
+) {
     let _ = state.events.send(AppEvent {
         event_type: event_type.to_string(),
         task_id,
@@ -1231,18 +1689,28 @@ fn open_external_url(url: &str) -> bool {
     }
     #[cfg(target_os = "windows")]
     {
-        return Command::new("cmd").args(["/C", "start", "", url]).status().is_ok();
+        return Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .status()
+            .is_ok();
     }
     #[allow(unreachable_code)]
     false
 }
 
-fn build_scheduled_task(existing: Option<ScheduledTask>, payload: ScheduledTaskUpsertRequest) -> Result<ScheduledTask, ApiError> {
+fn build_scheduled_task(
+    existing: Option<ScheduledTask>,
+    payload: ScheduledTaskUpsertRequest,
+) -> Result<ScheduledTask, ApiError> {
     if payload.source_platform == payload.target_platform {
-        return Err(ApiError::BadRequest("source and target platform cannot be the same".to_string()));
+        return Err(ApiError::BadRequest(
+            "source and target platform cannot be the same".to_string(),
+        ));
     }
     let now = Utc::now();
-    let paused = payload.paused.unwrap_or_else(|| existing.as_ref().map(|task| task.paused).unwrap_or(false));
+    let paused = payload
+        .paused
+        .unwrap_or_else(|| existing.as_ref().map(|task| task.paused).unwrap_or(false));
     let next_run_at = if paused {
         None
     } else {
@@ -1258,10 +1726,24 @@ fn build_scheduled_task(existing: Option<ScheduledTask>, payload: ScheduledTaskU
         source_platform: payload.source_platform,
         target_platform: payload.target_platform,
         schedule: payload.schedule,
-        recent_limit: payload.recent_limit.unwrap_or_else(|| existing.as_ref().map(|task| task.recent_limit).unwrap_or(100)),
-        only_new: payload.only_new.unwrap_or_else(|| existing.as_ref().map(|task| task.only_new).unwrap_or(true)),
-        overwrite: payload.overwrite.unwrap_or_else(|| existing.as_ref().map(|task| task.overwrite).unwrap_or(false)),
-        default_rating: payload.default_rating.or_else(|| existing.as_ref().and_then(|task| task.default_rating)),
+        recent_limit: payload.recent_limit.unwrap_or_else(|| {
+            existing
+                .as_ref()
+                .map(|task| task.recent_limit)
+                .unwrap_or(100)
+        }),
+        only_new: payload
+            .only_new
+            .unwrap_or_else(|| existing.as_ref().map(|task| task.only_new).unwrap_or(true)),
+        overwrite: payload.overwrite.unwrap_or_else(|| {
+            existing
+                .as_ref()
+                .map(|task| task.overwrite)
+                .unwrap_or(false)
+        }),
+        default_rating: payload
+            .default_rating
+            .or_else(|| existing.as_ref().and_then(|task| task.default_rating)),
         paused,
         running: false,
         last_run_at: existing.as_ref().and_then(|task| task.last_run_at),
@@ -1269,7 +1751,15 @@ fn build_scheduled_task(existing: Option<ScheduledTask>, payload: ScheduledTaskU
         last_status_message: existing
             .as_ref()
             .and_then(|task| task.last_status_message.clone())
-            .or_else(|| next_run_at.map(|time| format!("下次执行：{}", time.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))),
+            .or_else(|| {
+                next_run_at.map(|time| {
+                    format!(
+                        "下次执行：{}",
+                        time.with_timezone(&chrono::Local)
+                            .format("%Y-%m-%d %H:%M:%S")
+                    )
+                })
+            }),
         created_at: existing.as_ref().map(|task| task.created_at).unwrap_or(now),
         updated_at: now,
     })
