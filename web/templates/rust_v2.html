@@ -1769,6 +1769,15 @@
                         <span class="status-dot disconnected" id="summary-dot-tmdb"></span>
                     </div>
 
+                    <div class="account-summary-card cinepersona" id="summary-cinepersona">
+                        <div class="summary-icon" style="font-size: 20px; line-height: 20px; text-align: center;">🎨</div>
+                        <div class="summary-info">
+                            <span class="summary-name">CinePersona <span class="summary-id" id="summary-id-cinepersona"></span></span>
+                            <span class="summary-stats" id="summary-stats-cinepersona">加载中</span>
+                        </div>
+                        <span class="status-dot disconnected" id="summary-dot-cinepersona"></span>
+                    </div>
+
 	                </div>
 
                 <div class="sidebar-section sidebar-logs">
@@ -1817,10 +1826,10 @@
 
                     <div class="data-controls-row">
                         <div class="data-controls">
-                            <button class="btn btn-primary btn-sm rust-fetch-btn" data-platform="douban"><img
+                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="douban"><img
                                     src="/static/images/platforms/douban.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 豆瓣</button>
-                            <button class="btn btn-primary btn-sm rust-fetch-btn" data-platform="imdb"><img
+                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="imdb"><img
                                     src="/static/images/platforms/imdb.svg"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> IMDb</button>
                             <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="trakt"><img
@@ -1832,6 +1841,7 @@
 	                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="tmdb"><img
 	                                    src="/static/images/platforms/tmdb.png"
 	                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB</button>
+	                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="cinepersona">🎨 CinePersona</button>
 	                            <button class="btn btn-outline btn-sm" id="import-legacy-btn" data-platform="all">导入旧版 CSV</button>
 	                        </div>
 	                        <div class="export-controls">
@@ -1841,18 +1851,19 @@
                             </div>
                             <select id="export-source" class="export-select">
                                 <option value="merged" selected>合并数据</option>
-	                                <option value="douban">豆瓣</option>
-	                                <option value="imdb">IMDb</option>
-	                                <option value="trakt">Trakt</option>
-	                                <option value="letterboxd">Letterboxd</option>
-	                                <option value="tmdb">TMDB</option>
-	                            </select>
-	                            <button class="btn btn-secondary btn-sm" id="export-library-btn">📥 导出</button>
+                                <option value="douban">豆瓣</option>
+                                <option value="imdb">IMDb</option>
+                                <option value="trakt">Trakt</option>
+                                <option value="letterboxd">Letterboxd</option>
+                                <option value="tmdb">TMDB</option>
+                                <option value="cinepersona">CinePersona</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm" id="export-library-btn">📥 导出</button>
 	                        </div>
                     </div>
 
-                    <div class="library-filter-header">
-                        <div class="library-filter-tabs" id="library-filter-tabs">
+                    <div class="library-filter-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div class="library-filter-tabs" id="library-filter-tabs" style="margin-bottom:0;">
                             <button class="filter-tab active" data-filter="all">🔗 共有 <span class="filter-count"
                                     id="count-all">0</span></button>
                             <button class="filter-tab" data-filter="douban">
@@ -1890,7 +1901,32 @@
                                 <img src="/static/images/platforms/tmdb.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB <span class="filter-count"
                                     id="count-tmdb">0</span></button>
+                            <button class="filter-tab" data-filter="cinepersona">
+                                <label class="filter-checkbox" onclick="event.stopPropagation();">
+                                    <input type="checkbox" value="cinepersona" id="platform-check-cinepersona" checked>
+                                </label>
+                                🎨 CinePersona <span class="filter-count"
+                                    id="count-cinepersona">0</span></button>
                         </div>
+                        <div class="library-search-container" style="display:flex; align-items:center; position:relative; margin-left:auto;">
+                            <input type="text" id="library-search-input" placeholder="🔍 检索电影、原名、导演、演员..." style="padding: 6px 30px 6px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-card); color: var(--text-color); font-size: 0.85rem; width: 220px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--primary-color)'" onblur="this.style.borderColor='var(--border-color)'">
+                            <span id="library-search-clear-btn" style="display:none; position:absolute; right:10px; cursor:pointer; color:var(--text-muted); font-size:0.9rem;" title="清除检索">✕</span>
+                        </div>
+                        <div class="filter-help-trigger" style="cursor:pointer; font-size:0.85rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; padding: 4px 8px; border-radius: 4px; border: 1px dashed var(--border-color);" id="filter-help-btn">
+                            ❓ 筛选逻辑说明
+                        </div>
+                    </div>
+                    <div id="filter-help-panel" style="display:none; margin: 8px 0 16px 0; padding: 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.8rem; line-height: 1.6; color: var(--text-secondary);">
+                        <strong>💡 平台勾选与筛选逻辑说明：</strong>
+                        <ul style="margin: 6px 0 0 16px; padding: 0; list-style-type: disc;">
+                            <li><strong>全都不勾选</strong>：默认展示<strong>所有已导入数据的并集</strong>（即全量电影）。</li>
+                            <li><strong>勾选多个平台（例如：豆瓣 + IMDb）</strong>：
+                                <ul style="margin-left: 16px; list-style-type: circle; margin-top: 4px;">
+                                    <li>点击 <strong>🔗 共有</strong>：仅展示<strong>同时存在于这些已勾选平台</strong>的电影（交集，即 豆瓣 ∩ IMDb）。</li>
+                                    <li>点击某个具体平台（如 <strong>豆瓣</strong>）：展示<strong>该平台独有</strong>的电影（即存在于豆瓣且不存在于 IMDb 的差集，即 豆瓣 \ IMDb）。</li>
+                                </ul>
+                            </li>
+                        </ul>
                     </div>
                     <div class="library-insight-bar" id="library-insight-bar" style="display:none;"></div>
 
@@ -1930,6 +1966,7 @@
                                                     <option value="imdb">⭐ IMDb</option>
                                                     <option value="trakt">🎯 Trakt</option>
                                                     <option value="tmdb">🎬 TMDB</option>
+                                                    <option value="cinepersona">🎨 CinePersona</option>
                                                 </select>
                                             </div>
                                             <div class="legacy-sync-arrow">➔</div>
@@ -1940,10 +1977,12 @@
                                                     <option value="douban">🎬 豆瓣</option>
                                                     <option value="trakt">🎯 Trakt</option>
                                                     <option value="tmdb">🎬 TMDB</option>
+                                                    <option value="cinepersona">🎨 CinePersona</option>
                                                 </select>
                                             </div>
                                         </div>
                                     </div>
+                                    <div id="sync-validation-warning" style="display:none; margin-top: 12px; padding: 10px; background: rgba(255, 75, 75, 0.15); border: 1px solid rgba(255, 75, 75, 0.3); border-radius: 6px; font-size: 0.8rem; line-height: 1.4; color: #ff5252;"></div>
 
                                     <div>
                                         <button id="toggle-advanced-sync" class="btn btn-ghost legacy-advanced-toggle" type="button">
@@ -2048,6 +2087,7 @@
                                                         <option value="trakt">Trakt</option>
                                                         <option value="imdb">IMDb</option>
                                                         <option value="douban">Douban</option>
+                                                        <option value="cinepersona">CinePersona</option>
                                                     </select>
                                                 </div>
                                                 <div>
@@ -2057,6 +2097,7 @@
                                                         <option value="tmdb">TMDB</option>
                                                         <option value="imdb">IMDb</option>
                                                         <option value="douban">Douban</option>
+                                                        <option value="cinepersona">CinePersona</option>
                                                     </select>
                                                 </div>
                                                 <div class="full">
@@ -2101,17 +2142,10 @@
                             <div class="sync-live-progress-track"><span id="sync-live-progress-bar"></span></div>
                             <span id="sync-live-progress-text">准备同步</span>
                         </div>
+                        <div id="sync-console-logs" style="display:none; margin-top: 12px; height: 180px; overflow-y: auto; background: #141414; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.76rem; line-height: 1.5; color: #a9b7c6; white-space: pre-wrap; word-break: break-all; box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);"></div>
                         <div id="sync-preview-empty" class="rust-empty">先点击“预览”，这里会显示待同步列表、跳过原因和执行结果。</div>
                         <div id="sync-preview-list" class="data-preview legacy-sync-preview-list" style="display:none;"></div>
                     </div>
-
-                    <section class="rust-panel legacy-task-history">
-                        <div class="rust-toolbar">
-                            <h3>后台任务</h3>
-                            <button class="btn btn-outline btn-sm" id="refresh-tasks-btn">刷新任务</button>
-                        </div>
-                        <div id="tasks-list" class="rust-list"></div>
-                    </section>
                 </div>
 
                 <div class="tab-content" id="tab-wishlist">
@@ -2122,7 +2156,7 @@
 
                     <div class="wishlist-controls-row">
                         <div class="wishlist-actions">
-                            <button class="btn btn-primary btn-sm rust-wishlist-btn" data-platform="douban"><img
+                            <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="douban"><img
                                     src="/static/images/platforms/douban.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新豆瓣想看</button>
                             <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="imdb"><img
@@ -2134,7 +2168,9 @@
                             <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="tmdb"><img
                                     src="/static/images/platforms/tmdb.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新 TMDB 想看</button>
-	                            <button class="btn btn-outline btn-sm" id="import-letterboxd-legacy-btn">导入 Letterboxd diary.csv</button>
+                            <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="cinepersona">🎨 刷新 CinePersona 想看</button>
+                            <button class="btn btn-secondary btn-sm" id="sync-cinepersona-btn-wishlist" style="display:none;">📤 同步想看至 CinePersona</button>
+                            <button class="btn btn-outline btn-sm" id="import-letterboxd-legacy-btn">导入 Letterboxd diary.csv</button>
                         </div>
                         <div class="wishlist-view-toggle" role="group" aria-label="Wishlist view mode">
                             <button class="btn btn-secondary btn-sm" id="wishlist-view-grid" data-view="grid">🔳 网格</button>
@@ -2149,6 +2185,7 @@
                         <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked> Trakt</label>
 	                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
 	                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
+	                        <label class="wishlist-source-option"><input type="checkbox" data-source="cinepersona" checked> CinePersona</label>
 	                        <label class="wishlist-source-option"><input type="checkbox" id="wishlist-filter-unmatched"> 仅未入库</label>
 	                    </div>
 
@@ -2220,6 +2257,7 @@
                             </div>
                             <div class="card-actions">
                                 <button class="btn btn-outline rust-test-btn" data-platform="douban">✅ 测试连接</button>
+                                <button class="btn btn-outline rust-logout-btn" data-platform="douban">🚪 退出连接</button>
                             </div>
                         </div>
 
@@ -2264,6 +2302,7 @@
                             </div>
                             <div class="card-actions">
                                 <button class="btn btn-outline rust-test-btn" data-platform="imdb">✅ 测试连接</button>
+                                <button class="btn btn-outline rust-logout-btn" data-platform="imdb">🚪 退出连接</button>
                             </div>
                         </div>
 
@@ -2319,6 +2358,7 @@
                                 <button class="btn btn-secondary rust-auth-action-btn" data-action="trakt-start">🔐 开始 OAuth</button>
                                 <button class="btn btn-outline rust-auth-action-btn" data-action="trakt-poll">🔄 立即检查</button>
                                 <button class="btn btn-outline rust-test-btn" data-platform="trakt">✅ 测试连接</button>
+                                <button class="btn btn-outline rust-logout-btn" data-platform="trakt">🚪 退出连接</button>
                             </div>
                         </div>
 
@@ -2361,11 +2401,68 @@
                                 <button class="btn btn-secondary rust-auth-action-btn" data-action="tmdb-start">🌐 开始授权</button>
                                 <button class="btn btn-outline rust-auth-action-btn" data-action="tmdb-complete">✅ 完成授权</button>
                                 <button class="btn btn-outline rust-test-btn" data-platform="tmdb">✅ 测试连接</button>
+                                <button class="btn btn-outline rust-logout-btn" data-platform="tmdb">🚪 退出连接</button>
+                            </div>
+                        </div>
+
+                        <div class="platform-full-card cinepersona">
+                            <div class="card-header">
+                                <div class="card-brand">
+                                    <span class="brand-icon">🎨</span>
+                                    <h3>CinePersona</h3>
+                                </div>
+                                <span class="status-badge disconnected" id="settings-badge-cinepersona">● 未连接</span>
+                            </div>
+                            <div class="profile-state">
+                                <p class="prompt-text" id="cinepersona-card-status">可推数据至远端或抓数据到各平台。</p>
+                                <div class="account-profile-panel compact" id="profile-panel-cinepersona" style="display:none; padding: 12px; margin-top: 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px;">
+                                    <div class="account-profile-row" style="display: flex; align-items: center; justify-content: space-between;">
+                                        <div>
+                                            <h4 class="account-profile-name" id="cinepersona-username" style="margin: 0; font-size: 0.95rem; font-weight: 600;">--</h4>
+                                            <p class="account-profile-id" id="cinepersona-email" style="margin: 4px 0 0 0; font-size: 0.8rem; color: #888;">--</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="cinepersona-onboarding-panel" id="onboarding-panel-cinepersona" style="display:block; padding: 12px; margin-top: 10px; background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--border-color); border-radius: 6px; font-size: 0.85rem; line-height: 1.4;">
+                                    <p style="margin: 0 0 8px 0; color: var(--text-muted);">💡 还没有影格账号？您可以去远端完成注册，并在本地导出兼容的电影数据 CSV 快速导入：</p>
+                                    <div style="display: flex; gap: 8px;">
+                                        <a href="https://film.133339.xyz" id="register-cinepersona-btn" target="_blank" class="btn btn-xs btn-outline" style="text-decoration: none; padding: 4px 8px; font-size: 0.8rem; height: auto; display: inline-flex; align-items: center; justify-content: center;">✨ 前往影格注册/导入</a>
+                                        <button class="btn btn-xs btn-outline" id="export-cinepersona-csv-btn" type="button" style="padding: 4px 8px; font-size: 0.8rem; height: auto;">📥 导出数据 CSV</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-secondary" id="test-cinepersona-btn">🔌 测试并保存连接</button>
+                                <button class="btn btn-outline rust-logout-btn" data-platform="cinepersona">🚪 退出连接</button>
                             </div>
                         </div>
                     </section>
 
                     <div class="rust-settings-grid" style="margin-top: 24px;">
+                        <section class="rust-panel">
+                            <div class="rust-toolbar">
+                                <h3>媒体服务器 (Plex / Emby / Jellyfin)</h3>
+                                <span class="rust-status-inline" id="media-server-sync-status">未连接</span>
+                            </div>
+                            <p>配置您的个人媒体服务器。启用后，想看清单可自动对比片库，支持「仅未入库」查重与卡片直达链接。</p>
+                            <form id="media-server-form">
+                                <div class="rust-form-grid" style="margin-top: 14px;">
+                                    <div class="full">
+                                        <label for="media-server-url">服务器地址</label>
+                                        <input type="url" id="media-server-url" placeholder="例如 http://192.168.1.100:8096 或 http://localhost:32400" autocomplete="off">
+                                    </div>
+                                    <div class="full">
+                                        <label for="media-server-api-key">API 密钥 / X-Plex-Token</label>
+                                        <input type="password" id="media-server-api-key" placeholder="Plex Token 或 Emby/Jellyfin API Key" autocomplete="off">
+                                    </div>
+                                </div>
+                                <div class="card-actions" style="margin-top: 16px;">
+                                    <button class="btn btn-primary" id="test-media-server-btn" type="button">🔌 测试并保存连接</button>
+                                    <button class="btn btn-outline" id="logout-media-server-btn" type="button">🚪 清除配置</button>
+                                </div>
+                            </form>
+                        </section>
+
                         <section class="rust-panel">
                             <div class="rust-toolbar">
                                 <h3>CookieCloud</h3>
@@ -2440,6 +2537,14 @@
                                             <div class="full">
                                                 <label for="douban-cookie">Douban Cookie</label>
                                                 <textarea id="douban-cookie" placeholder="需要写入豆瓣时再填写"></textarea>
+                                            </div>
+                                            <div>
+                                                <label for="cinepersona-base-url">CinePersona URL</label>
+                                                <input type="text" id="cinepersona-base-url" placeholder="https://film.133339.xyz" autocomplete="off">
+                                            </div>
+                                            <div>
+                                                <label for="cinepersona-api-key">CinePersona API Key</label>
+                                                <input type="password" id="cinepersona-api-key" placeholder="Bearer 令牌" autocomplete="off">
                                             </div>
                                         </div>
                                         <div class="card-actions" style="margin-top: 16px;">

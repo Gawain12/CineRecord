@@ -250,6 +250,35 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
     let mut changed = false;
 
     if config
+        .media_server_url
+        .as_deref()
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        if let Some(url) = value
+            .get("media_server_url")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
+            config.media_server_url = Some(url.to_string());
+            changed = true;
+        }
+    }
+    if config
+        .media_server_api_key
+        .as_deref()
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        if let Some(key) = value
+            .get("media_server_api_key")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
+            config.media_server_api_key = Some(key.to_string());
+            changed = true;
+        }
+    }
+
+    if config
         .platforms
         .tmdb
         .api_key
@@ -522,6 +551,66 @@ async fn hydrate_legacy_platform_auth(paths: &StoragePaths, config: &mut AppConf
             changed = true;
         }
     }
+    if config
+        .cinepersona
+        .base_url
+        .as_deref()
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        if let Some(base_url) = value
+            .get("cinepersona_base_url")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
+            config.cinepersona.base_url = Some(base_url.to_string());
+            changed = true;
+        }
+    }
+    if config
+        .cinepersona
+        .api_key
+        .as_deref()
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        if let Some(api_key) = value
+            .get("cinepersona_api_key")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
+            config.cinepersona.api_key = Some(api_key.to_string());
+            changed = true;
+        }
+    }
+    if config
+        .cinepersona
+        .username
+        .as_deref()
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        if let Some(username) = value
+            .get("cinepersona_username")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
+            config.cinepersona.username = Some(username.to_string());
+            changed = true;
+        }
+    }
+    if config
+        .cinepersona
+        .email
+        .as_deref()
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        if let Some(email) = value
+            .get("cinepersona_email")
+            .and_then(|item| item.as_str())
+            .filter(|item| !item.trim().is_empty())
+        {
+            config.cinepersona.email = Some(email.to_string());
+            changed = true;
+        }
+    }
 
     if changed {
         save_config(paths, config).await?;
@@ -738,6 +827,14 @@ pub async fn list_platforms(
             true,
         ),
         ("letterboxd", "Letterboxd", "csv", true, true, false),
+        (
+            "cinepersona",
+            "CinePersona",
+            "api_key",
+            config.cinepersona.api_key.is_some(),
+            true,
+            true,
+        ),
     ];
 
     Ok(descriptors
@@ -1074,7 +1171,7 @@ pub async fn list_wishlist_items_paginated(
     let offset = offset.unwrap_or(0);
     let rows = if let Some(platform) = platform {
         sqlx::query(
-            "SELECT id, platform, title, year, external_id, source_url, raw_json FROM wishlist_items WHERE platform = ?1 ORDER BY title ASC LIMIT ?2 OFFSET ?3",
+            "SELECT id, platform, title, year, external_id, source_url, raw_json, created_at FROM wishlist_items WHERE platform = ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
         )
         .bind(platform)
         .bind(limit)
@@ -1083,7 +1180,7 @@ pub async fn list_wishlist_items_paginated(
         .await?
     } else {
         sqlx::query(
-            "SELECT id, platform, title, year, external_id, source_url, raw_json FROM wishlist_items ORDER BY platform ASC, title ASC LIMIT ?1 OFFSET ?2",
+            "SELECT id, platform, title, year, external_id, source_url, raw_json, created_at FROM wishlist_items ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
         )
         .bind(limit)
         .bind(offset)
@@ -1108,25 +1205,65 @@ pub async fn count_wishlist_items(pool: &SqlitePool, platform: Option<&str>) -> 
     Ok(row.get("count"))
 }
 
+fn filter_by_search(items: Vec<UnifiedMediaItem>, search: Option<&str>) -> Vec<UnifiedMediaItem> {
+    let Some(q) = search else {
+        return items;
+    };
+    if q.trim().is_empty() {
+        return items;
+    }
+    let q_lower = q.to_lowercase();
+    items
+        .into_iter()
+        .filter(|item| {
+            item.title.to_lowercase().contains(&q_lower)
+                || item
+                    .original_title
+                    .as_ref()
+                    .map(|s| s.to_lowercase().contains(&q_lower))
+                    .unwrap_or(false)
+                || item
+                    .directors
+                    .as_ref()
+                    .map(|s| s.to_lowercase().contains(&q_lower))
+                    .unwrap_or(false)
+                || item
+                    .actors
+                    .as_ref()
+                    .map(|s| s.to_lowercase().contains(&q_lower))
+                    .unwrap_or(false)
+        })
+        .collect()
+}
+
 pub async fn list_library_items_aggregated_paginated(
     pool: &SqlitePool,
     platform: Option<&str>,
+    search: Option<&str>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<UnifiedMediaItem>> {
     let mut items = aggregate_library_records(list_library_items(pool, platform).await?);
+    items = filter_by_search(items, search);
     sort_unified_items(&mut items, true);
     Ok(apply_paging(items, limit, offset))
 }
 
-pub async fn count_library_groups(pool: &SqlitePool, platform: Option<&str>) -> Result<i64> {
-    Ok(aggregate_library_records(list_library_items(pool, platform).await?).len() as i64)
+pub async fn count_library_groups(
+    pool: &SqlitePool,
+    platform: Option<&str>,
+    search: Option<&str>,
+) -> Result<i64> {
+    let items = aggregate_library_records(list_library_items(pool, platform).await?);
+    let items = filter_by_search(items, search);
+    Ok(items.len() as i64)
 }
 
 pub async fn list_library_items_view_paginated(
     pool: &SqlitePool,
     platform_filter: Option<&str>,
     selected_platforms: &[String],
+    search: Option<&str>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<UnifiedMediaItem>> {
@@ -1135,6 +1272,7 @@ pub async fn list_library_items_view_paginated(
         platform_filter,
         selected_platforms,
     );
+    items = filter_by_search(items, search);
     sort_unified_items(&mut items, true);
     Ok(apply_paging(items, limit, offset))
 }
@@ -1143,13 +1281,15 @@ pub async fn count_library_view_groups(
     pool: &SqlitePool,
     platform_filter: Option<&str>,
     selected_platforms: &[String],
+    search: Option<&str>,
 ) -> Result<i64> {
-    Ok(filter_library_view_items(
+    let items = filter_library_view_items(
         aggregate_library_records(list_library_items(pool, None).await?),
         platform_filter,
         selected_platforms,
-    )
-    .len() as i64)
+    );
+    let items = filter_by_search(items, search);
+    Ok(items.len() as i64)
 }
 
 pub async fn library_view_counts(
@@ -1188,22 +1328,36 @@ pub async fn library_view_counts(
 pub async fn list_wishlist_items_aggregated_paginated(
     pool: &SqlitePool,
     platform: Option<&str>,
+    media_server_items: Option<&[cinerecord_core::MediaServerItem]>,
+    search: Option<&str>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<UnifiedMediaItem>> {
     let library = aggregate_library_records(list_library_items(pool, None).await?);
-    let mut items =
-        aggregate_wishlist_records(list_wishlist_items(pool, platform).await?, &library);
+    let mut items = aggregate_wishlist_records(
+        list_wishlist_items(pool, platform).await?,
+        &library,
+        media_server_items,
+    );
+    items = filter_by_search(items, search);
     sort_unified_items(&mut items, false);
     Ok(apply_paging(items, limit, offset))
 }
 
-pub async fn count_wishlist_groups(pool: &SqlitePool, platform: Option<&str>) -> Result<i64> {
+pub async fn count_wishlist_groups(
+    pool: &SqlitePool,
+    platform: Option<&str>,
+    media_server_items: Option<&[cinerecord_core::MediaServerItem]>,
+    search: Option<&str>,
+) -> Result<i64> {
     let library = aggregate_library_records(list_library_items(pool, None).await?);
-    Ok(
-        aggregate_wishlist_records(list_wishlist_items(pool, platform).await?, &library).len()
-            as i64,
-    )
+    let items = aggregate_wishlist_records(
+        list_wishlist_items(pool, platform).await?,
+        &library,
+        media_server_items,
+    );
+    let items = filter_by_search(items, search);
+    Ok(items.len() as i64)
 }
 
 pub async fn list_scheduled_tasks(pool: &SqlitePool) -> Result<Vec<ScheduledTask>> {
@@ -1471,6 +1625,8 @@ fn wishlist_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WishlistRecord> {
     let external_id: Option<String> = row.get("external_id");
     let raw_json: serde_json::Value =
         serde_json::from_str(row.get::<String, _>("raw_json").as_str())?;
+    let created_at_str: Option<String> = row.try_get("created_at").ok();
+    let created_at = created_at_str.and_then(|s| parse_date_string(&s));
     Ok(WishlistRecord {
         id: row.get("id"),
         platform: platform.clone(),
@@ -1480,6 +1636,7 @@ fn wishlist_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WishlistRecord> {
         source_url: row.get("source_url"),
         identifiers: infer_identifiers(&platform, external_id.as_deref(), &raw_json),
         raw_json,
+        created_at,
     })
 }
 
@@ -1823,6 +1980,33 @@ fn infer_identifiers(
         "letterboxd" => {
             ids.letterboxd = external_id.map(ToOwned::to_owned);
         }
+        "cinepersona" => {
+            let movie = raw_json.get("movie");
+            ids.imdb = movie
+                .and_then(|m| m.get("imdbId"))
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    external_id
+                        .filter(|id| id.starts_with("tt"))
+                        .map(ToOwned::to_owned)
+                });
+            ids.tmdb = movie
+                .and_then(|m| m.get("tmdbId"))
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string())
+                .or_else(|| {
+                    movie
+                        .and_then(|m| m.get("tmdbId"))
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .or_else(|| {
+                    external_id
+                        .filter(|id| !id.starts_with("tt"))
+                        .map(ToOwned::to_owned)
+                });
+        }
         _ => {}
     }
     ids
@@ -1897,6 +2081,13 @@ fn aggregate_library_records(records: Vec<MovieRecord>) -> Vec<UnifiedMediaItem>
                 library_url: record.source_url.clone(),
                 library_title: Some(record.title.clone()),
                 library_year: record.year,
+                library_media_path: None,
+                library_file_name: None,
+                directors: extract_directors(&record.raw_json),
+                actors: extract_actors(&record.raw_json),
+                genres: extract_genres(&record.raw_json),
+                country: extract_country(&record.raw_json),
+                duration: extract_duration(&record.raw_json),
             });
         merge_unified_identifiers(&mut entry.identifiers, &record.identifiers);
         fill_unified_defaults(
@@ -1962,6 +2153,7 @@ fn filter_library_view_items(
 fn aggregate_wishlist_records(
     records: Vec<WishlistRecord>,
     library: &[UnifiedMediaItem],
+    media_server_items: Option<&[cinerecord_core::MediaServerItem]>,
 ) -> Vec<UnifiedMediaItem> {
     let library_lookup = build_unified_lookup(library);
     let mut groups = HashMap::<String, UnifiedMediaItem>::new();
@@ -1973,12 +2165,68 @@ fn aggregate_wishlist_records(
             record.external_id.as_deref(),
             &record.platform,
         );
-        let matched = unified_lookup_match(
-            &library_lookup,
-            &record.identifiers,
-            &record.title,
-            record.year,
-        );
+        let mut library_matched = false;
+        let mut library_url = None;
+        let mut library_title = None;
+        let mut library_year = None;
+        let mut library_media_path = None;
+        let mut library_file_name = None;
+
+        if let Some(media_items) = media_server_items {
+            for m_item in media_items {
+                let mut id_match = false;
+                if let Some(imdb) = &m_item.imdb_id {
+                    if let Some(w_imdb) = &record.identifiers.imdb {
+                        if imdb == w_imdb {
+                            id_match = true;
+                        }
+                    }
+                }
+                if !id_match {
+                    if let Some(tmdb) = &m_item.tmdb_id {
+                        if let Some(w_tmdb) = &record.identifiers.tmdb {
+                            if tmdb == w_tmdb {
+                                id_match = true;
+                            }
+                        }
+                    }
+                }
+                if !id_match {
+                    if m_item.year == record.year {
+                        let m_title = m_item.title.to_lowercase().replace(' ', "");
+                        let w_title = record.title.to_lowercase().replace(' ', "");
+                        if !m_title.is_empty() && m_title == w_title {
+                            id_match = true;
+                        }
+                    }
+                }
+                if id_match {
+                    library_matched = true;
+                    library_url = m_item.library_url.clone();
+                    library_title = Some(m_item.title.clone());
+                    library_year = m_item.year;
+                    library_media_path = m_item.media_path.clone();
+                    library_file_name = m_item.file_name.clone();
+                    break;
+                }
+            }
+        } else {
+            let matched = unified_lookup_match(
+                &library_lookup,
+                &record.identifiers,
+                &record.title,
+                record.year,
+            );
+            if let Some(item) = matched {
+                library_matched = true;
+                library_url = item.library_url.clone();
+                library_title = item.library_title.clone();
+                library_year = item.library_year;
+                library_media_path = item.library_media_path.clone();
+                library_file_name = item.library_file_name.clone();
+            }
+        }
+
         let entry = groups
             .entry(key.clone())
             .or_insert_with(|| UnifiedMediaItem {
@@ -1991,15 +2239,22 @@ fn aggregate_wishlist_records(
                 source_url: record.source_url.clone(),
                 identifiers: record.identifiers.clone(),
                 personal_rating: None,
-                rated_at: extract_date_like(&record.raw_json),
+                rated_at: extract_date_like(&record.raw_json).or(record.created_at),
                 public_rating: extract_public_rating(&record.raw_json),
                 public_votes: extract_public_votes(&record.raw_json),
                 source_platforms: Vec::new(),
                 sources: Vec::new(),
-                library_matched: matched.is_some(),
-                library_url: matched.and_then(|item| item.library_url.clone()),
-                library_title: matched.and_then(|item| item.library_title.clone()),
-                library_year: matched.and_then(|item| item.library_year),
+                library_matched,
+                library_url: library_url.clone(),
+                library_title: library_title.clone(),
+                library_year,
+                library_media_path: library_media_path.clone(),
+                library_file_name: library_file_name.clone(),
+                directors: extract_directors(&record.raw_json),
+                actors: extract_actors(&record.raw_json),
+                genres: extract_genres(&record.raw_json),
+                country: extract_country(&record.raw_json),
+                duration: extract_duration(&record.raw_json),
             });
         merge_unified_identifiers(&mut entry.identifiers, &record.identifiers);
         fill_unified_defaults(
@@ -2010,18 +2265,24 @@ fn aggregate_wishlist_records(
             record.source_url.as_deref(),
         );
         if entry.rated_at.is_none() {
-            entry.rated_at = extract_date_like(&record.raw_json);
+            entry.rated_at = extract_date_like(&record.raw_json).or(record.created_at);
         }
         if entry.library_url.is_none() {
-            entry.library_url = matched.and_then(|item| item.library_url.clone());
+            entry.library_url = library_url.clone();
         }
         if entry.library_title.is_none() {
-            entry.library_title = matched.and_then(|item| item.library_title.clone());
+            entry.library_title = library_title.clone();
         }
         if entry.library_year.is_none() {
-            entry.library_year = matched.and_then(|item| item.library_year);
+            entry.library_year = library_year;
         }
-        entry.library_matched = entry.library_matched || matched.is_some();
+        if entry.library_media_path.is_none() {
+            entry.library_media_path = library_media_path.clone();
+        }
+        if entry.library_file_name.is_none() {
+            entry.library_file_name = library_file_name.clone();
+        }
+        entry.library_matched = entry.library_matched || library_matched;
         push_unified_source(
             entry,
             UnifiedSourceEntry {
@@ -2070,8 +2331,24 @@ fn fill_unified_defaults(
     if entry.media_type.is_none() {
         entry.media_type = extract_media_type(raw_json);
     }
-    if entry.poster_url.is_none() {
-        entry.poster_url = extract_poster_url(raw_json);
+    let extracted_poster = extract_poster_url(raw_json);
+    if let Some(new_url) = extracted_poster {
+        let is_better = entry
+            .poster_url
+            .as_ref()
+            .map(|curr| {
+                let curr_invalid = curr.trim().is_empty()
+                    || curr.contains("default_poster")
+                    || curr.contains("placeholder");
+                let new_is_rich = new_url.contains("doubanio.com")
+                    || new_url.contains("tmdb.org")
+                    || new_url.contains("image.tmdb.org");
+                curr_invalid || (new_is_rich && curr.contains("imdb.com"))
+            })
+            .unwrap_or(true);
+        if is_better {
+            entry.poster_url = Some(new_url);
+        }
     }
     if entry.source_url.is_none() {
         entry.source_url = source_url.map(ToOwned::to_owned);
@@ -2081,6 +2358,21 @@ fn fill_unified_defaults(
     }
     if entry.public_votes.is_none() {
         entry.public_votes = extract_public_votes(raw_json);
+    }
+    if entry.directors.is_none() {
+        entry.directors = extract_directors(raw_json);
+    }
+    if entry.actors.is_none() {
+        entry.actors = extract_actors(raw_json);
+    }
+    if entry.genres.is_none() {
+        entry.genres = extract_genres(raw_json);
+    }
+    if entry.country.is_none() {
+        entry.country = extract_country(raw_json);
+    }
+    if entry.duration.is_none() {
+        entry.duration = extract_duration(raw_json);
     }
 }
 
@@ -2276,6 +2568,312 @@ fn extract_poster_url(raw_json: &serde_json::Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn parse_douban_intro(
+    intro: &str,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    let parts: Vec<&str> = intro.split('/').map(|s| s.trim()).collect();
+    if parts.is_empty() {
+        return (None, None, None, None);
+    }
+
+    let mut release_dates = Vec::new();
+    let mut names = Vec::new();
+    let mut countries = Vec::new();
+    let mut genres = Vec::new();
+
+    let common_countries = [
+        "美国",
+        "中国大陆",
+        "中国香港",
+        "中国台湾",
+        "日本",
+        "韩国",
+        "英国",
+        "法国",
+        "德国",
+        "意大利",
+        "西班牙",
+        "加拿大",
+        "澳大利亚",
+        "印度",
+        "泰国",
+        "新西兰",
+        "瑞典",
+        "丹麦",
+        "俄罗斯",
+        "爱尔兰",
+        "巴西",
+        "中国",
+        "香港",
+        "台湾",
+        "日本",
+        "韩国",
+        "新加坡",
+    ];
+
+    let common_genres = [
+        "剧情",
+        "喜剧",
+        "动作",
+        "爱情",
+        "科幻",
+        "悬疑",
+        "惊悚",
+        "恐怖",
+        "犯罪",
+        "同性",
+        "音乐",
+        "歌舞",
+        "传记",
+        "历史",
+        "战争",
+        "西部",
+        "奇幻",
+        "冒险",
+        "灾难",
+        "武侠",
+        "古装",
+        "纪录片",
+        "动画",
+        "短片",
+        "戏曲",
+        "家庭",
+        "儿童",
+        "运动",
+        "荒诞",
+    ];
+
+    for part in parts {
+        if part.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+            release_dates.push(part);
+            continue;
+        }
+        if part.contains("分钟") {
+            continue;
+        }
+        if common_countries
+            .iter()
+            .any(|c| part == *c || part.contains(c))
+        {
+            countries.push(part);
+            continue;
+        }
+        if common_genres.iter().any(|g| part == *g || part.contains(g)) {
+            genres.push(part);
+            continue;
+        }
+        names.push(part);
+    }
+
+    let (director, actors) = if names.is_empty() {
+        (None, None)
+    } else if names.len() == 1 {
+        (Some(names[0].to_string()), None)
+    } else {
+        let dir = names.last().map(|s| s.to_string());
+        let acts = names[0..names.len() - 1].join(", ");
+        (dir, Some(acts))
+    };
+
+    let country = if countries.is_empty() {
+        None
+    } else {
+        Some(countries.join(", "))
+    };
+    let genre = if genres.is_empty() {
+        None
+    } else {
+        Some(genres.join(", "))
+    };
+
+    (director, actors, genre, country)
+}
+
+fn get_subject_or_root(raw_json: &serde_json::Value) -> &serde_json::Value {
+    if let Some(sub) = raw_json.get("subject") {
+        if sub.is_object() {
+            return sub;
+        }
+    }
+    raw_json
+}
+
+fn extract_directors(raw_json: &serde_json::Value) -> Option<String> {
+    let target = get_subject_or_root(raw_json);
+    if let Some(arr) = target
+        .get("directors")
+        .or_else(|| target.get("Directors"))
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = arr
+            .iter()
+            .filter_map(|item| {
+                item.get("name")
+                    .or_else(|| item.get("text"))
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+        if !names.is_empty() {
+            return Some(names.join(", "));
+        }
+    }
+    if let Some(intro) = raw_json.get("intro").and_then(|v| v.as_str()) {
+        let (dir, _, _, _) = parse_douban_intro(intro);
+        if dir.is_some() {
+            return dir;
+        }
+    }
+    json_string(raw_json, &["Directors", "directors", "director"])
+}
+
+fn extract_actors(raw_json: &serde_json::Value) -> Option<String> {
+    let target = get_subject_or_root(raw_json);
+    if let Some(arr) = target
+        .get("actors")
+        .or_else(|| target.get("Actors"))
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = arr
+            .iter()
+            .filter_map(|item| {
+                item.get("name")
+                    .or_else(|| item.get("text"))
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+        if !names.is_empty() {
+            let limit = names.len().min(5);
+            return Some(names[0..limit].join(", "));
+        }
+    }
+    if let Some(intro) = raw_json.get("intro").and_then(|v| v.as_str()) {
+        let (_, actors, _, _) = parse_douban_intro(intro);
+        if actors.is_some() {
+            return actors;
+        }
+    }
+    json_string(raw_json, &["Actors", "actors", "actor"])
+}
+
+fn extract_genres(raw_json: &serde_json::Value) -> Option<String> {
+    let target = get_subject_or_root(raw_json);
+    if let Some(arr) = target
+        .get("genres")
+        .or_else(|| target.get("Genres"))
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = arr
+            .iter()
+            .filter_map(|item| {
+                item.as_str().map(|s| s.to_string()).or_else(|| {
+                    item.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string())
+                })
+            })
+            .collect();
+        if !names.is_empty() {
+            return Some(names.join(", "));
+        }
+    }
+    if let Some(intro) = raw_json.get("intro").and_then(|v| v.as_str()) {
+        let (_, _, genres, _) = parse_douban_intro(intro);
+        if genres.is_some() {
+            return genres;
+        }
+    }
+    json_string(raw_json, &["Genres", "genres", "genre"])
+}
+
+fn extract_country(raw_json: &serde_json::Value) -> Option<String> {
+    let target = get_subject_or_root(raw_json);
+    if let Some(arr) = target
+        .get("countries")
+        .or_else(|| target.get("regions"))
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = arr
+            .iter()
+            .filter_map(|item| item.as_str().map(|s| s.to_string()))
+            .collect();
+        if !names.is_empty() {
+            return Some(names.join(", "));
+        }
+    }
+    if let Some(sub) = target.get("card_subtitle").and_then(|v| v.as_str()) {
+        let parts: Vec<&str> = sub.split('/').map(|s| s.trim()).collect();
+        let common_countries = [
+            "美国",
+            "中国大陆",
+            "中国香港",
+            "中国台湾",
+            "日本",
+            "韩国",
+            "英国",
+            "法国",
+            "德国",
+            "意大利",
+            "西班牙",
+            "加拿大",
+            "澳大利亚",
+            "印度",
+            "泰国",
+            "新西兰",
+            "瑞典",
+            "丹麦",
+            "俄罗斯",
+            "爱尔兰",
+            "巴西",
+            "中国",
+            "香港",
+            "台湾",
+        ];
+        let matched_countries: Vec<String> = parts
+            .iter()
+            .filter(|p| common_countries.iter().any(|c| **p == *c || p.contains(c)))
+            .map(|s| s.to_string())
+            .collect();
+        if !matched_countries.is_empty() {
+            return Some(matched_countries.join(", "));
+        }
+    }
+    if let Some(intro) = raw_json.get("intro").and_then(|v| v.as_str()) {
+        let (_, _, _, country) = parse_douban_intro(intro);
+        if country.is_some() {
+            return country;
+        }
+    }
+    json_string(raw_json, &["Country", "country", "countries", "region"])
+}
+
+fn extract_duration(raw_json: &serde_json::Value) -> Option<String> {
+    let target = get_subject_or_root(raw_json);
+    if let Some(arr) = target.get("durations").and_then(|v| v.as_array()) {
+        if let Some(first) = arr.get(0).and_then(|v| v.as_str()) {
+            return Some(first.to_string());
+        }
+    }
+    if let Some(d) = target.get("duration").and_then(|v| v.as_str()) {
+        return Some(d.to_string());
+    }
+    if let Some(intro) = raw_json.get("intro").and_then(|v| v.as_str()) {
+        for part in intro.split('/') {
+            let part_trimmed = part.trim();
+            if part_trimmed.contains("分钟") || part_trimmed.contains("mins") {
+                return Some(part_trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn extract_public_rating(raw_json: &serde_json::Value) -> Option<f64> {
     json_number(
         raw_json,
@@ -2318,7 +2916,12 @@ fn parse_date_string(value: &str) -> Option<DateTime<Utc>> {
         .ok()
         .map(|dt| dt.with_timezone(&Utc))
         .or_else(|| {
-            NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+            chrono::NaiveDateTime::parse_from_str(value.trim(), "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+        })
+        .or_else(|| {
+            chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
                 .ok()
                 .and_then(|date| date.and_hms_opt(0, 0, 0))
                 .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))

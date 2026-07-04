@@ -7,9 +7,21 @@ pub struct AppConfig {
     pub app: AppSettings,
     pub platforms: PlatformConfigs,
     pub cookiecloud: CookieCloudConfig,
+    pub cinepersona: CinePersonaConfig,
     pub download_sites_enabled: Vec<String>,
     pub download_sites_custom: Vec<DownloadSiteConfig>,
     pub download_sites_deleted: Vec<String>,
+    pub media_server_url: Option<String>,
+    pub media_server_api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CinePersonaConfig {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub username: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +135,33 @@ pub struct MovieRecord {
     pub raw_json: serde_json::Value,
 }
 
+impl MovieRecord {
+    pub fn media_type(&self) -> Option<String> {
+        let val = &self.raw_json;
+        let keys = ["Type", "type", "Title Type", "media_type", "titleType"];
+        let mut type_str = None;
+        for key in keys {
+            if let Some(v) = val.get(key) {
+                if let Some(s) = v.as_str() {
+                    type_str = Some(s.to_string());
+                    break;
+                }
+            }
+        }
+
+        let value = type_str?;
+        let lower = value.to_lowercase();
+        if ["tv", "show", "episode"]
+            .iter()
+            .any(|part| lower.contains(part))
+            || (lower.contains("series") && !lower.contains("mini"))
+        {
+            return Some("tv".to_string());
+        }
+        Some("movie".to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WishlistRecord {
     pub id: String,
@@ -134,6 +173,8 @@ pub struct WishlistRecord {
     #[serde(default)]
     pub identifiers: MovieIdentifiers,
     pub raw_json: serde_json::Value,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -176,6 +217,13 @@ pub struct UnifiedMediaItem {
     pub library_url: Option<String>,
     pub library_title: Option<String>,
     pub library_year: Option<i32>,
+    pub library_media_path: Option<String>,
+    pub library_file_name: Option<String>,
+    pub directors: Option<String>,
+    pub actors: Option<String>,
+    pub genres: Option<String>,
+    pub country: Option<String>,
+    pub duration: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,4 +435,15 @@ fn default_recent_limit() -> usize {
 
 fn default_only_new() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaServerItem {
+    pub title: String,
+    pub year: Option<i32>,
+    pub imdb_id: Option<String>,
+    pub tmdb_id: Option<String>,
+    pub library_url: Option<String>,
+    pub media_path: Option<String>,
+    pub file_name: Option<String>,
 }

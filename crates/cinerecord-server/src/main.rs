@@ -34,6 +34,8 @@ pub struct AppState {
     pub pool: sqlx::SqlitePool,
     pub events: broadcast::Sender<AppEvent>,
     pub auth_sessions: Arc<RwLock<HashMap<String, PendingBrowserAuth>>>,
+    pub media_server_cache:
+        Arc<RwLock<Option<(DateTime<Utc>, Vec<cinerecord_core::MediaServerItem>)>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +81,7 @@ async fn main() -> Result<()> {
         pool,
         events: event_tx,
         auth_sessions: Arc::new(RwLock::new(HashMap::new())),
+        media_server_cache: Arc::new(RwLock::new(None)),
     };
 
     scheduler::spawn_scheduler_loop(app_state.clone());

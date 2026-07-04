@@ -2,7 +2,7 @@ const API_BASE = "/api/v2";
 const LIBRARY_PAGE_SIZE = 20;
 const WISHLIST_FETCH_LIMIT = 2000;
 const WISHLIST_PAGE_SIZE = 24;
-const PLATFORM_IDS = ["douban", "imdb", "trakt", "letterboxd", "tmdb"];
+const PLATFORM_IDS = ["douban", "imdb", "trakt", "letterboxd", "tmdb", "cinepersona"];
 const DEFAULT_DOWNLOAD_SITES = [
     { id: "ptp", label: "PTP", template: "https://passthepopcorn.me/torrents.php?searchstr={imdbid}" },
     { id: "kg", label: "KG", template: "https://karagarga.in/browse.php?search={imdbid}&search_type=imdb" },
@@ -50,6 +50,8 @@ const state = {
         items: [],
         view: localStorage.getItem("cinerecord_library_view_v3") || "list",
         platformsInitialized: false,
+        logic: "and",
+        search: "",
     },
     wishlist: {
         items: [],
@@ -281,6 +283,7 @@ function platformLabel(platform) {
         trakt: "Trakt",
         tmdb: "TMDB",
         letterboxd: "Letterboxd",
+        cinepersona: "CinePersona",
     }[platform] || String(platform || "").toUpperCase();
 }
 
@@ -326,6 +329,7 @@ function platformHint(platformId) {
         trakt: "设备授权 / OAuth",
         tmdb: "API Key / Session",
         letterboxd: "CSV 导入 / 映射",
+        cinepersona: "API Key / URL",
     }[platformId] || "待配置";
 }
 
@@ -942,8 +946,12 @@ function renderTaskList(tasks, limit = tasks.length) {
 
 function renderTasks() {
     const tasks = state.tasks || [];
-    ui.tasksList.innerHTML = renderTaskList(tasks, 8);
-    ui.dashboardTaskList.innerHTML = renderTaskList(compactDashboardTasks(tasks, 5), 5);
+    if (ui.tasksList) {
+        ui.tasksList.innerHTML = renderTaskList(tasks, 8);
+    }
+    if (ui.dashboardTaskList) {
+        ui.dashboardTaskList.innerHTML = renderTaskList(compactDashboardTasks(tasks, 5), 5);
+    }
 }
 
 function populateScheduledTaskForm(task = null) {
@@ -1208,6 +1216,15 @@ function itemSubtitle(item) {
     return parts.join(" · ");
 }
 
+function cleanTitle(rawTitle) {
+    if (!rawTitle) return "Unknown Title";
+    const parts = rawTitle.split(/\s*\/\s*/).map(p => p.trim()).filter(Boolean);
+    // If the title contains a "/" inside parentheses or brackets, split might break it, 
+    // but usually Douban titles have slash-separated alternate titles like "第一归正会 / First Reformed / ..."
+    // Let's protect nested parentheses if needed, or simply take the first part
+    return parts[0] || "Unknown Title";
+}
+
 function sourceRatingText(source) {
     if (source?.rating === null || source?.rating === undefined) return "未评分";
     return `评分 ${source.rating}`;
@@ -1279,12 +1296,6 @@ function renderLegacyLibraryItem(item) {
         ? `<div class="movie-cover-wrapper"><img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');"></div>`
         : `<div class="movie-cover-wrapper"><div class="movie-cover-placeholder large">🎬</div></div>`;
     const badges = (item.sources || []).map(renderPlatformBadge).join("");
-    const identifiers = [
-        item.identifiers?.imdb ? `IMDb ${item.identifiers.imdb}` : "",
-        item.identifiers?.tmdb ? `TMDB ${item.identifiers.tmdb}` : "",
-        item.identifiers?.douban ? `豆瓣 ${item.identifiers.douban}` : "",
-    ].filter(Boolean).join(" · ");
-
     return `
         <div class="movie-item">
             ${poster}
@@ -1294,9 +1305,11 @@ function renderLegacyLibraryItem(item) {
                     <div class="platform-badges-inline">${badges}</div>
                 </div>
                 <div class="movie-metadata-grid">
-                    ${identifiers ? `<div class="meta-item"><span class="meta-icon">🔎</span><span class="meta-text">${escapeHtml(identifiers)}</span></div>` : ""}
-                    ${item.public_rating ? `<div class="meta-item"><span class="meta-icon">⭐</span><span class="meta-text">站点评分 ${escapeHtml(item.public_rating)}</span></div>` : ""}
-                    ${item.public_votes ? `<div class="meta-item"><span class="meta-icon">👥</span><span class="meta-text">${escapeHtml(item.public_votes)} 人评价</span></div>` : ""}
+                    ${item.directors ? `<div class="meta-item"><span class="meta-icon">🎬</span><span class="meta-text">导演: ${escapeHtml(item.directors)}</span></div>` : ""}
+                    ${item.actors ? `<div class="meta-item"><span class="meta-icon">👥</span><span class="meta-text">主演: ${escapeHtml(item.actors)}</span></div>` : ""}
+                    ${item.genres ? `<div class="meta-item"><span class="meta-icon">🏷️</span><span class="meta-text">类型: ${escapeHtml(item.genres)}</span></div>` : ""}
+                    ${item.country ? `<div class="meta-item"><span class="meta-icon">🌍</span><span class="meta-text">地区: ${escapeHtml(item.country)}</span></div>` : ""}
+                    ${item.public_rating ? `<div class="meta-item"><span class="meta-icon">⭐</span><span class="meta-text">评分: ${escapeHtml(item.public_rating)} (${escapeHtml(item.public_votes || 0)}人)</span></div>` : ""}
                 </div>
                 <div class="movie-bottom">
                     <div class="score-display">
@@ -1308,41 +1321,114 @@ function renderLegacyLibraryItem(item) {
         </div>
     `;
 }
-
 function renderLegacyWishlistItem(item) {
+    const title = cleanTitle(item.title);
     const posterUrl = proxyImageUrl(item.poster_url || "");
-    const title = item.title || "Unknown title";
-    const year = item.year ? `<span class="movie-year">${escapeHtml(item.year)}</span>` : "";
-    const dateValue = item.added_at || item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
+    const primaryLink = itemPrimaryLink(item);
+    const titleHtml = primaryLink
+        ? `<a class="wishlist-title" href="${escapeHtml(primaryLink)}" target="_blank" title="${escapeHtml(item.title)}">${escapeHtml(title)}</a>`
+        : `<span class="wishlist-title" title="${escapeHtml(item.title)}">${escapeHtml(title)}</span>`;
+    const year = item.year ? `<span class="wishlist-year">${escapeHtml(item.year)}</span>` : "";
+    
     const poster = posterUrl
-        ? `<div class="movie-cover-wrapper"><img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');"></div>`
-        : `<div class="movie-cover-wrapper"><div class="movie-cover-placeholder large">🎬</div></div>`;
+        ? `<img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="unified-media-fallback" style="display:none; font-size:1.2rem;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase() || "?")}</div>`
+        : `<div class="unified-media-fallback" style="font-size:1.2rem;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase() || "?")}</div>`;
+
+    const doubanRating = item.sources?.find(s => s.platform === 'douban')?.rating;
+    const imdbRating = item.sources?.find(s => s.platform === 'imdb')?.rating;
+    const ratingVal = doubanRating || imdbRating || "";
+    const ratingClass = doubanRating ? "rating-douban" : (imdbRating ? "rating-imdb" : "");
+    const ratingLabel = doubanRating ? "豆瓣" : (imdbRating ? "IMDb" : "");
+    const ratingText = ratingVal ? `${ratingLabel} ${ratingVal}` : "";
+    
+    const votes = item.public_votes || "";
+    const formatVotes = (num) => {
+        const n = parseFloat(num);
+        if (Number.isNaN(n)) return "";
+        if (n >= 10000) return (n / 10000).toFixed(1) + "万";
+        if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+        return String(n);
+    };
+    const votesText = votes ? `${formatVotes(votes)}人评价` : "";
+    
+    const dateValue = item.added_at || item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
+    const dateText = dateValue ? `想看于 ${escapeHtml(formatShortDate(dateValue))}` : "";
+    
     const badges = (item.sources || []).map(renderPlatformBadge).join("");
-    const downloadLinks = !item.library_matched
-        ? buildDownloadLinks(item)
-              .slice(0, 8)
-              .map((link) => `<a class="download-pill" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)} ↗</a>`)
-              .join("")
-        : "";
-    const matched = item.library_matched ? `<span class="status-pill matched">已在片库</span>` : `<span class="status-pill">待检索</span>`;
+
+    let matchedAreaHtml = "";
+    if (item.library_matched) {
+        if (item.library_file_name) {
+            if (item.library_url) {
+                matchedAreaHtml = `
+                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <a class="wishlist-library-file" href="${escapeHtml(item.library_url)}" target="_blank" style="max-width: 450px; font-family: monospace; text-decoration: none; border-style: solid; border-color: rgba(74, 222, 128, 0.4); color: var(--success);" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(item.library_file_name)} ↗</a>
+                    </div>
+                `;
+            } else {
+                matchedAreaHtml = `
+                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <span class="wishlist-library-file" style="max-width: 450px; font-family: monospace;" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(item.library_file_name)} (已入库)</span>
+                    </div>
+                `;
+            }
+        } else {
+            if (item.library_url) {
+                matchedAreaHtml = `
+                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <a class="wishlist-library-link" href="${escapeHtml(item.library_url)}" style="font-weight: 500;" target="_blank">▶️ 库内播放 ↗</a>
+                    </div>
+                `;
+            } else {
+                matchedAreaHtml = `
+                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <span class="wishlist-library-tag">已入库</span>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    let resourceLinksHtml = "";
+    if (!item.library_matched) {
+        resourceLinksHtml = buildDownloadLinks(item)
+            .slice(0, 6)
+            .map((link) => `<a class="wishlist-link" href="${escapeHtml(link.url)}" target="_blank">${escapeHtml(link.label)} ↗</a>`)
+            .join("");
+    }
+    
+    const metaParts = [];
+    if (item.directors) metaParts.push(`<strong>导演:</strong> ${item.directors}`);
+    if (item.actors) metaParts.push(`<strong>主演:</strong> ${item.actors}`);
+    if (item.genres) metaParts.push(`<strong>类型:</strong> ${item.genres}`);
+    if (item.country) metaParts.push(`<strong>地区:</strong> ${item.country}`);
+    if (item.duration) metaParts.push(`<strong>片长:</strong> ${item.duration}`);
+    const metaText = metaParts.filter(Boolean).join(" · ");
 
     return `
-        <div class="movie-item">
-            ${poster}
-            <div class="movie-info">
-                <div class="movie-title-row">
-                    <div class="movie-title">${escapeHtml(title)} ${year}</div>
-                    <div class="platform-badges-inline">${badges}${matched}</div>
-                </div>
-                <div class="movie-metadata-grid">
-                    ${item.identifiers?.imdb ? `<div class="meta-item"><span class="meta-icon">🔎</span><span class="meta-text">IMDb ${escapeHtml(item.identifiers.imdb)}</span></div>` : ""}
-                    ${item.library_matched && item.library_url ? `<div class="meta-item"><span class="meta-icon">✅</span><span class="meta-text">已匹配片库</span></div>` : ""}
-                </div>
-                <div class="movie-bottom">
-                    <div class="score-display">
-                        ${dateValue ? `<div class="rating-date"><span class="date-label">加入于</span><span class="date-value">${escapeHtml(formatShortDate(dateValue))}</span></div>` : ""}
+        <div class="wishlist-row" style="padding: 12px; min-height: 110px;">
+            <div class="wishlist-cover" style="width: 70px; height: 105px;">
+                ${poster}
+            </div>
+            <div class="wishlist-main" style="gap: 8px;">
+                <div class="wishlist-title-row" style="margin-bottom: 2px;">
+                    <div class="wishlist-title-group" style="display: flex; align-items: center; gap: 8px;">
+                        ${titleHtml}
+                        ${year}
+                        <div style="display: inline-flex; gap: 4px; margin-left: 8px;">${badges}</div>
                     </div>
-                    <div class="unified-media-links">${downloadLinks}${item.library_matched && item.library_url ? `<a class="download-pill" href="${escapeHtml(item.library_url)}" target="_blank" rel="noopener noreferrer">片库条目 ↗</a>` : ""}</div>
+                    ${resourceLinksHtml ? `<div class="wishlist-links">${resourceLinksHtml}</div>` : ""}
+                </div>
+                
+                ${metaText ? `<div class="wishlist-meta" style="font-size: 0.78rem; line-height: 1.4; color: var(--text-secondary);" title="${metaText.replace(/<\/?strong>/g, '')}">${metaText}</div>` : ""}
+                
+                <div class="wishlist-submeta" style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; font-size: 0.75rem; border-top: 1px solid rgba(255,255,255,0.03); padding-top: 6px; width: 100%;">
+                    <div style="display: flex; gap: 12px; color: var(--text-muted);">
+                        ${ratingText ? `<span class="wishlist-rating ${ratingClass}">${ratingText}</span>` : ""}
+                        ${votesText ? `<span class="wishlist-votes">${votesText}</span>` : ""}
+                        ${dateText ? `<span class="wishlist-date">${dateText}</span>` : ""}
+                    </div>
+                    ${matchedAreaHtml}
                 </div>
             </div>
         </div>
@@ -1380,11 +1466,11 @@ function renderMovieCard(item, mode = "library", view = "grid") {
         return renderLegacyWishlistItem(item);
     }
     const posterUrl = proxyImageUrl(item.poster_url || "");
-    const title = item.title || "Unknown title";
+    const title = cleanTitle(item.title);
     const primaryLink = itemPrimaryLink(item);
     const titleHtml = primaryLink
-        ? `<a class="unified-media-title" href="${escapeHtml(primaryLink)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
-        : `<span class="unified-media-title">${escapeHtml(title)}</span>`;
+        ? `<a class="unified-media-title" href="${escapeHtml(primaryLink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(item.title || "")}">${escapeHtml(title)}</a>`
+        : `<span class="unified-media-title" title="${escapeHtml(item.title || "")}">${escapeHtml(title)}</span>`;
     const subtitle = itemSubtitle(item);
     const openLinks = (item.sources || [])
         .filter((source) => source.source_url)
@@ -1408,7 +1494,7 @@ function renderMovieCard(item, mode = "library", view = "grid") {
         mode === "wishlist"
             ? item.library_matched
                 ? `<span class="status-pill matched">已在片库</span>`
-                : `<span class="status-pill">待检索</span>`
+                : ""
             : "";
     const poster = posterUrl
         ? `<img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="unified-media-fallback" style="display:none;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase() || "?")}</div>`
@@ -1439,7 +1525,8 @@ function renderMovieCard(item, mode = "library", view = "grid") {
                 <div class="unified-media-links">
                     ${openLinks}
                     ${downloadLinks}
-                    ${mode === "wishlist" && item.library_matched && item.library_url ? `<a class="download-pill" href="${escapeHtml(item.library_url)}" target="_blank" rel="noopener noreferrer">片库条目 ↗</a>` : ""}
+                    ${mode === "wishlist" && item.library_matched && item.library_file_name ? `<div class="wishlist-library-file" style="max-width: 100%; margin-bottom: 6px; font-family: monospace; font-size: 0.65rem;" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(item.library_file_name)}</div>` : ""}
+                    ${mode === "wishlist" && item.library_matched && item.library_url ? `<a class="download-pill" style="border-color: rgba(74, 222, 128, 0.4); color: var(--success);" href="${escapeHtml(item.library_url)}" target="_blank" rel="noopener noreferrer">▶️ 库内播放 ↗</a>` : ""}
                 </div>
             </div>
         </article>
@@ -1485,7 +1572,7 @@ function renderWishlist() {
     const start = (state.wishlist.page - 1) * WISHLIST_PAGE_SIZE;
     const pageItems = items.slice(start, start + WISHLIST_PAGE_SIZE);
 
-    ui.wishlistList.className = state.wishlist.view === "list" ? "library-list library-list-view" : "rust-card-grid library-grid-view";
+    ui.wishlistList.className = state.wishlist.view === "list" ? "wishlist-list-view" : "rust-card-grid library-grid-view";
     if (!pageItems.length) {
         ui.wishlistEmpty.style.display = "";
         ui.wishlistList.style.display = "none";
@@ -1729,6 +1816,18 @@ function filterDownloadSites(query) {
     });
 }
 
+function updateCinePersonaRegisterLink() {
+    const baseUrlInput = document.getElementById("cinepersona-base-url");
+    const registerBtn = document.getElementById("register-cinepersona-btn");
+    if (registerBtn && baseUrlInput) {
+        let val = baseUrlInput.value.trim();
+        if (!val) {
+            val = "https://film.133339.xyz";
+        }
+        registerBtn.href = val;
+    }
+}
+
 function populateConfig(config) {
     state.currentConfig = config;
     syncDownloadStateFromConfig(config);
@@ -1743,6 +1842,50 @@ function populateConfig(config) {
     document.getElementById("cookiecloud-host").value = config.cookiecloud?.host || "";
     document.getElementById("cookiecloud-uuid").value = config.cookiecloud?.uuid || "";
     document.getElementById("cookiecloud-password").value = config.cookiecloud?.password || "";
+    document.getElementById("cinepersona-base-url").value = config.cinepersona?.base_url || "";
+    document.getElementById("cinepersona-api-key").value = config.cinepersona?.api_key || "";
+    document.getElementById("media-server-url").value = config.media_server_url || "";
+    document.getElementById("media-server-api-key").value = config.media_server_api_key || "";
+
+    const msStatus = document.getElementById("media-server-sync-status");
+    if (config.media_server_url && config.media_server_api_key) {
+        if (msStatus) {
+            msStatus.textContent = "已连接";
+            msStatus.style.color = "var(--success-color)";
+        }
+    } else {
+        if (msStatus) {
+            msStatus.textContent = "未连接";
+            msStatus.style.color = "var(--text-muted)";
+        }
+    }
+    updateCinePersonaRegisterLink();
+
+    const cpBadge = document.getElementById("settings-badge-cinepersona");
+    const cpCardStatus = document.getElementById("cinepersona-card-status");
+    const cpProfilePanel = document.getElementById("profile-panel-cinepersona");
+    const cpOnboardingPanel = document.getElementById("onboarding-panel-cinepersona");
+    const cpUsername = document.getElementById("cinepersona-username");
+    const cpEmail = document.getElementById("cinepersona-email");
+    if (config.cinepersona?.api_key) {
+        if (cpBadge) {
+            cpBadge.textContent = "● 已连接";
+            cpBadge.className = "status-badge connected";
+        }
+        if (cpCardStatus) cpCardStatus.textContent = "CinePersona 联通正常";
+        if (cpProfilePanel) cpProfilePanel.style.display = "block";
+        if (cpOnboardingPanel) cpOnboardingPanel.style.display = "none";
+        if (cpUsername) cpUsername.textContent = config.cinepersona.username || "已配置 API Key";
+        if (cpEmail) cpEmail.textContent = config.cinepersona.email || "";
+    } else {
+        if (cpBadge) {
+            cpBadge.textContent = "● 未连接";
+            cpBadge.className = "status-badge disconnected";
+        }
+        if (cpCardStatus) cpCardStatus.textContent = "可推数据至远端或抓数据到各平台。";
+        if (cpProfilePanel) cpProfilePanel.style.display = "none";
+        if (cpOnboardingPanel) cpOnboardingPanel.style.display = "block";
+    }
 
     if (ui.cookieCloudStatus) ui.cookieCloudStatus.textContent = config.cookiecloud?.host ? "已配置" : "未同步";
     const traktAuthText = config.platforms?.trakt?.access_token
@@ -1815,6 +1958,11 @@ function gatherConfigPayload() {
             uuid: document.getElementById("cookiecloud-uuid").value.trim() || null,
             password: document.getElementById("cookiecloud-password").value || null,
         },
+        cinepersona: {
+            ...(base.cinepersona || {}),
+            base_url: document.getElementById("cinepersona-base-url").value.trim() || null,
+            api_key: document.getElementById("cinepersona-api-key").value.trim() || null,
+        },
         download_sites_enabled: downloadConfig.enabledIds,
         download_sites_custom: downloadConfig.customSites,
         download_sites_deleted: downloadConfig.deletedDefaults,
@@ -1876,6 +2024,54 @@ function markSyncPreviewStale() {
     if (ui.syncSummaryText) ui.syncSummaryText.textContent = "尚未生成同步预览";
     if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = "待预览";
     document.getElementById("execute-sync-btn").disabled = true;
+}
+
+function getPlatformSyncStatus(platformId) {
+    if (platformId === "cinepersona") {
+        const hasKey = document.getElementById("cinepersona-api-key")?.value?.trim() || state.currentConfig?.cinepersona?.api_key;
+        if (!hasKey) {
+            return { success: false, reason: "CinePersona 未配置，请先在“设置”中填写 API Key 并测试连接。" };
+        }
+        return { success: true };
+    }
+    const platform = (state.platforms || []).find((p) => p.id === platformId);
+    if (!platform) return { success: false, reason: "平台不存在" };
+    if (!platform.status?.configured) {
+        return { success: false, reason: `${platform.name} 未登录或未配置，请先在“设置”中连接账户并验证。` };
+    }
+    if (platformId === "douban") {
+        const profile = platform.status?.profile || {};
+        if (!profile.write_ready) {
+            return { success: false, reason: "豆瓣未登录或写入凭据缺失（缺少 dbcl2/ck Cookie），请先在“设置”中重新绑定完整 Cookie。" };
+        }
+    }
+    return { success: true };
+}
+
+function validateSyncSelection() {
+    const sourceVal = document.getElementById("sync-source-select")?.value;
+    const targetVal = document.getElementById("sync-target-select")?.value;
+    const btn = document.getElementById("preview-sync-btn");
+    const warningDiv = document.getElementById("sync-validation-warning");
+    
+    if (!sourceVal || !targetVal) return;
+    
+    const sourceStatus = getPlatformSyncStatus(sourceVal);
+    const targetStatus = getPlatformSyncStatus(targetVal);
+    
+    if (!sourceStatus.success || !targetStatus.success) {
+        const msg = !sourceStatus.success ? sourceStatus.reason : targetStatus.reason;
+        if (warningDiv) {
+            warningDiv.innerHTML = `⚠️ ${escapeHtml(msg)}`;
+            warningDiv.style.display = "block";
+        }
+        if (btn) btn.disabled = true;
+    } else {
+        if (warningDiv) {
+            warningDiv.style.display = "none";
+        }
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function loadHealth() {
@@ -1950,16 +2146,79 @@ async function loadOverview() {
     updateCounts();
     renderPlatformGrid();
     renderTasks();
+    validateSyncSelection();
+    updatePlatformUiVisibility(state.platforms);
+}
+
+function updatePlatformUiVisibility(platforms) {
+    const configuredSet = new Set(
+        (platforms || [])
+            .filter(p => p.status?.configured)
+            .map(p => p.id)
+    );
+    configuredSet.add("letterboxd");
+
+    // 1. Library Fetch Buttons
+    document.querySelectorAll(".rust-fetch-btn").forEach(btn => {
+        const platform = btn.dataset.platform;
+        if (platform) {
+            btn.style.display = configuredSet.has(platform) ? "" : "none";
+        }
+    });
+
+    // 2. Library Filter Tabs
+    document.querySelectorAll(".library-filter-tabs .filter-tab").forEach(tab => {
+        const filter = tab.dataset.filter;
+        if (filter && filter !== "all") {
+            tab.style.display = configuredSet.has(filter) ? "" : "none";
+        }
+    });
+
+    // 3. Export select options
+    document.querySelectorAll("#export-source option").forEach(opt => {
+        const val = opt.value;
+        if (val && val !== "merged") {
+            opt.style.display = configuredSet.has(val) ? "" : "none";
+        }
+    });
+
+    // 4. Wishlist Fetch Buttons
+    document.querySelectorAll(".rust-wishlist-btn").forEach(btn => {
+        const platform = btn.dataset.platform;
+        if (platform) {
+            btn.style.display = configuredSet.has(platform) ? "" : "none";
+        }
+    });
+
+    const hasCinePersona = configuredSet.has("cinepersona");
+    const syncBtn = document.getElementById("sync-cinepersona-btn-wishlist");
+    if (syncBtn) {
+        syncBtn.style.display = hasCinePersona ? "" : "none";
+    }
+
+    // 5. Wishlist Filter options
+    document.querySelectorAll("#wishlist-source-filters .wishlist-source-option").forEach(lbl => {
+        const chk = lbl.querySelector("input[data-source]");
+        if (chk) {
+            const src = chk.dataset.source;
+            if (src) {
+                lbl.style.display = configuredSet.has(src) ? "" : "none";
+            }
+        }
+    });
 }
 
 async function loadLibrary() {
     const offset = (state.library.page - 1) * LIBRARY_PAGE_SIZE;
     const platforms = selectedLibraryPlatforms();
     const platformQuery = `&platforms=${encodeURIComponent(platforms)}`;
-    const path =
+    let path =
         state.library.filter === "all"
             ? `/library?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${platformQuery}`
             : `/library/${state.library.filter}?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${platformQuery}`;
+    if (state.library.search) {
+        path += `&q=${encodeURIComponent(state.library.search)}`;
+    }
     const payload = await api(path);
     if (initializeLibraryPlatformCheckboxes(payload.platforms_with_data || [])) {
         state.library.page = 1;
@@ -2256,6 +2515,129 @@ async function executeSync() {
     appendLog("sync.execute", payload);
     setActionStatus(`同步执行完成 · 成功 ${payload.result.success_count} · 跳过 ${payload.result.skipped_count} · 失败 ${payload.result.failed_count}`, payload.result.failed_count ? "warning" : "success");
     loadTasks().catch(handleError);
+    loadOverview().catch(handleError);
+    loadLibrary().catch(handleError);
+    loadWishlist().catch(handleError);
+}
+
+function logToSyncConsole(msg, type = "info") {
+    const consoleLogs = document.getElementById("sync-console-logs");
+    if (!consoleLogs) return;
+    const timeStr = new Date().toLocaleTimeString();
+    let prefix = "ℹ️";
+    if (type === "error") prefix = "❌";
+    else if (type === "success") prefix = "✅";
+    else if (type === "warn") prefix = "⚠️";
+    consoleLogs.innerHTML += `[${timeStr}] ${prefix} ${escapeHtml(msg)}\n`;
+    consoleLogs.scrollTop = consoleLogs.scrollHeight;
+}
+
+async function testCinePersona() {
+    const base_url = document.getElementById("cinepersona-base-url").value.trim();
+    const api_key = document.getElementById("cinepersona-api-key").value.trim();
+    if (!api_key) {
+        showToast("请先填写 CinePersona API Key", "warning");
+        return;
+    }
+    setActionStatus("正在测试 CinePersona 连接...", "loading", { persist: true });
+    try {
+        const payload = await api("/cinepersona/test", {
+            method: "POST",
+            body: JSON.stringify({ base_url, api_key }),
+        });
+        setActionStatus(`CinePersona 连接成功！用户: ${payload.username}`, "success");
+        await loadConfig();
+        await loadOverview();
+    } catch (err) {
+        setActionStatus(`CinePersona 连接失败: ${err.message || err}`, "error");
+    }
+}
+
+async function testMediaServer() {
+    const url = document.getElementById("media-server-url").value.trim();
+    const api_key = document.getElementById("media-server-api-key").value.trim();
+    if (!url || !api_key) {
+        showToast("请填写服务器地址和 API 密钥/Token", "warning");
+        return;
+    }
+    setActionStatus("正在测试媒体服务器连接...", "loading", { persist: true });
+    try {
+        const payload = await api("/platforms/media_server/test", {
+            method: "POST",
+            body: JSON.stringify({ url, api_key }),
+        });
+        if (payload.success) {
+            setActionStatus(payload.message, "success");
+            await loadConfig();
+            await loadOverview();
+        } else {
+            setActionStatus(payload.message, "error");
+        }
+    } catch (err) {
+        setActionStatus(`媒体服务器连接失败: ${err.message || err}`, "error");
+    }
+}
+
+async function logoutMediaServer() {
+    setActionStatus("正在清除媒体服务器配置...", "loading", { persist: true });
+    try {
+        await api("/platforms/media_server/logout", {
+            method: "POST"
+        });
+        setActionStatus("已成功清除媒体服务器配置", "success");
+        await loadConfig();
+        await loadOverview();
+    } catch (err) {
+        setActionStatus(`清除失败: ${err.message || err}`, "error");
+    }
+}
+
+
+async function syncToCinePersona() {
+    const base_url = document.getElementById("cinepersona-base-url").value.trim();
+    const api_key = document.getElementById("cinepersona-api-key").value.trim();
+    
+    const consoleLogs = document.getElementById("sync-console-logs");
+    if (consoleLogs) {
+        consoleLogs.innerHTML = "";
+        consoleLogs.style.display = "block";
+    }
+    logToSyncConsole("🚀 已发起 CinePersona 接口同步任务...", "info");
+    
+    setActionStatus("正在启动 CinePersona 同步...", "loading", { persist: true });
+    try {
+        const payload = await api("/cinepersona/sync", {
+            method: "POST",
+            body: JSON.stringify({ base_url, api_key }),
+        });
+        setActionStatus(payload.message || "CinePersona 同步任务已启动", "success");
+    } catch (err) {
+        setActionStatus(`CinePersona 同步启动失败: ${err.message || err}`, "error");
+        logToSyncConsole(`❌ CinePersona 同步启动失败: ${err.message || err}`, "error");
+    }
+}
+
+async function logoutPlatform(platform) {
+    if (!confirm(`确认要退出当前 ${platform === "cinepersona" ? "CinePersona" : platform.toUpperCase()} 平台连接吗？`)) {
+        return;
+    }
+    setActionStatus(`正在退出 ${platform} 连接...`, "loading", { persist: true });
+    try {
+        await api(`/platforms/${platform}/logout`, {
+            method: "POST",
+        });
+        setActionStatus(`已成功断开 ${platform === "cinepersona" ? "CinePersona" : platform.toUpperCase()} 平台连接`, "success");
+        if (platform === "cinepersona") {
+            const baseInput = document.getElementById("cinepersona-base-url");
+            const keyInput = document.getElementById("cinepersona-api-key");
+            if (baseInput) baseInput.value = "";
+            if (keyInput) keyInput.value = "";
+        }
+        await loadConfig();
+        await loadOverview();
+    } catch (err) {
+        setActionStatus(`退出失败: ${err.message || err}`, "error");
+    }
 }
 
 async function startTraktAuth() {
@@ -2534,6 +2916,48 @@ function bindEvents() {
             .catch(handleError)
             .finally(() => setButtonBusy(button, false));
     });
+    bindClick("sync-cinepersona-btn-wishlist", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "推送中...");
+        api("/cinepersona/sync", {
+            method: "POST",
+            body: JSON.stringify({}),
+        })
+        .then(payload => {
+            setActionStatus(payload.message || "CinePersona 同步任务已启动", "success");
+        })
+        .catch(handleError)
+        .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("test-cinepersona-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "测试中...");
+        testCinePersona()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("test-media-server-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "测试中...");
+        testMediaServer()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+    bindClick("logout-media-server-btn", (event) => {
+        const button = event.currentTarget;
+        setButtonBusy(button, true, "正在清除...");
+        logoutMediaServer()
+            .catch(handleError)
+            .finally(() => setButtonBusy(button, false));
+    });
+
+    bindClick("export-cinepersona-csv-btn", () => {
+        window.location.href = "/api/v2/export/cinepersona";
+    });
+    document.getElementById("cinepersona-base-url")?.addEventListener("input", updateCinePersonaRegisterLink);
+    document.querySelectorAll(".rust-logout-btn").forEach((button) => {
+        button.addEventListener("click", () => logoutPlatform(button.dataset.platform));
+    });
     bindClick("add-custom-site-btn", () => {
         const labelInput = document.getElementById("new-custom-site-name");
         const templateInput = document.getElementById("new-custom-site-template");
@@ -2613,8 +3037,58 @@ function bindEvents() {
         });
     });
 
+    let searchTimeout = null;
+    const searchInput = document.getElementById("library-search-input");
+    const clearBtn = document.getElementById("library-search-clear-btn");
+    if (searchInput) {
+        searchInput.value = state.library.search || "";
+        if (clearBtn) {
+            clearBtn.style.display = state.library.search ? "block" : "none";
+        }
+        searchInput.addEventListener("input", () => {
+            const query = searchInput.value.trim();
+            if (clearBtn) {
+                clearBtn.style.display = query ? "block" : "none";
+            }
+            if (query) {
+                document.querySelectorAll('.filter-checkbox input[type="checkbox"]').forEach((checkbox) => {
+                    checkbox.checked = false;
+                });
+                document.querySelectorAll(".library-filter-tabs .filter-tab").forEach((tab) => {
+                    tab.classList.toggle("active", tab.dataset.filter === "all");
+                });
+                state.library.filter = "all";
+            }
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            searchTimeout = setTimeout(() => {
+                state.library.search = query;
+                state.library.page = 1;
+                loadLibrary().catch(handleError);
+            }, 300);
+        });
+    }
+    if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+            if (searchInput) {
+                searchInput.value = "";
+            }
+            clearBtn.style.display = "none";
+            state.library.search = "";
+            state.library.page = 1;
+            loadLibrary().catch(handleError);
+        });
+    }
+
     bindClick("wishlist-view-grid", () => setWishlistView("grid"));
     bindClick("wishlist-view-list", () => setWishlistView("list"));
+    bindClick("filter-help-btn", () => {
+        const panel = document.getElementById("filter-help-panel");
+        if (panel) {
+            panel.style.display = panel.style.display === "none" ? "block" : "none";
+        }
+    });
     bindClick("import-letterboxd-legacy-btn", (event) => {
         const button = event.currentTarget;
         setButtonBusy(button, true, "导入中...");
@@ -2659,6 +3133,13 @@ function bindEvents() {
     });
 
     bindClick("preview-sync-btn", (event) => {
+        const consoleLogs = document.getElementById("sync-console-logs");
+        if (consoleLogs) {
+            consoleLogs.innerHTML = "";
+            consoleLogs.style.display = "block";
+        }
+        logToSyncConsole("🚀 开始生成同步预览...", "info");
+
         const button = event.currentTarget;
         setButtonBusy(button, true, "预览中...");
         previewSync()
@@ -2675,6 +3156,13 @@ function bindEvents() {
         event.currentTarget.style.color = isHidden ? "var(--text-primary)" : "#888";
     });
     bindClick("execute-sync-btn", (event) => {
+        const consoleLogs = document.getElementById("sync-console-logs");
+        if (consoleLogs) {
+            consoleLogs.innerHTML = "";
+            consoleLogs.style.display = "block";
+        }
+        logToSyncConsole("🚀 开始执行数据同步...", "info");
+
         const button = event.currentTarget;
         setButtonBusy(button, true, "执行中...");
         executeSync()
@@ -2695,7 +3183,10 @@ function bindEvents() {
         renderSyncItems(state.sync.preview?.items || [], "preview");
     });
     ["sync-source-select", "sync-target-select", "sync-recent-limit", "sync-refresh-before"].forEach((id) => {
-        document.getElementById(id)?.addEventListener("change", markSyncPreviewStale);
+        document.getElementById(id)?.addEventListener("change", () => {
+            markSyncPreviewStale();
+            validateSyncSelection();
+        });
     });
     document.querySelectorAll('input[name="rust-sync-mode"]').forEach((input) => {
         input.addEventListener("change", markSyncPreviewStale);
@@ -2856,6 +3347,7 @@ function connectEvents() {
         const entry = payload.payload || payload;
         appendLog("log", entry);
         const message = entry?.message || "";
+        logToSyncConsole(message, entry.level);
         if (message && /同步|刷新|授权/.test(message)) {
             const level = entry.level === "error" ? "error" : entry.level === "success" ? "success" : "loading";
             setActionStatus(message, level, { persist: level === "loading" });
@@ -2886,6 +3378,7 @@ function connectEvents() {
             );
             ui.syncSummaryText.textContent = `${payload.payload.direction} · 共 ${payload.payload.preview_count} 项`;
             renderSyncItems(payload.payload.items, "preview");
+            logToSyncConsole(`🔍 预览就绪，共 ${payload.payload.preview_count} 项可同步`, "success");
         }
         appendLog("sync.preview.ready", payload.payload || payload);
     });
@@ -2896,6 +3389,7 @@ function connectEvents() {
             state.sync.result = payload.payload;
             ui.syncSummaryText.textContent = `${payload.payload.direction} · 成功 ${payload.payload.success_count} · 跳过 ${payload.payload.skipped_count} · 失败 ${payload.payload.failed_count}`;
             renderSyncItems(payload.payload.items, "result");
+            logToSyncConsole(`🏁 同步全部完成！成功 ${payload.payload.success_count}，跳过 ${payload.payload.skipped_count}，失败 ${payload.payload.failed_count}`, payload.payload.failed_count > 0 ? "warn" : "success");
         }
         if (!isScheduledTask) appendLog("sync.completed", payload.payload || payload);
         if (ui.syncLiveProgressBar) ui.syncLiveProgressBar.style.width = "100%";
@@ -2923,6 +3417,16 @@ function connectEvents() {
                 ? `${current} / ${total}${counts.length ? ` · ${counts.join(" · ")}` : ""}`
                 : progress.message || "同步处理中";
         }
+        
+        if (progress.phase === "item.completed" && progress.item) {
+            const item = progress.item;
+            const statusIcon = item.status === "success" ? "✅" : (item.status === "failed" ? "❌" : "⚠️");
+            const statusText = item.status === "success" ? "成功" : (item.status === "failed" ? `失败: ${item.reason}` : `跳过: ${item.reason}`);
+            logToSyncConsole(`${statusIcon} [${item.year || '?'}] ${item.title} -> ${statusText}`, item.status === "success" ? "success" : (item.status === "failed" ? "error" : "warn"));
+        } else if (progress.message && progress.phase !== "execution.prepared") {
+            logToSyncConsole(progress.message, "info");
+        }
+
         if (progress.phase === "item.completed" && progress.item) {
             state.sync.liveItems.push(progress.item);
             state.sync.result = {

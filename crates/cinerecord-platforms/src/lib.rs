@@ -120,6 +120,7 @@ pub async fn test_platform(platform: &str, config: &AppConfig) -> Result<Platfor
         "trakt" => test_trakt(&config.platforms.trakt).await,
         "imdb" => test_cookie_platform("imdb", &config.platforms.imdb).await,
         "douban" => test_cookie_platform("douban", &config.platforms.douban).await,
+        "cinepersona" => test_cinepersona(&config.cinepersona).await,
         "letterboxd" => Ok(PlatformValidationResult {
             platform: "letterboxd".to_string(),
             success: true,
@@ -275,6 +276,7 @@ pub async fn fetch_platform(
         "trakt" => fetch_trakt_movies(&config.platforms.trakt).await,
         "imdb" => fetch_imdb_rated_movies(&config.platforms.imdb).await,
         "douban" => fetch_douban_movies(&config.platforms.douban).await,
+        "cinepersona" => fetch_cinepersona_movies(&config.cinepersona).await,
         "letterboxd" => stub_fetch(platform),
         other => Err(anyhow!("unsupported platform: {other}")),
     }
@@ -289,6 +291,7 @@ pub async fn fetch_platform_wishlist(
         "trakt" => fetch_trakt_watchlist(&config.platforms.trakt).await,
         "imdb" => fetch_imdb_watchlist(&config.platforms.imdb).await,
         "douban" => fetch_douban_wishlist(&config.platforms.douban).await,
+        "cinepersona" => fetch_cinepersona_wishlist(&config.cinepersona).await,
         _ => Ok((
             json!({
                 "platform": platform,
@@ -335,6 +338,11 @@ pub fn build_sync_preview(
     let mut preview_items = Vec::new();
 
     for item in sorted_source {
+        if item.media_type().as_deref() == Some("tv")
+            && matches!(target, "tmdb" | "letterboxd" | "cinepersona")
+        {
+            continue;
+        }
         let item_keys = identifier_keys(&item);
         let matched_target = item_keys
             .iter()
@@ -580,8 +588,8 @@ fn is_douban_protection_error(message: &str) -> bool {
 
 pub fn supports_sync_pair(source: &str, target: &str) -> bool {
     source != target
-        && matches!(source, "tmdb" | "trakt" | "imdb" | "douban")
-        && matches!(target, "tmdb" | "trakt" | "imdb" | "douban")
+        && matches!(source, "tmdb" | "trakt" | "imdb" | "douban" | "cinepersona")
+        && matches!(target, "tmdb" | "trakt" | "imdb" | "douban" | "cinepersona")
 }
 
 async fn test_tmdb(config: &cinerecord_core::TmdbConfig) -> Result<PlatformValidationResult> {
@@ -941,6 +949,7 @@ async fn fetch_tmdb_watchlist(
                     letterboxd: None,
                 },
                 raw_json: item.clone(),
+                created_at: None,
             }
         })
         .collect::<Vec<_>>();
@@ -1078,6 +1087,7 @@ async fn fetch_trakt_watchlist(
                     letterboxd: None,
                 },
                 raw_json: item.clone(),
+                created_at: None,
             }
         })
         .collect::<Vec<_>>();
@@ -2051,6 +2061,7 @@ fn imdb_watchlist_record_from_value(
             "type": title_type,
             "Date Added": date_added,
         }),
+        created_at: None,
     })
 }
 
@@ -2378,6 +2389,7 @@ fn douban_wishlist_record_from_interest(interest: &Value) -> Option<WishlistReco
             "poster": poster,
             "status": interest.get("status"),
         }),
+        created_at: None,
     })
 }
 
@@ -3157,6 +3169,7 @@ fn resolve_target_linking_id(target: &str, ids: &MovieIdentifiers) -> Option<Str
         "imdb" => ids.imdb.clone(),
         "douban" => ids.douban.clone().or_else(|| ids.imdb.clone()),
         "letterboxd" => ids.letterboxd.clone().or_else(|| ids.imdb.clone()),
+        "cinepersona" => ids.tmdb.clone().or_else(|| ids.imdb.clone()),
         _ => None,
     }
 }
@@ -3702,6 +3715,7 @@ async fn fetch_douban_public_wishlist_items(
                     "poster": item.poster,
                     "public_path": "wish"
                 }),
+                created_at: None,
             })
         }));
         start += page_size;
@@ -4411,6 +4425,673 @@ impl TmdbClient {
 
 fn normalize_tmdb_rating(rating: f64) -> f64 {
     (rating.clamp(0.5, 10.0) * 2.0).round() / 2.0
+}
+
+async fn fetch_cinepersona_movies(
+    config: &cinerecord_core::CinePersonaConfig,
+) -> Result<(FetchResult, Vec<MovieRecord>)> {
+    let base_url = config
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "https://film.133339.xyz".to_string())
+        .trim_end_matches('/')
+        .to_string();
+    let api_key = config
+        .api_key
+        .clone()
+        .context("CinePersona API Key is required")?;
+
+    let client = reqwest::Client::new();
+    let mut offset = 0;
+    let limit = 50;
+    let mut all_activities = Vec::new();
+
+    loop {
+        let url = format!("{base_url}/open/v1/library?limit={limit}&offset={offset}");
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("x-api-key", &api_key)
+            .header("User-Agent", "CineRecord/2.0")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("CinePersona API request failed: HTTP {}", response.status());
+        }
+
+        let payload: serde_json::Value = response.json().await?;
+        let activities = payload.get("activities").and_then(|v| v.as_array());
+
+        let Some(activities_arr) = activities else {
+            break;
+        };
+
+        if activities_arr.is_empty() {
+            break;
+        }
+
+        all_activities.extend(activities_arr.clone());
+
+        let has_more = payload
+            .get("paging")
+            .and_then(|p| p.get("hasMore"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !has_more {
+            break;
+        }
+
+        offset += limit;
+    }
+
+    let mut records = Vec::new();
+    for act in &all_activities {
+        let movie = act.get("movie").cloned().unwrap_or_else(|| json!({}));
+        let imdb_id = movie
+            .get("imdbId")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        let tmdb_id = movie
+            .get("tmdbId")
+            .and_then(|v| v.as_i64())
+            .map(|v| v.to_string());
+
+        let title = movie
+            .get("titleLocalized")
+            .and_then(|v| v.as_str())
+            .or_else(|| movie.get("titleEn").and_then(|v| v.as_str()))
+            .unwrap_or("Unknown title")
+            .to_string();
+
+        let release_date = movie.get("releaseDate").and_then(|v| v.as_str());
+        let year =
+            release_date.and_then(|rd| rd.chars().take(4).collect::<String>().parse::<i32>().ok());
+
+        let rating = act.get("rating").and_then(|v| v.as_f64());
+        let watched_at_str = act
+            .get("watchedAt")
+            .and_then(|v| v.as_str())
+            .or_else(|| act.get("loggedAt").and_then(|v| v.as_str()));
+        let rated_at = watched_at_str
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+
+        let external_id = imdb_id.clone().or_else(|| tmdb_id.clone());
+        let source_url = imdb_id
+            .as_ref()
+            .map(|id| format!("https://www.imdb.com/title/{id}/"));
+
+        let identifiers = MovieIdentifiers {
+            imdb: imdb_id,
+            tmdb: tmdb_id,
+            trakt: None,
+            douban: None,
+            letterboxd: None,
+        };
+
+        records.push(MovieRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            platform: "cinepersona".to_string(),
+            title,
+            year,
+            rating,
+            rated_at,
+            external_id,
+            source_url,
+            identifiers,
+            raw_json: act.clone(),
+        });
+    }
+
+    let count = records.len();
+    Ok((
+        FetchResult {
+            platform: "cinepersona".to_string(),
+            item_count: count,
+            stored_count: count,
+        },
+        records,
+    ))
+}
+
+async fn fetch_cinepersona_wishlist(
+    config: &cinerecord_core::CinePersonaConfig,
+) -> Result<(Value, Vec<WishlistRecord>)> {
+    let base_url = config
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "https://film.133339.xyz".to_string())
+        .trim_end_matches('/')
+        .to_string();
+    let api_key = config
+        .api_key
+        .clone()
+        .context("CinePersona API Key is required")?;
+
+    let client = reqwest::Client::new();
+    let mut offset = 0;
+    let limit = 50;
+    let mut all_items = Vec::new();
+
+    loop {
+        let url = format!("{base_url}/open/v1/watchlist?limit={limit}&offset={offset}");
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("x-api-key", &api_key)
+            .header("User-Agent", "CineRecord/2.0")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("CinePersona API request failed: HTTP {}", response.status());
+        }
+
+        let payload: serde_json::Value = response.json().await?;
+        let items = payload.get("items").and_then(|v| v.as_array());
+
+        let Some(items_arr) = items else {
+            break;
+        };
+
+        if items_arr.is_empty() {
+            break;
+        }
+
+        all_items.extend(items_arr.clone());
+
+        let has_more = payload
+            .get("paging")
+            .and_then(|p| p.get("hasMore"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !has_more {
+            break;
+        }
+
+        offset += limit;
+    }
+
+    let mut records = Vec::new();
+    for item in &all_items {
+        let movie = item.get("movie").cloned().unwrap_or_else(|| json!({}));
+        let imdb_id = movie
+            .get("imdbId")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        let tmdb_id = movie
+            .get("tmdbId")
+            .and_then(|v| v.as_i64())
+            .map(|v| v.to_string());
+
+        let title = movie
+            .get("titleLocalized")
+            .and_then(|v| v.as_str())
+            .or_else(|| movie.get("titleEn").and_then(|v| v.as_str()))
+            .unwrap_or("Unknown title")
+            .to_string();
+
+        let release_date = movie.get("releaseDate").and_then(|v| v.as_str());
+        let year =
+            release_date.and_then(|rd| rd.chars().take(4).collect::<String>().parse::<i32>().ok());
+
+        let external_id = imdb_id.clone().or_else(|| tmdb_id.clone());
+        let source_url = imdb_id
+            .as_ref()
+            .map(|id| format!("https://www.imdb.com/title/{id}/"));
+
+        let identifiers = MovieIdentifiers {
+            imdb: imdb_id,
+            tmdb: tmdb_id,
+            trakt: None,
+            douban: None,
+            letterboxd: None,
+        };
+
+        records.push(WishlistRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            platform: "cinepersona".to_string(),
+            title,
+            year,
+            external_id,
+            source_url,
+            identifiers,
+            raw_json: item.clone(),
+            created_at: None,
+        });
+    }
+
+    let count = records.len();
+    Ok((
+        json!({
+            "platform": "cinepersona",
+            "items": all_items,
+            "item_count": count,
+            "stored_count": count,
+            "implemented": true,
+        }),
+        records,
+    ))
+}
+async fn test_cinepersona(
+    config: &cinerecord_core::CinePersonaConfig,
+) -> Result<PlatformValidationResult> {
+    let base_url = config
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "https://film.133339.xyz".to_string())
+        .trim_end_matches('/')
+        .to_string();
+    let api_key = config
+        .api_key
+        .clone()
+        .context("CinePersona API Key is required")?;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{base_url}/open/v1/me"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("x-api-key", &api_key)
+        .header("User-Agent", "CineRecord/2.0")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Ok(PlatformValidationResult {
+            platform: "cinepersona".to_string(),
+            success: false,
+            message: format!("HTTP {status}: {body_text}"),
+            profile: None,
+        });
+    }
+
+    let user_info: serde_json::Value = response.json().await?;
+    let user_obj = user_info.get("user");
+    let username = user_obj
+        .and_then(|u| {
+            u.get("name")
+                .or_else(|| u.get("username"))
+                .or_else(|| u.get("displayName"))
+        })
+        .and_then(|v| v.as_str())
+        .unwrap_or("CinePersona User")
+        .to_string();
+
+    Ok(PlatformValidationResult {
+        platform: "cinepersona".to_string(),
+        success: true,
+        message: format!("连接成功 (用户: {username})"),
+        profile: Some(user_info),
+    })
+}
+
+pub async fn fetch_media_server_movies(
+    base_url: &str,
+    api_key: &str,
+) -> anyhow::Result<Vec<cinerecord_core::MediaServerItem>> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    let normalized_base = base_url.trim_end_matches('/');
+
+    // 1. Detect server type:
+    // Emby/Jellyfin check: GET /System/Info with X-Emby-Token: api_key
+    let mut is_plex = false;
+    let emby_check = client
+        .get(&format!("{}/System/Info", normalized_base))
+        .header("X-Emby-Token", api_key)
+        .send()
+        .await;
+
+    if let Ok(resp) = emby_check {
+        if resp.status().is_success() {
+            let items_url = format!("{}/Items", normalized_base);
+            let mut all_items = Vec::new();
+            let mut start_index = 0;
+            let limit = 200;
+
+            async fn query_items(
+                client: &reqwest::Client,
+                url: &str,
+                api_key: &str,
+                start: u32,
+                limit: u32,
+            ) -> anyhow::Result<(Vec<serde_json::Value>, Option<u32>)> {
+                let resp = client
+                    .get(url)
+                    .header("X-Emby-Token", api_key)
+                    .query(&[
+                        ("Recursive", "true"),
+                        ("IncludeItemTypes", "Movie"),
+                        (
+                            "Fields",
+                            "ProviderIds,ProductionYear,OriginalTitle,Path,MediaSources,ServerId",
+                        ),
+                        ("StartIndex", &start.to_string()),
+                        ("Limit", &limit.to_string()),
+                    ])
+                    .send()
+                    .await?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    anyhow::bail!("Status: {}, Text: {}", status, text);
+                }
+
+                let body: serde_json::Value = resp.json().await?;
+                let items = body
+                    .get("Items")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let total = body
+                    .get("TotalRecordCount")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                Ok((items, total))
+            }
+
+            match query_items(&client, &items_url, api_key, start_index, limit).await {
+                Ok((items, total)) => {
+                    all_items.extend(items);
+                    let total_count = total;
+                    loop {
+                        if let Some(t) = total_count {
+                            if all_items.len() >= t as usize {
+                                break;
+                            }
+                        }
+                        start_index += limit;
+                        match query_items(&client, &items_url, api_key, start_index, limit).await {
+                            Ok((next_items, _)) => {
+                                if next_items.is_empty() {
+                                    break;
+                                }
+                                all_items.extend(next_items);
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                Err(e) if e.to_string().contains("UserId") => {
+                    let users_resp = client
+                        .get(&format!("{}/Users", normalized_base))
+                        .header("X-Emby-Token", api_key)
+                        .send()
+                        .await?;
+                    if users_resp.status().is_success() {
+                        let users: serde_json::Value = users_resp.json().await?;
+                        if let Some(user_id) = users
+                            .get(0)
+                            .and_then(|u| u.get("Id"))
+                            .and_then(|id| id.as_str())
+                        {
+                            let user_items_url =
+                                format!("{}/Users/{}/Items", normalized_base, user_id);
+                            start_index = 0;
+                            if let Ok((items, total)) =
+                                query_items(&client, &user_items_url, api_key, start_index, limit)
+                                    .await
+                            {
+                                all_items.extend(items);
+                                let total_count = total;
+                                loop {
+                                    if let Some(t) = total_count {
+                                        if all_items.len() >= t as usize {
+                                            break;
+                                        }
+                                    }
+                                    start_index += limit;
+                                    match query_items(
+                                        &client,
+                                        &user_items_url,
+                                        api_key,
+                                        start_index,
+                                        limit,
+                                    )
+                                    .await
+                                    {
+                                        Ok((next_items, _)) => {
+                                            if next_items.is_empty() {
+                                                break;
+                                            }
+                                            all_items.extend(next_items);
+                                        }
+                                        Err(_) => break,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => anyhow::bail!("Emby/Jellyfin error: {}", e),
+            }
+
+            let mut results = Vec::new();
+            for item in all_items {
+                let name = item
+                    .get("Name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let year = item
+                    .get("ProductionYear")
+                    .and_then(|v| v.as_i64())
+                    .map(|y| y as i32);
+                let provider_ids = item.get("ProviderIds");
+                let imdb_id = provider_ids
+                    .and_then(|p| p.get("Imdb"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let tmdb_id = provider_ids
+                    .and_then(|p| p.get("Tmdb"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let item_id = item.get("Id").and_then(|v| v.as_str()).unwrap_or_default();
+                let server_id = item
+                    .get("ServerId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+
+                let library_url = format!(
+                    "{}/web/index.html#!/item?id={}&serverId={}",
+                    normalized_base, item_id, server_id
+                );
+                let media_path = item
+                    .get("Path")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let file_name = media_path.as_ref().map(|p| {
+                    let normalized = p.replace('\\', "/");
+                    normalized.split('/').last().unwrap_or("").to_string()
+                });
+
+                results.push(cinerecord_core::MediaServerItem {
+                    title: name,
+                    year,
+                    imdb_id,
+                    tmdb_id,
+                    library_url: Some(library_url),
+                    media_path,
+                    file_name,
+                });
+            }
+            return Ok(results);
+        }
+    }
+
+    let plex_check = client
+        .get(&format!("{}/identity", normalized_base))
+        .query(&[("X-Plex-Token", api_key)])
+        .send()
+        .await;
+
+    if let Ok(resp) = plex_check {
+        if resp.status().is_success() {
+            is_plex = true;
+        }
+    }
+
+    if is_plex {
+        let identity_text = client
+            .get(&format!("{}/identity", normalized_base))
+            .query(&[("X-Plex-Token", api_key)])
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        let machine_id = identity_text
+            .split("machineIdentifier=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .map(|s| s.to_string());
+
+        let sections_text = client
+            .get(&format!("{}/library/sections", normalized_base))
+            .query(&[("X-Plex-Token", api_key)])
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        let mut movie_section_keys = Vec::new();
+        for chunk in sections_text.split("<Directory ") {
+            if chunk.contains("type=\"movie\"") {
+                if let Some(key) = chunk
+                    .split("key=\"")
+                    .nth(1)
+                    .and_then(|s| s.split('"').next())
+                {
+                    movie_section_keys.push(key.to_string());
+                }
+            }
+        }
+
+        let mut results = Vec::new();
+        for key in movie_section_keys {
+            let mut start = 0;
+            let size = 500;
+            loop {
+                let resp_text = client
+                    .get(&format!("{}/library/sections/{}/all", normalized_base, key))
+                    .query(&[
+                        ("X-Plex-Token", api_key),
+                        ("type", "1"),
+                        ("X-Plex-Container-Start", &start.to_string()),
+                        ("X-Plex-Container-Size", &size.to_string()),
+                    ])
+                    .send()
+                    .await?
+                    .text()
+                    .await?;
+
+                let mut count = 0;
+                for video_chunk in resp_text.split("<Video ") {
+                    if video_chunk.trim().is_empty() || !video_chunk.contains("ratingKey=\"") {
+                        continue;
+                    }
+                    count += 1;
+                    let rating_key = video_chunk
+                        .split("ratingKey=\"")
+                        .nth(1)
+                        .and_then(|s| s.split('"').next())
+                        .unwrap_or_default();
+                    let title = video_chunk
+                        .split("title=\"")
+                        .nth(1)
+                        .and_then(|s| s.split('"').next())
+                        .unwrap_or_default();
+                    let year_str = video_chunk
+                        .split("year=\"")
+                        .nth(1)
+                        .and_then(|s| s.split('"').next())
+                        .unwrap_or_default();
+                    let year = year_str.parse::<i32>().ok();
+                    let guid_str = video_chunk
+                        .split("guid=\"")
+                        .nth(1)
+                        .and_then(|s| s.split('"').next())
+                        .unwrap_or_default();
+
+                    let mut imdb_id = None;
+                    let mut tmdb_id = None;
+
+                    fn extract_guid_ids(
+                        guid: &str,
+                        imdb: &mut Option<String>,
+                        tmdb: &mut Option<String>,
+                    ) {
+                        if guid.contains("imdb://tt") {
+                            if let Some(id) = guid
+                                .split("imdb://")
+                                .nth(1)
+                                .and_then(|s| s.split('?').next())
+                            {
+                                *imdb = Some(id.to_string());
+                            }
+                        } else if guid.contains("tmdb://") {
+                            if let Some(id) = guid
+                                .split("tmdb://")
+                                .nth(1)
+                                .and_then(|s| s.split('?').next())
+                            {
+                                *tmdb = Some(id.to_string());
+                            }
+                        }
+                    }
+
+                    extract_guid_ids(guid_str, &mut imdb_id, &mut tmdb_id);
+
+                    let child_section = video_chunk.split("</Video>").next().unwrap_or_default();
+                    for guid_tag in child_section.split("<Guid id=\"") {
+                        if let Some(gid) = guid_tag.split('"').next() {
+                            extract_guid_ids(gid, &mut imdb_id, &mut tmdb_id);
+                        }
+                    }
+
+                    let library_url = machine_id.as_ref().map(|mid| {
+                        format!("https://app.plex.tv/desktop/#!/server/{}/details?key=%2Flibrary%2Fmetadata%2F{}", mid, rating_key)
+                    });
+
+                    let media_path = child_section
+                        .split("file=\"")
+                        .nth(1)
+                        .and_then(|s| s.split('"').next())
+                        .map(|s| s.to_string());
+                    let file_name = media_path.as_ref().map(|p| {
+                        let normalized = p.replace('\\', "/");
+                        normalized.split('/').last().unwrap_or("").to_string()
+                    });
+
+                    results.push(cinerecord_core::MediaServerItem {
+                        title: title.to_string(),
+                        year,
+                        imdb_id,
+                        tmdb_id,
+                        library_url,
+                        media_path,
+                        file_name,
+                    });
+                }
+
+                if count < size {
+                    break;
+                }
+                start += count;
+            }
+        }
+        return Ok(results);
+    }
+
+    anyhow::bail!("Unsupported media server or connection failed.")
 }
 
 #[cfg(test)]

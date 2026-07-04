@@ -65,11 +65,26 @@ pub fn router() -> Router<AppState> {
             post(auth_bookmarklet_callback),
         )
         .route("/api/v2/cookiecloud/sync", post(sync_cookiecloud_handler))
+        .route("/api/v2/cinepersona/test", post(test_cinepersona_handler))
+        .route("/api/v2/cinepersona/sync", post(sync_cinepersona_handler))
+        .route(
+            "/api/v2/platforms/media_server/test",
+            post(test_media_server_connection),
+        )
+        .route(
+            "/api/v2/platforms/media_server/logout",
+            post(logout_media_server),
+        )
+        .route(
+            "/api/v2/export/cinepersona",
+            get(export_cinepersona_csv_handler),
+        )
         .route("/api/v2/platforms", get(get_platforms))
         .route(
             "/api/v2/platforms/{platform}/browser-auth/start",
             post(start_browser_auth),
         )
+        .route("/api/v2/platforms/{platform}/logout", post(logout_platform))
         .route("/api/v2/platforms/{platform}/test", post(test_platform))
         .route("/api/v2/platforms/{platform}/fetch", post(fetch_platform))
         .route(
@@ -237,8 +252,8 @@ async fn get_overview(State(state): State<AppState>) -> Result<Json<serde_json::
     let library_counts = platform_item_counts(&state.pool, "library_items").await?;
     let wishlist_counts = platform_item_counts(&state.pool, "wishlist_items").await?;
     let tasks = list_tasks(&state.pool).await?;
-    let total_library = count_library_groups(&state.pool, None).await?;
-    let total_wishlist = count_wishlist_groups(&state.pool, None).await?;
+    let total_library = count_library_groups(&state.pool, None, None).await?;
+    let total_wishlist = count_wishlist_groups(&state.pool, None, None, None).await?;
     Ok(Json(json!({
         "platforms": platforms,
         "counts": {
@@ -400,6 +415,64 @@ async fn auth_bookmarklet_submit(
     Ok(Html(render_bookmarklet_result_page(success, message)))
 }
 
+async fn logout_platform(
+    State(state): State<AppState>,
+    Path(platform): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let mut next_config = state.config.read().await.clone();
+    match platform.as_str() {
+        "douban" => {
+            next_config.platforms.douban = Default::default();
+        }
+        "imdb" => {
+            next_config.platforms.imdb = Default::default();
+        }
+        "trakt" => {
+            next_config.platforms.trakt.access_token = None;
+            next_config.platforms.trakt.refresh_token = None;
+            next_config.platforms.trakt.token_expires_at = None;
+        }
+        "tmdb" => {
+            next_config.platforms.tmdb.request_token = None;
+            next_config.platforms.tmdb.session_id = None;
+            next_config.platforms.tmdb.account_id = None;
+            next_config.platforms.tmdb.username = None;
+        }
+        "cinepersona" => {
+            next_config.cinepersona.base_url = None;
+            next_config.cinepersona.api_key = None;
+            next_config.cinepersona.username = None;
+            next_config.cinepersona.email = None;
+        }
+        _ => {
+            return Err(ApiError::BadRequest(
+                "logout only supports douban, imdb, trakt, tmdb, and cinepersona".to_string(),
+            ));
+        }
+    }
+
+    save_config(&state.paths, &next_config).await?;
+    *state.config.write().await = next_config;
+    upsert_platform_state(&state.pool, &platform, false, Some("已退出登录"), None).await?;
+
+    publish_event(
+        &state,
+        "log",
+        None,
+        json!({
+            "message": format!("{} 已退出登录", platform.to_uppercase()),
+            "level": "info",
+            "platform": platform
+        }),
+    );
+
+    Ok(Json(json!({
+        "success": true,
+        "platform": platform,
+        "message": "已退出登录"
+    })))
+}
+
 async fn sync_cookiecloud_handler(
     State(state): State<AppState>,
     Json(payload): Json<CookieCloudSyncRequest>,
@@ -485,6 +558,608 @@ async fn sync_cookiecloud_handler(
         "result": result,
         "config": next_config
     })))
+}
+
+#[derive(Deserialize)]
+struct CinePersonaTestRequest {
+    base_url: Option<String>,
+    api_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CinePersonaSyncRequest {
+    base_url: Option<String>,
+    api_key: Option<String>,
+}
+
+async fn test_cinepersona_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<CinePersonaTestRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let base_url = payload
+        .base_url
+        .or_else(|| {
+            let config = state.config.try_read().ok()?;
+            config.cinepersona.base_url.clone()
+        })
+        .unwrap_or_else(|| "https://film.133339.xyz".to_string());
+    let base_url = base_url.trim_end_matches('/').to_string();
+
+    let api_key = payload.api_key.or_else(|| {
+        let config = state.config.try_read().ok()?;
+        config.cinepersona.api_key.clone()
+    });
+
+    let Some(api_key) = api_key else {
+        return Err(ApiError::BadRequest("未填写 API Key".to_string()));
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{base_url}/open/v1/me"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("x-api-key", &api_key)
+        .header("User-Agent", "CineRecord/2.0")
+        .send()
+        .await
+        .map_err(|err| ApiError::BadRequest(format!("网络请求失败: {err}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(ApiError::BadRequest(format!("HTTP {status}: {body_text}")));
+    }
+
+    let user_info: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|err| ApiError::BadRequest(format!("解析用户信息失败: {err}")))?;
+
+    let user_obj = user_info.get("user");
+    let username = user_obj
+        .and_then(|u| {
+            u.get("name")
+                .or_else(|| u.get("username"))
+                .or_else(|| u.get("displayName"))
+        })
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let email = user_obj
+        .and_then(|u| u.get("email"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // Save config
+    {
+        let mut config = state.config.write().await;
+        config.cinepersona.base_url = Some(base_url.clone());
+        config.cinepersona.api_key = Some(api_key.clone());
+        config.cinepersona.username = Some(username.clone());
+        config.cinepersona.email = Some(email.clone());
+        save_config(&state.paths, &config)
+            .await
+            .map_err(|err| ApiError::Internal(err.into()))?;
+    }
+
+    upsert_platform_state(
+        &state.pool,
+        "cinepersona",
+        true,
+        Some("已连接至 CinePersona"),
+        Some(&user_info),
+    )
+    .await
+    .map_err(|err| ApiError::Internal(err.into()))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "username": username,
+        "email": email
+    })))
+}
+
+async fn sync_cinepersona_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<CinePersonaSyncRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let base_url = payload
+        .base_url
+        .or_else(|| {
+            let config = state.config.try_read().ok()?;
+            config.cinepersona.base_url.clone()
+        })
+        .unwrap_or_else(|| "https://film.133339.xyz".to_string());
+    let base_url = base_url.trim_end_matches('/').to_string();
+
+    let api_key = payload.api_key.or_else(|| {
+        let config = state.config.try_read().ok()?;
+        config.cinepersona.api_key.clone()
+    });
+
+    let Some(api_key) = api_key else {
+        return Err(ApiError::BadRequest("未填写 API Key".to_string()));
+    };
+
+    tokio::spawn(async move {
+        let _ = sync_cinepersona_worker(state, base_url, api_key).await;
+    });
+
+    Ok(Json(json!({
+        "success": true,
+        "message": "CinePersona 同步任务已启动"
+    })))
+}
+
+async fn sync_cinepersona_worker(
+    state: AppState,
+    base_url: String,
+    api_key: String,
+) -> anyhow::Result<()> {
+    publish_event(
+        &state,
+        "log",
+        None,
+        json!({
+            "message": "⏳ 正在合并所有平台数据……",
+            "level": "info"
+        }),
+    );
+
+    let library_items = match cinerecord_storage::list_library_items(&state.pool, None).await {
+        Ok(items) => items,
+        Err(err) => {
+            publish_event(
+                &state,
+                "log",
+                None,
+                json!({
+                    "message": format!("❌ 读取本地影片失败: {err}"),
+                    "level": "error"
+                }),
+            );
+            return Err(err);
+        }
+    };
+
+    let wishlist_items = match cinerecord_storage::list_wishlist_items(&state.pool, None).await {
+        Ok(items) => items,
+        Err(err) => {
+            publish_event(
+                &state,
+                "log",
+                None,
+                json!({
+                    "message": format!("❌ 读取本地想看失败: {err}"),
+                    "level": "error"
+                }),
+            );
+            return Err(err);
+        }
+    };
+
+    struct MergedItem {
+        title: String,
+        year: Option<i32>,
+        imdb: Option<String>,
+        tmdb: Option<i64>,
+        douban: Option<String>,
+        letterboxd: Option<String>,
+        trakt: Option<String>,
+        source_platform: String,
+        is_wishlist: bool,
+        rating: Option<f64>,
+        rated_at: Option<String>,
+    }
+
+    let get_movie_key = |record: &cinerecord_core::MovieRecord| -> String {
+        if let Some(ref imdb) = record.identifiers.imdb {
+            if imdb.starts_with("tt") {
+                return imdb.clone();
+            }
+        }
+        let title_clean = record.title.to_lowercase();
+        let year_str = record.year.map(|y| y.to_string()).unwrap_or_default();
+        format!("{title_clean}|{year_str}")
+    };
+
+    let get_wish_key = |record: &cinerecord_core::WishlistRecord| -> String {
+        if let Some(ref imdb) = record.identifiers.imdb {
+            if imdb.starts_with("tt") {
+                return imdb.clone();
+            }
+        }
+        let title_clean = record.title.to_lowercase();
+        let year_str = record.year.map(|y| y.to_string()).unwrap_or_default();
+        format!("{title_clean}|{year_str}")
+    };
+
+    let mut all_movies = std::collections::HashMap::new();
+
+    for record in library_items {
+        let key = get_movie_key(&record);
+        let entry = all_movies.entry(key).or_insert(MergedItem {
+            title: record.title.clone(),
+            year: record.year,
+            imdb: record.identifiers.imdb.clone(),
+            tmdb: record
+                .identifiers
+                .tmdb
+                .as_ref()
+                .and_then(|t| t.parse::<i64>().ok()),
+            douban: record.identifiers.douban.clone(),
+            letterboxd: record.identifiers.letterboxd.clone(),
+            trakt: record.identifiers.trakt.clone(),
+            source_platform: record.platform.clone(),
+            is_wishlist: false,
+            rating: record.rating,
+            rated_at: record.rated_at.map(|dt| dt.to_rfc3339()),
+        });
+        if entry.imdb.is_none() {
+            entry.imdb = record.identifiers.imdb.clone();
+        }
+        if entry.tmdb.is_none() {
+            entry.tmdb = record
+                .identifiers
+                .tmdb
+                .as_ref()
+                .and_then(|t| t.parse::<i64>().ok());
+        }
+        if entry.douban.is_none() {
+            entry.douban = record.identifiers.douban.clone();
+        }
+        if entry.letterboxd.is_none() {
+            entry.letterboxd = record.identifiers.letterboxd.clone();
+        }
+        if entry.trakt.is_none() {
+            entry.trakt = record.identifiers.trakt.clone();
+        }
+        if entry.rating.is_none() {
+            entry.rating = record.rating;
+        }
+        if entry.rated_at.is_none() {
+            entry.rated_at = record.rated_at.map(|dt| dt.to_rfc3339());
+        }
+    }
+
+    for record in wishlist_items {
+        let key = get_wish_key(&record);
+        let entry = all_movies.entry(key).or_insert(MergedItem {
+            title: record.title.clone(),
+            year: record.year,
+            imdb: record.identifiers.imdb.clone(),
+            tmdb: record
+                .identifiers
+                .tmdb
+                .as_ref()
+                .and_then(|t| t.parse::<i64>().ok()),
+            douban: record.identifiers.douban.clone(),
+            letterboxd: record.identifiers.letterboxd.clone(),
+            trakt: record.identifiers.trakt.clone(),
+            source_platform: record.platform.clone(),
+            is_wishlist: true,
+            rating: None,
+            rated_at: None,
+        });
+        if entry.imdb.is_none() {
+            entry.imdb = record.identifiers.imdb.clone();
+        }
+        if entry.tmdb.is_none() {
+            entry.tmdb = record
+                .identifiers
+                .tmdb
+                .as_ref()
+                .and_then(|t| t.parse::<i64>().ok());
+        }
+        if entry.douban.is_none() {
+            entry.douban = record.identifiers.douban.clone();
+        }
+        if entry.letterboxd.is_none() {
+            entry.letterboxd = record.identifiers.letterboxd.clone();
+        }
+        if entry.trakt.is_none() {
+            entry.trakt = record.identifiers.trakt.clone();
+        }
+    }
+
+    if all_movies.is_empty() {
+        publish_event(
+            &state,
+            "log",
+            None,
+            json!({
+                "message": "❌ 暂无合并数据，请先抓取各平台数据",
+                "level": "error"
+            }),
+        );
+        publish_event(
+            &state,
+            "cinepersona.sync.completed",
+            None,
+            json!({ "error": "No data" }),
+        );
+        return Ok(());
+    }
+
+    let mut sync_items = Vec::new();
+    for (_, entry) in all_movies {
+        let mut ids = json!({});
+        if let Some(imdb) = entry.imdb {
+            ids["imdb"] = json!(imdb);
+        }
+        if let Some(tmdb) = entry.tmdb {
+            ids["tmdb"] = json!(tmdb);
+        }
+        if let Some(douban) = entry.douban {
+            ids["douban"] = json!(douban);
+        }
+        if let Some(letterboxd) = entry.letterboxd {
+            ids["letterboxd"] = json!(letterboxd);
+        }
+        if let Some(trakt) = entry.trakt {
+            ids["trakt"] = json!(trakt);
+        }
+
+        let source = match entry.source_platform.to_lowercase().as_str() {
+            "douban" => "DOUBAN",
+            "imdb" => "IMDB",
+            "trakt" => "TRAKT",
+            "tmdb" => "TMDB",
+            "letterboxd" => "LETTERBOXD",
+            _ => "IMDB",
+        };
+        let status = if entry.is_wishlist {
+            "PLAN_TO_WATCH"
+        } else {
+            "WATCHED"
+        };
+        let date = entry
+            .rated_at
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+        sync_items.push(json!({
+            "ids": ids,
+            "activity": {
+                "source": source,
+                "status": status,
+                "rating": entry.rating,
+                "date": date,
+                "logDate": date
+            },
+            "fallback": {
+                "title": entry.title,
+                "year": entry.year
+            }
+        }));
+    }
+
+    let total = sync_items.len();
+    let batch_size = 500;
+    let chunks: Vec<_> = sync_items.chunks(batch_size).collect();
+    let batches = chunks.len();
+    let mut synced = 0;
+    let mut errors = 0;
+
+    publish_event(
+        &state,
+        "log",
+        None,
+        json!({
+            "message": format!("📦 共 {total} 条记录，分 {batches} 批推送至 CinePersona……"),
+            "level": "info"
+        }),
+    );
+
+    let client = reqwest::Client::new();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let payload = json!({
+            "items": chunk,
+            "options": {
+                "strict": false
+            }
+        });
+
+        let response = client
+            .post(format!("{base_url}/open/v1/sync"))
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("x-api-key", &api_key)
+            .header("User-Agent", "CineRecord/2.0")
+            .json(&payload)
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    let result: serde_json::Value = resp.json().await.unwrap_or_default();
+                    let s = result
+                        .get("synced")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(chunk.len() as i64);
+                    let e = result.get("errors").and_then(|v| v.as_i64()).unwrap_or(0);
+                    synced += s;
+                    errors += e;
+                    publish_event(
+                        &state,
+                        "log",
+                        None,
+                        json!({
+                            "message": format!("✅ 第 {}/{} 批完成：synced={}, errors={}", i + 1, batches, s, e),
+                            "level": "info"
+                        }),
+                    );
+                } else {
+                    let status = resp.status();
+                    errors += chunk.len() as i64;
+                    publish_event(
+                        &state,
+                        "log",
+                        None,
+                        json!({
+                            "message": format!("❌ 第 {} 批失败 HTTP {status}", i + 1),
+                            "level": "error"
+                        }),
+                    );
+                }
+            }
+            Err(err) => {
+                errors += chunk.len() as i64;
+                publish_event(
+                    &state,
+                    "log",
+                    None,
+                    json!({
+                        "message": format!("❌ 第 {} 批异常: {err}", i + 1),
+                        "level": "error"
+                    }),
+                );
+            }
+        }
+    }
+
+    let summary =
+        format!("🎉 CinePersona 同步完成！共推送 {total} 条，synced={synced}, errors={errors}");
+    publish_event(
+        &state,
+        "log",
+        None,
+        json!({
+            "message": summary,
+            "level": "success"
+        }),
+    );
+    publish_event(
+        &state,
+        "cinepersona.sync.completed",
+        None,
+        json!({ "synced": synced, "errors": errors }),
+    );
+
+    Ok(())
+}
+
+async fn export_cinepersona_csv_handler(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    use std::collections::HashMap;
+
+    let lib_items = cinerecord_storage::list_library_items(&state.pool, None)
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    let wish_items = cinerecord_storage::list_wishlist_items(&state.pool, None)
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    // key: (title_lower, year)
+    // val: (title, year, imdb, tmdb, rating, watched_at, comment, status)
+    let mut deduplicated = HashMap::new();
+
+    // First process wishlist items (PLAN_TO_WATCH)
+    for item in wish_items {
+        let key = (item.title.to_lowercase(), item.year.unwrap_or(0));
+        deduplicated.insert(
+            key,
+            (
+                item.title.clone(),
+                item.year,
+                item.identifiers.imdb.clone(),
+                item.identifiers.tmdb.clone(),
+                None,
+                None,
+                None,
+                "PLAN_TO_WATCH".to_string(),
+            ),
+        );
+    }
+
+    // Then process library items (WATCHED), which overrides PLAN_TO_WATCH
+    for item in lib_items {
+        let key = (item.title.to_lowercase(), item.year.unwrap_or(0));
+
+        let watched_at_str = item.rated_at.map(|dt| dt.to_rfc3339());
+
+        let comment_str = item
+            .raw_json
+            .get("comment")
+            .or_else(|| item.raw_json.get("short_comment"))
+            .or_else(|| item.raw_json.get("review"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        deduplicated.insert(
+            key,
+            (
+                item.title.clone(),
+                item.year,
+                item.identifiers.imdb.clone(),
+                item.identifiers.tmdb.clone(),
+                item.rating,
+                watched_at_str,
+                comment_str,
+                "WATCHED".to_string(),
+            ),
+        );
+    }
+
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+
+    // Write CSV Headers
+    wtr.write_record(&[
+        "title",
+        "year",
+        "imdb_id",
+        "tmdb_id",
+        "rating",
+        "watched_at",
+        "comment",
+        "status",
+    ])
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("CSV write header error: {}", e)))?;
+
+    // Sort by title, then year to make the CSV deterministic and neat
+    let mut sorted_records: Vec<_> = deduplicated.into_values().collect();
+    sorted_records.sort_by(|a, b| match a.0.cmp(&b.0) {
+        std::cmp::Ordering::Equal => a.1.unwrap_or(0).cmp(&b.1.unwrap_or(0)),
+        other => other,
+    });
+
+    for rec in sorted_records {
+        let year_str = rec.1.map(|y| y.to_string()).unwrap_or_default();
+        let imdb_str = rec.2.unwrap_or_default();
+        let tmdb_str = rec.3.unwrap_or_default();
+        let rating_str = rec.4.map(|r| r.to_string()).unwrap_or_default();
+        let watched_at_str = rec.5.unwrap_or_default();
+        let comment_str = rec.6.unwrap_or_default();
+        let status_str = rec.7;
+
+        wtr.write_record(&[
+            &rec.0,
+            &year_str,
+            &imdb_str,
+            &tmdb_str,
+            &rating_str,
+            &watched_at_str,
+            &comment_str,
+            &status_str,
+        ])
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("CSV write record error: {}", e)))?;
+    }
+
+    let csv_data = wtr
+        .into_inner()
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("CSV inner error: {}", e)))?;
+
+    let headers = [
+        (axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            "attachment; filename=\"cinepersona_import.csv\"",
+        ),
+    ];
+
+    Ok((headers, csv_data))
 }
 
 async fn ensure_fresh_trakt_auth(state: &AppState) -> Result<(), ApiError> {
@@ -657,19 +1332,26 @@ async fn get_library(
     let raw = query.mode.as_deref() == Some("raw");
     let full_view = query.view.as_deref() == Some("full");
     let selected_platforms = selected_library_platforms(&query);
+    let search = query.q.as_deref();
     let total = if raw {
         count_library_items(&state.pool, None).await?
     } else if full_view {
-        count_library_groups(&state.pool, None).await?
+        count_library_groups(&state.pool, None, search).await?
     } else {
-        count_library_view_groups(&state.pool, None, &selected_platforms).await?
+        count_library_view_groups(&state.pool, None, &selected_platforms, search).await?
     };
     let items = if raw {
         json!(list_library_items_paginated(&state.pool, None, query.limit, query.offset).await?)
     } else if full_view {
         json!(
-            list_library_items_aggregated_paginated(&state.pool, None, query.limit, query.offset)
-                .await?
+            list_library_items_aggregated_paginated(
+                &state.pool,
+                None,
+                search,
+                query.limit,
+                query.offset
+            )
+            .await?
         )
     } else {
         json!(
@@ -677,6 +1359,7 @@ async fn get_library(
                 &state.pool,
                 None,
                 &selected_platforms,
+                search,
                 query.limit,
                 query.offset
             )
@@ -706,12 +1389,13 @@ async fn get_library_for_platform(
     let raw = query.mode.as_deref() == Some("raw");
     let full_view = query.view.as_deref() == Some("full");
     let selected_platforms = selected_library_platforms(&query);
+    let search = query.q.as_deref();
     let total = if raw {
         count_library_items(&state.pool, Some(&platform)).await?
     } else if full_view {
-        count_library_groups(&state.pool, Some(&platform)).await?
+        count_library_groups(&state.pool, Some(&platform), search).await?
     } else {
-        count_library_view_groups(&state.pool, Some(&platform), &selected_platforms).await?
+        count_library_view_groups(&state.pool, Some(&platform), &selected_platforms, search).await?
     };
     let items = if raw {
         json!(
@@ -723,6 +1407,7 @@ async fn get_library_for_platform(
             list_library_items_aggregated_paginated(
                 &state.pool,
                 Some(&platform),
+                search,
                 query.limit,
                 query.offset
             )
@@ -734,6 +1419,7 @@ async fn get_library_for_platform(
                 &state.pool,
                 Some(&platform),
                 &selected_platforms,
+                search,
                 query.limit,
                 query.offset
             )
@@ -756,22 +1442,64 @@ async fn get_library_for_platform(
     })))
 }
 
+async fn get_media_server_items(state: &AppState) -> Option<Vec<cinerecord_core::MediaServerItem>> {
+    let config = state.config.read().await.clone();
+    let url = config.media_server_url.as_ref()?;
+    let api_key = config.media_server_api_key.as_ref()?;
+    if url.trim().is_empty() || api_key.trim().is_empty() {
+        return None;
+    }
+
+    // Check cache
+    {
+        let cache = state.media_server_cache.read().await;
+        if let Some((cached_at, items)) = &*cache {
+            if Utc::now().signed_duration_since(*cached_at) < chrono::Duration::minutes(15) {
+                return Some(items.clone());
+            }
+        }
+    }
+
+    // Cache miss or expired: fetch from server
+    match cinerecord_platforms::fetch_media_server_movies(url, api_key).await {
+        Ok(items) => {
+            let mut cache = state.media_server_cache.write().await;
+            *cache = Some((Utc::now(), items.clone()));
+            Some(items)
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch media server movies: {}", e);
+            let cache = state.media_server_cache.read().await;
+            cache.as_ref().map(|(_, items)| items.clone())
+        }
+    }
+}
+
 async fn get_wishlist(
     State(state): State<AppState>,
     Query(query): Query<LibraryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let raw = query.mode.as_deref() == Some("raw");
+    let search = query.q.as_deref();
+    let media_server_items = get_media_server_items(&state).await;
     let total = if raw {
         count_wishlist_items(&state.pool, None).await?
     } else {
-        count_wishlist_groups(&state.pool, None).await?
+        count_wishlist_groups(&state.pool, None, media_server_items.as_deref(), search).await?
     };
     let items = if raw {
         json!(list_wishlist_items_paginated(&state.pool, None, query.limit, query.offset).await?)
     } else {
         json!(
-            list_wishlist_items_aggregated_paginated(&state.pool, None, query.limit, query.offset)
-                .await?
+            list_wishlist_items_aggregated_paginated(
+                &state.pool,
+                None,
+                media_server_items.as_deref(),
+                search,
+                query.limit,
+                query.offset
+            )
+            .await?
         )
     };
     Ok(Json(json!({
@@ -789,10 +1517,18 @@ async fn get_wishlist_for_platform(
     Query(query): Query<LibraryQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let raw = query.mode.as_deref() == Some("raw");
+    let search = query.q.as_deref();
+    let media_server_items = get_media_server_items(&state).await;
     let total = if raw {
         count_wishlist_items(&state.pool, Some(&platform)).await?
     } else {
-        count_wishlist_groups(&state.pool, Some(&platform)).await?
+        count_wishlist_groups(
+            &state.pool,
+            Some(&platform),
+            media_server_items.as_deref(),
+            search,
+        )
+        .await?
     };
     let items = if raw {
         json!(
@@ -804,6 +1540,8 @@ async fn get_wishlist_for_platform(
             list_wishlist_items_aggregated_paginated(
                 &state.pool,
                 Some(&platform),
+                media_server_items.as_deref(),
+                search,
                 query.limit,
                 query.offset
             )
@@ -1352,6 +2090,7 @@ struct LibraryQuery {
     pub mode: Option<String>,
     pub view: Option<String>,
     pub platforms: Option<String>,
+    pub q: Option<String>,
 }
 
 fn selected_library_platforms(query: &LibraryQuery) -> Vec<String> {
@@ -1763,4 +2502,54 @@ fn build_scheduled_task(
         created_at: existing.as_ref().map(|task| task.created_at).unwrap_or(now),
         updated_at: now,
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct MediaServerTestPayload {
+    pub url: String,
+    pub api_key: String,
+}
+
+async fn test_media_server_connection(
+    State(state): State<AppState>,
+    Json(payload): Json<MediaServerTestPayload>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    match cinerecord_platforms::fetch_media_server_movies(&payload.url, &payload.api_key).await {
+        Ok(items) => {
+            {
+                let mut current = state.config.write().await;
+                current.media_server_url = Some(payload.url.clone());
+                current.media_server_api_key = Some(payload.api_key.clone());
+                save_config(&state.paths, &current).await?;
+            }
+            {
+                let mut cache = state.media_server_cache.write().await;
+                *cache = Some((Utc::now(), items.clone()));
+            }
+            Ok(Json(json!({
+                "success": true,
+                "message": format!("连接成功！已检测并同步片库中 {} 部电影。", items.len()),
+            })))
+        }
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "message": format!("连接失败: {}", e),
+        }))),
+    }
+}
+
+async fn logout_media_server(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    {
+        let mut current = state.config.write().await;
+        current.media_server_url = None;
+        current.media_server_api_key = None;
+        save_config(&state.paths, &current).await?;
+    }
+    {
+        let mut cache = state.media_server_cache.write().await;
+        *cache = None;
+    }
+    Ok(Json(json!({ "success": true })))
 }

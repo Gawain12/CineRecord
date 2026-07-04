@@ -201,55 +201,9 @@ jobs:
             dist-rust/CineRecord-macOS-arm64.dmg
             dist-rust/CineRecord-macOS-arm64.zip
 
-  build-macos-intel:
-    if: github.event_name != 'pull_request'
-    needs: test
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build macOS Intel package
-        env:
-          CINERECORD_VERSION: ${{ github.ref_name }}
-        run: |
-          chmod +x scripts/package_rust_macos.sh
-          scripts/package_rust_macos.sh
-      - name: Validate macOS package
-        run: |
-          test -s dist-rust/CineRecord.app/Contents/Resources/CineRecord.icns
-          codesign --verify --deep --strict dist-rust/CineRecord.app
-          hdiutil verify dist-rust/CineRecord-macOS-x86_64.dmg
-      - name: Smoke test macOS binary
-        run: |
-          export CINERECORD_HOME="$RUNNER_TEMP/cinerecord-smoke"
-          export CINERECORD_PORT=18001
-          cp dist-rust/CineRecord.app/Contents/Resources/cinerecord-server "$RUNNER_TEMP/cinerecord-server"
-          chmod +x "$RUNNER_TEMP/cinerecord-server"
-          xattr -c "$RUNNER_TEMP/cinerecord-server" || true
-          "$RUNNER_TEMP/cinerecord-server" &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" || true' EXIT
-          for _ in $(seq 1 80); do
-            if curl --fail --silent http://127.0.0.1:18001/api/v2/health >/dev/null; then
-              break
-            fi
-            sleep 0.25
-          done
-          curl --fail --silent http://127.0.0.1:18001/api/v2/health
-          curl --fail --silent http://127.0.0.1:18001/ >/dev/null
-      - uses: actions/upload-artifact@v4
-        with:
-          name: CineRecord-macOS-x86_64
-          retention-days: 30
-          if-no-files-found: error
-          path: |
-            dist-rust/CineRecord-macOS-x86_64.dmg
-            dist-rust/CineRecord-macOS-x86_64.zip
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [docker, build-windows, build-macos-arm, build-macos-intel]
+    needs: [docker, build-windows, build-macos-arm]
     permissions:
       contents: write
     runs-on: ubuntu-latest

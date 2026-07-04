@@ -14,6 +14,7 @@ cinerecord-jobs = { path = "../cinerecord-jobs" }
 cinerecord-platforms = { path = "../cinerecord-platforms" }
 cinerecord-storage = { path = "../cinerecord-storage" }
 cron.workspace = true
+csv.workspace = true
 futures.workspace = true
 reqwest.workspace = true
 serde.workspace = true

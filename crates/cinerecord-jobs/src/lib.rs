@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use cinerecord_core::{
     AppConfig, AppEvent, FetchResult, MovieRecord, ScheduledTask, ScheduledTaskLog,
@@ -228,6 +228,81 @@ pub async fn mark_stubbed_task(
     Ok(())
 }
 
+async fn validate_sync_platforms(
+    pool: &SqlitePool,
+    config: &AppConfig,
+    source: &str,
+    target: &str,
+) -> Result<()> {
+    if source == "cinepersona" {
+        if config.cinepersona.api_key.is_none() || config.cinepersona.base_url.is_none() {
+            return Err(anyhow::anyhow!(
+                "CinePersona 未配置，请先在“设置”中填写 API Key 和 URL 并测试连接。"
+            ));
+        }
+    } else {
+        let source_row =
+            sqlx::query("SELECT configured, profile_json FROM platform_state WHERE platform = ?1")
+                .bind(source)
+                .fetch_optional(pool)
+                .await?;
+        let source_configured: i64 = match source_row {
+            Some(r) => {
+                use sqlx::Row;
+                r.get("configured")
+            }
+            None => 0,
+        };
+        if source_configured == 0 {
+            return Err(anyhow::anyhow!(
+                "源平台 {} 未登录或未完成配置，请先在“设置”中登录并校验。",
+                source.to_uppercase()
+            ));
+        }
+    }
+
+    if target == "cinepersona" {
+        if config.cinepersona.api_key.is_none() || config.cinepersona.base_url.is_none() {
+            return Err(anyhow::anyhow!(
+                "CinePersona 未配置，请先在“设置”中填写 API Key 和 URL 并测试连接。"
+            ));
+        }
+    } else {
+        let target_row =
+            sqlx::query("SELECT configured, profile_json FROM platform_state WHERE platform = ?1")
+                .bind(target)
+                .fetch_optional(pool)
+                .await?;
+        let (target_configured, target_profile): (i64, Option<String>) = match target_row {
+            Some(r) => {
+                use sqlx::Row;
+                (r.get("configured"), r.get("profile_json"))
+            }
+            None => (0, None),
+        };
+        if target_configured == 0 {
+            return Err(anyhow::anyhow!(
+                "目标平台 {} 未登录或未完成配置，请先在“设置”中登录并校验。",
+                target.to_uppercase()
+            ));
+        }
+
+        if target == "douban" {
+            let is_write_ready = target_profile
+                .and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok())
+                .and_then(|v| v.get("write_ready").and_then(|w| w.as_bool()))
+                .unwrap_or(false);
+            if !is_write_ready {
+                return Err(anyhow::anyhow!(
+                    "豆瓣未登录或写入凭据缺失（缺少 dbcl2/ck Cookie），请先在“设置”中重新绑定完整 Cookie。"
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn run_sync_preview(
     pool: &SqlitePool,
     events: &Sender<AppEvent>,
@@ -235,6 +310,30 @@ pub async fn run_sync_preview(
     request: &SyncPreviewRequest,
     task: Option<&SyncTask>,
 ) -> Result<SyncPreviewResult> {
+    if let Err(err) = validate_sync_platforms(
+        pool,
+        config,
+        &request.source_platform,
+        &request.target_platform,
+    )
+    .await
+    {
+        if let Some(task) = task {
+            update_task_status(
+                pool,
+                &task.id,
+                TaskStatus::Failed,
+                json!({
+                    "direction": format!("{}-to-{}", request.source_platform, request.target_platform),
+                    "phase": "failed",
+                    "error": err.to_string(),
+                    "message": format!("同步验证失败: {}", err)
+                }),
+            )
+            .await?;
+        }
+        return Err(err);
+    }
     if let Some(task) = task {
         update_task_status(
             pool,
@@ -282,15 +381,17 @@ async fn build_refreshed_sync_preview(
         task_id,
     )
     .await?;
-    refresh_platform_for_sync(
-        pool,
-        events,
-        config,
-        &request.target_platform,
-        "目标平台",
-        task_id,
-    )
-    .await?;
+    if request.target_platform != "cinepersona" {
+        refresh_platform_for_sync(
+            pool,
+            events,
+            config,
+            &request.target_platform,
+            "目标平台",
+            task_id,
+        )
+        .await?;
+    }
 
     let source_items = list_library_items(pool, Some(&request.source_platform)).await?;
     let target_items = list_library_items(pool, Some(&request.target_platform)).await?;
@@ -431,6 +532,28 @@ pub async fn run_sync_execute(
     request: &SyncExecuteRequest,
     task: &SyncTask,
 ) -> Result<SyncExecuteResult> {
+    if let Err(err) = validate_sync_platforms(
+        pool,
+        config,
+        &request.source_platform,
+        &request.target_platform,
+    )
+    .await
+    {
+        update_task_status(
+            pool,
+            &task.id,
+            TaskStatus::Failed,
+            json!({
+                "direction": format!("{}-to-{}", request.source_platform, request.target_platform),
+                "phase": "failed",
+                "error": err.to_string(),
+                "message": format!("同步验证失败: {}", err)
+            }),
+        )
+        .await?;
+        return Err(err);
+    }
     update_task_status(pool, &task.id, TaskStatus::Running, task.payload.clone()).await?;
 
     update_task_status(
@@ -485,10 +608,14 @@ pub async fn run_sync_execute(
             "message": format!("执行清单已确认 · 共 {} 项", preview.items.len())
         }),
     );
-    let result = execute_sync_with_progress(config, &preview, |payload| {
-        emit_event(events, "sync.progress", Some(task.id.clone()), payload);
-    })
-    .await?;
+    let result = if request.target_platform == "cinepersona" {
+        run_cinepersona_sync_task(pool, events, config, task, request, &preview).await?
+    } else {
+        execute_sync_with_progress(config, &preview, |payload| {
+            emit_event(events, "sync.progress", Some(task.id.clone()), payload);
+        })
+        .await?
+    };
     persist_successful_sync_items(pool, &request.target_platform, &preview, &result).await?;
     update_task_status(pool, &task.id, TaskStatus::Succeeded, json!(result.clone())).await?;
     emit_event(
@@ -771,6 +898,178 @@ async fn emit_scheduled_log(
         json!(log),
     );
     Ok(())
+}
+
+async fn run_cinepersona_sync_task(
+    _pool: &SqlitePool,
+    events: &Sender<AppEvent>,
+    config: &AppConfig,
+    task: &SyncTask,
+    _request: &SyncExecuteRequest,
+    preview: &SyncPreviewResult,
+) -> Result<SyncExecuteResult> {
+    let base_url = config
+        .cinepersona
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "https://film.133339.xyz".to_string())
+        .trim_end_matches('/')
+        .to_string();
+    let api_key = config
+        .cinepersona
+        .api_key
+        .clone()
+        .context("CinePersona API Key is required")?;
+
+    let total = preview.items.len();
+    if total == 0 {
+        return Ok(SyncExecuteResult {
+            direction: preview.direction.clone(),
+            items: Vec::new(),
+            success_count: 0,
+            failed_count: 0,
+            skipped_count: 0,
+        });
+    }
+
+    let mut execute_items = Vec::new();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+
+    let batch_size = 500;
+    let chunks: Vec<_> = preview.items.chunks(batch_size).collect();
+    let client = reqwest::Client::new();
+
+    for (chunk_idx, chunk) in chunks.iter().enumerate() {
+        let mut sync_items = Vec::new();
+        for item in *chunk {
+            let mut ids = json!({});
+            if let Some(ref imdb) = item.identifiers.imdb {
+                ids["imdb"] = json!(imdb);
+            }
+            if let Some(ref tmdb) = item.identifiers.tmdb {
+                if let Ok(t) = tmdb.parse::<i64>() {
+                    ids["tmdb"] = json!(t);
+                }
+            }
+            if let Some(ref douban) = item.identifiers.douban {
+                ids["douban"] = json!(douban);
+            }
+            if let Some(ref letterboxd) = item.identifiers.letterboxd {
+                ids["letterboxd"] = json!(letterboxd);
+            }
+            if let Some(ref trakt) = item.identifiers.trakt {
+                ids["trakt"] = json!(trakt);
+            }
+
+            let source = match item.source_platform.to_lowercase().as_str() {
+                "douban" => "DOUBAN",
+                "imdb" => "IMDB",
+                "trakt" => "TRAKT",
+                "tmdb" => "TMDB",
+                "letterboxd" => "LETTERBOXD",
+                _ => "IMDB",
+            };
+            let status = "WATCHED";
+            let date = chrono::Utc::now().to_rfc3339();
+
+            sync_items.push(json!({
+                "ids": ids,
+                "activity": {
+                    "source": source,
+                    "status": status,
+                    "rating": item.source_rating,
+                    "date": date,
+                    "logDate": date
+                },
+                "fallback": {
+                    "title": item.title,
+                    "year": item.year
+                }
+            }));
+        }
+
+        let payload = json!({
+            "items": sync_items,
+            "options": {
+                "strict": false
+            }
+        });
+
+        let response = client
+            .post(format!("{base_url}/open/v1/sync"))
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("x-api-key", &api_key)
+            .header("User-Agent", "CineRecord/2.0")
+            .json(&payload)
+            .send()
+            .await;
+
+        let is_success = match response {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        };
+
+        for (item_idx, item) in chunk.iter().enumerate() {
+            let overall_idx = chunk_idx * batch_size + item_idx + 1;
+            let status = if is_success { "success" } else { "failed" };
+            let message = if is_success {
+                Some("同步成功".to_string())
+            } else {
+                Some("同步接口请求失败".to_string())
+            };
+
+            if is_success {
+                success_count += 1;
+            } else {
+                failed_count += 1;
+            }
+
+            emit_event(
+                events,
+                "sync.progress",
+                Some(task.id.clone()),
+                json!({
+                    "phase": "item.completed",
+                    "direction": &preview.direction,
+                    "current": overall_idx,
+                    "total": total,
+                    "title": item.title,
+                    "status": status,
+                    "message": format!(
+                        "{} {overall_idx}/{total} · {}",
+                        if is_success { "✅" } else { "❌" },
+                        item.title
+                    )
+                }),
+            );
+
+            execute_items.push(cinerecord_core::SyncExecutionItem {
+                title: item.title.clone(),
+                year: item.year,
+                status: status.to_string(),
+                reason: message,
+                target_linking_id: item
+                    .identifiers
+                    .imdb
+                    .clone()
+                    .or_else(|| item.identifiers.tmdb.clone()),
+                source_rating: item.source_rating,
+                source_url: item.source_url.clone(),
+                target_url: None,
+            });
+        }
+    }
+
+    let execute_result = SyncExecuteResult {
+        direction: preview.direction.clone(),
+        items: execute_items,
+        success_count,
+        failed_count,
+        skipped_count: 0,
+    };
+
+    Ok(execute_result)
 }
 
 #[cfg(test)]
