@@ -91,6 +91,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
 
   build-windows:
     if: github.event_name != 'pull_request'
@@ -210,8 +211,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: CineRecord-Windows-x64
           path: release
-          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: CineRecord-macOS-arm64
+          path: release
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*
