@@ -32,7 +32,7 @@ use cinerecord_storage::{
     list_library_items_view_paginated, list_platforms, list_scheduled_task_logs,
     list_scheduled_tasks, list_tasks, list_wishlist_items_aggregated_paginated,
     list_wishlist_items_paginated, platform_item_counts, save_config, save_friend_backup,
-    upsert_platform_state, upsert_scheduled_task,
+    update_task_status, upsert_platform_state, upsert_scheduled_task, wishlist_view_counts,
 };
 use futures::stream::Stream;
 use serde::Deserialize;
@@ -112,8 +112,10 @@ pub fn router() -> Router<AppState> {
             post(poll_trakt_auth),
         )
         .route("/api/v2/library", get(get_library))
+        .route("/api/v2/library/diff", get(get_library_diff_handler))
         .route("/api/v2/library/{platform}", get(get_library_for_platform))
         .route("/api/v2/wishlist", get(get_wishlist))
+        .route("/api/v2/wishlist/diff", get(get_wishlist_diff_handler))
         .route(
             "/api/v2/wishlist/{platform}",
             get(get_wishlist_for_platform),
@@ -480,9 +482,9 @@ async fn sync_cookiecloud_handler(
     let mut next_config = state.config.read().await.clone();
     let result = sync_cookiecloud(
         &mut next_config,
-        payload.host.clone(),
-        payload.uuid.clone(),
-        payload.password.clone(),
+        payload.host.as_deref(),
+        payload.uuid.as_deref(),
+        payload.password.as_deref(),
     )
     .await
     .map_err(|error| ApiError::BadRequest(error.to_string()))?;
@@ -682,25 +684,46 @@ async fn sync_cinepersona_handler(
         return Err(ApiError::BadRequest("未填写 API Key".to_string()));
     };
 
+    let task = new_task(
+        "全量同步到 CinePersona".to_string(),
+        TaskKind::SyncExecute,
+        json!({
+            "target": "cinepersona",
+            "base_url": base_url,
+        }),
+    );
+    insert_task(&state.pool, &task).await?;
+    let task_id = task.id.clone();
+
     tokio::spawn(async move {
-        let _ = sync_cinepersona_worker(state, base_url, api_key).await;
+        let _ = sync_cinepersona_worker(state, task_id, base_url, api_key).await;
     });
 
     Ok(Json(json!({
         "success": true,
+        "task_id": task.id,
         "message": "CinePersona 同步任务已启动"
     })))
 }
 
 async fn sync_cinepersona_worker(
     state: AppState,
+    task_id: String,
     base_url: String,
     api_key: String,
 ) -> anyhow::Result<()> {
+    let _ = update_task_status(
+        &state.pool,
+        &task_id,
+        TaskStatus::Running,
+        json!({ "phase": "aggregating", "message": "正在合并所有平台数据" }),
+    )
+    .await;
+
     publish_event(
         &state,
         "log",
-        None,
+        Some(task_id.clone()),
         json!({
             "message": "⏳ 正在合并所有平台数据……",
             "level": "info"
@@ -710,10 +733,17 @@ async fn sync_cinepersona_worker(
     let library_items = match cinerecord_storage::list_library_items(&state.pool, None).await {
         Ok(items) => items,
         Err(err) => {
+            let _ = update_task_status(
+                &state.pool,
+                &task_id,
+                TaskStatus::Failed,
+                json!({ "error": format!("读取本地影片失败: {err}") }),
+            )
+            .await;
             publish_event(
                 &state,
                 "log",
-                None,
+                Some(task_id.clone()),
                 json!({
                     "message": format!("❌ 读取本地影片失败: {err}"),
                     "level": "error"
@@ -1020,10 +1050,22 @@ async fn sync_cinepersona_worker(
 
     let summary =
         format!("🎉 CinePersona 同步完成！共推送 {total} 条，synced={synced}, errors={errors}");
+    let _ = update_task_status(
+        &state.pool,
+        &task_id,
+        TaskStatus::Succeeded,
+        json!({
+            "total": total,
+            "synced": synced,
+            "errors": errors,
+            "message": &summary
+        }),
+    )
+    .await;
     publish_event(
         &state,
         "log",
-        None,
+        Some(task_id.clone()),
         json!({
             "message": summary,
             "level": "success"
@@ -1032,7 +1074,7 @@ async fn sync_cinepersona_worker(
     publish_event(
         &state,
         "cinepersona.sync.completed",
-        None,
+        Some(task_id),
         json!({ "synced": synced, "errors": errors }),
     );
 
@@ -1248,7 +1290,7 @@ async fn test_platform(
     Path(platform): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if platform == "trakt" {
-        ensure_fresh_trakt_auth(&state).await?;
+        let _ = ensure_fresh_trakt_auth(&state).await;
     }
     let config = state.config.read().await.clone();
     let result = run_platform_test(&state.pool, &state.events, &config, &platform, None).await?;
@@ -1332,13 +1374,14 @@ async fn get_library(
     let raw = query.mode.as_deref() == Some("raw");
     let full_view = query.view.as_deref() == Some("full");
     let selected_platforms = selected_library_platforms(&query);
+    let platform_filter = query.filter.as_deref();
     let search = query.q.as_deref();
     let total = if raw {
         count_library_items(&state.pool, None).await?
     } else if full_view {
         count_library_groups(&state.pool, None, search).await?
     } else {
-        count_library_view_groups(&state.pool, None, &selected_platforms, search).await?
+        count_library_view_groups(&state.pool, platform_filter, &selected_platforms, search).await?
     };
     let items = if raw {
         json!(list_library_items_paginated(&state.pool, None, query.limit, query.offset).await?)
@@ -1357,7 +1400,7 @@ async fn get_library(
         json!(
             list_library_items_view_paginated(
                 &state.pool,
-                None,
+                platform_filter,
                 &selected_platforms,
                 search,
                 query.limit,
@@ -1461,7 +1504,7 @@ async fn get_media_server_items(state: &AppState) -> Option<Vec<cinerecord_core:
     }
 
     // Cache miss or expired: fetch from server
-    match cinerecord_platforms::fetch_media_server_movies(url, api_key).await {
+    match cinerecord_platforms::fetch_media_server_movies(url, Some(api_key.as_str())).await {
         Ok(items) => {
             let mut cache = state.media_server_cache.write().await;
             *cache = Some((Utc::now(), items.clone()));
@@ -1502,9 +1545,11 @@ async fn get_wishlist(
             .await?
         )
     };
+    let counts = wishlist_view_counts(&state.pool, media_server_items.as_deref()).await?;
     Ok(Json(json!({
         "items": items,
         "total": total,
+        "counts": counts,
         "limit": query.limit,
         "offset": query.offset,
         "mode": if raw { "raw" } else { "aggregate" }
@@ -1556,6 +1601,44 @@ async fn get_wishlist_for_platform(
         "offset": query.offset,
         "mode": if raw { "raw" } else { "aggregate" }
     })))
+}
+
+async fn get_library_diff_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DiffQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let source = query.source.as_deref().unwrap_or("douban");
+    let target = query.target.as_deref().unwrap_or("imdb");
+    let result = cinerecord_storage::get_library_diff(
+        &state.pool,
+        source,
+        target,
+        query.category.as_deref(),
+        query.q.as_deref(),
+        query.limit,
+        query.offset,
+    )
+    .await?;
+    Ok(Json(json!(result)))
+}
+
+async fn get_wishlist_diff_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DiffQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let source = query.source.as_deref().unwrap_or("douban");
+    let target = query.target.as_deref().unwrap_or("imdb");
+    let result = cinerecord_storage::get_wishlist_diff(
+        &state.pool,
+        source,
+        target,
+        query.category.as_deref(),
+        query.q.as_deref(),
+        query.limit,
+        query.offset,
+    )
+    .await?;
+    Ok(Json(json!(result)))
 }
 
 async fn sync_preview(
@@ -2089,8 +2172,19 @@ struct LibraryQuery {
     pub offset: Option<i64>,
     pub mode: Option<String>,
     pub view: Option<String>,
+    pub filter: Option<String>,
     pub platforms: Option<String>,
     pub q: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DiffQuery {
+    pub source: Option<String>,
+    pub target: Option<String>,
+    pub category: Option<String>,
+    pub q: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 fn selected_library_platforms(query: &LibraryQuery) -> Vec<String> {
@@ -2514,7 +2608,7 @@ async fn test_media_server_connection(
     State(state): State<AppState>,
     Json(payload): Json<MediaServerTestPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    match cinerecord_platforms::fetch_media_server_movies(&payload.url, &payload.api_key).await {
+    match cinerecord_platforms::fetch_media_server_movies(&payload.url, Some(payload.api_key.as_str())).await {
         Ok(items) => {
             {
                 let mut current = state.config.write().await;

@@ -505,6 +505,7 @@ const i18n = {
             localStorage.setItem('app_language', lang);
             this.applyTranslations();
             this.updateLangButton();
+            window.dispatchEvent(new CustomEvent('languagechange', { detail: { lang } }));
         }
     },
 
@@ -517,20 +518,166 @@ const i18n = {
     },
 
     /**
-     * Apply translations to all elements with data-i18n attribute
+     * Apply translations to all elements with data-i18n attribute and known UI components
      */
     applyTranslations() {
+        const isEn = this.currentLang === 'en';
+
+        // 1. Data attributes
         document.querySelectorAll('[data-i18n]').forEach(element => {
             const key = element.getAttribute('data-i18n');
             const translation = this.t(key);
-
-            // Handle input placeholders
             if (element.hasAttribute('placeholder')) {
                 element.setAttribute('placeholder', translation);
             } else {
                 element.textContent = translation;
             }
         });
+
+        // 2. Navigation Tabs (Header & Bottom)
+        const navMap = {
+            'dashboard': isEn ? 'Dashboard' : '总览',
+            'data': isEn ? 'Library' : '数据',
+            'sync': isEn ? 'Sync' : '同步',
+            'wishlist': isEn ? 'Wishlist' : '想看',
+            'settings': isEn ? 'Settings' : '设置',
+        };
+        const navIcons = {
+            'dashboard': '🏠',
+            'data': '📊',
+            'sync': '🔄',
+            'wishlist': '✨',
+            'settings': '⚙️',
+        };
+        document.querySelectorAll('.nav-tabs .nav-tab').forEach(tab => {
+            const target = tab.dataset.tab;
+            if (navMap[target]) {
+                tab.textContent = `${navIcons[target]} ${navMap[target]}`;
+            }
+        });
+        document.querySelectorAll('.bottom-nav .nav-tab').forEach(tab => {
+            const target = tab.dataset.tab;
+            if (navMap[target]) {
+                const textSpan = tab.querySelector('span:not(.icon)');
+                if (textSpan) textSpan.textContent = navMap[target];
+            }
+        });
+
+        // 3. Sidebar headings and stat labels
+        const sidebarTitles = document.querySelectorAll('.sidebar-title');
+        if (sidebarTitles.length >= 2) {
+            sidebarTitles[0].textContent = isEn ? 'Platform Status' : '平台状态';
+            sidebarTitles[1].textContent = isEn ? 'System Logs' : '运行日志';
+        }
+
+        const statLabelMap = {
+            '看过': isEn ? 'Watched' : '看过',
+            '想看': isEn ? 'Wishlist' : '想看',
+            '在看': isEn ? 'Watching' : '在看',
+            '已评分': isEn ? 'Rated' : '已评分',
+            '列表': isEn ? 'Lists' : '列表',
+            'Watched': isEn ? 'Watched' : '看过',
+            'Wishlist': isEn ? 'Wishlist' : '想看',
+            'Watching': isEn ? 'Watching' : '在看',
+            'Rated': isEn ? 'Rated' : '已评分',
+            'Lists': isEn ? 'Lists' : '列表'
+        };
+        document.querySelectorAll('.account-stat-label').forEach(label => {
+            const text = label.textContent.trim();
+            if (statLabelMap[text]) label.textContent = statLabelMap[text];
+        });
+
+        // 4. Subfilter chips
+        const chipAll = document.querySelector('[data-subfilter="all"]');
+        if (chipAll) {
+            const count = chipAll.querySelector('.chip-count')?.textContent || '0';
+            chipAll.innerHTML = `${isEn ? 'All Items' : '全部条目'} <span class="chip-count" id="count-all">${count}</span>`;
+        }
+        const chipShared = document.querySelector('[data-subfilter="shared"]');
+        if (chipShared) {
+            const count = chipShared.querySelector('.chip-count')?.textContent || '0';
+            chipShared.innerHTML = `🔗 ${isEn ? 'Multi-Platform' : '多平台共有'} <span class="chip-count" id="count-shared">${count}</span>`;
+        }
+        const chipSingle = document.querySelector('[data-subfilter="single"]');
+        if (chipSingle) {
+            const count = chipSingle.querySelector('.chip-count')?.textContent || '0';
+            chipSingle.innerHTML = `${isEn ? 'Single-Platform' : '仅单平台有'} <span class="chip-count" id="count-single">${count}</span>`;
+        }
+
+        const wishAll = document.querySelector('[data-wishlist-subfilter="all"]');
+        if (wishAll) {
+            const count = wishAll.querySelector('.chip-count')?.textContent || '0';
+            wishAll.innerHTML = `${isEn ? 'All Wishlist' : '全部想看'} <span class="chip-count" id="wishlist-count-all">${count}</span>`;
+        }
+
+        // 5. View modes & toolbar buttons
+        const modeUnified = document.querySelector('[data-platform-mode="unified"]');
+        if (modeUnified) modeUnified.innerHTML = `🌐 ${isEn ? 'Unified View' : '全景聚合'}`;
+        const modePlatform = document.querySelector('[data-platform-mode="platform"]');
+        if (modePlatform) modePlatform.innerHTML = `📱 ${isEn ? 'Single Platform' : '平台单站'}`;
+        const modeDiff = document.querySelector('[data-platform-mode="diff"]');
+        if (modeDiff) modeDiff.innerHTML = `🔍 ${isEn ? 'Diff Matrix' : '查漏补缺'}`;
+
+        const gridBtn = document.getElementById('library-view-grid');
+        if (gridBtn) gridBtn.innerHTML = `🔲 ${isEn ? 'Grid' : '网格'}`;
+        const listBtn = document.getElementById('library-view-list');
+        if (listBtn) listBtn.innerHTML = `📋 ${isEn ? 'List' : '列表'}`;
+        const exportBtn = document.getElementById('export-library-btn');
+        if (exportBtn) exportBtn.innerHTML = `🕹️ ${isEn ? 'Export' : '导出'}`;
+        const importBtn = document.getElementById('import-legacy-btn');
+        if (importBtn) importBtn.textContent = isEn ? 'Import CSV' : '导入旧版 CSV';
+
+        // 6. Common Action Buttons
+        document.querySelectorAll('.rust-test-btn').forEach(btn => {
+            btn.textContent = isEn ? '✅ Test' : '✅ 测试连接';
+        });
+        document.querySelectorAll('.rust-logout-btn').forEach(btn => {
+            btn.textContent = isEn ? '🚪 Logout' : '🚪 退出连接';
+        });
+
+        // 7. Page Titles & Subtitles
+        const headerTitleMap = {
+            '总览': isEn ? 'Overview' : '总览',
+            'Overview': isEn ? 'Overview' : '总览',
+            '我的影片库': isEn ? 'My Movie Library' : '我的影片库',
+            'My Movie Library': isEn ? 'My Movie Library' : '我的影片库',
+            '数据同步': isEn ? 'Data Sync' : '数据同步',
+            'Data Sync': isEn ? 'Data Sync' : '数据同步',
+            '想看清单': isEn ? 'Wishlist' : '想看清单',
+            'Wishlist': isEn ? 'Wishlist' : '想看清单',
+            '设置与管理': isEn ? 'Settings & Management' : '设置与管理',
+            'Settings & Management': isEn ? 'Settings & Management' : '设置与管理'
+        };
+        document.querySelectorAll('.content-header h2').forEach(h2 => {
+            const text = h2.textContent.trim();
+            if (headerTitleMap[text]) h2.textContent = headerTitleMap[text];
+        });
+
+        // 8. Search Input Placeholders
+        const libSearch = document.getElementById('library-search-input');
+        if (libSearch) libSearch.placeholder = isEn ? 'Search movie, director, actor...' : '检索电影、导演、演员...';
+        const wishSearch = document.getElementById('wishlist-search-input');
+        if (wishSearch) wishSearch.placeholder = isEn ? 'Search wishlist movies, directors...' : '检索想看电影、导演...';
+
+        // 9. Sync Buttons & Preview
+        const previewBtn = document.getElementById('preview-sync-btn');
+        if (previewBtn) previewBtn.innerHTML = `🔍 ${isEn ? 'Preview' : '预览'}`;
+        const runSyncBtn = document.getElementById('run-sync-btn');
+        if (runSyncBtn) runSyncBtn.innerHTML = `✨ ${isEn ? 'Run Sync' : '执行同步'}`;
+        const selectAllSync = document.getElementById('select-all-sync-btn');
+        if (selectAllSync) selectAllSync.textContent = isEn ? 'Select All Executable' : '全选可执行';
+        const clearSync = document.getElementById('clear-sync-btn');
+        if (clearSync) clearSync.textContent = isEn ? 'Clear' : '清空';
+
+        // 10. Wishlist Refresh Buttons
+        const refreshDoubanWish = document.getElementById('refresh-wishlist-douban-btn');
+        if (refreshDoubanWish) refreshDoubanWish.innerHTML = `豆瓣 ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        const refreshImdbWish = document.getElementById('refresh-wishlist-imdb-btn');
+        if (refreshImdbWish) refreshImdbWish.innerHTML = `IMDb ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        const refreshTraktWish = document.getElementById('refresh-wishlist-trakt-btn');
+        if (refreshTraktWish) refreshTraktWish.innerHTML = `Trakt ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        const refreshTmdbWish = document.getElementById('refresh-wishlist-tmdb-btn');
+        if (refreshTmdbWish) refreshTmdbWish.innerHTML = `TMDB ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
     },
 
     /**
@@ -543,6 +690,8 @@ const i18n = {
         }
     }
 };
+
+window.i18n = i18n;
 
 // Export for use in other scripts
 if (typeof module !== 'undefined' && module.exports) {

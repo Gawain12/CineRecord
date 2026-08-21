@@ -288,11 +288,10 @@ async fn validate_sync_platforms(
         }
 
         if target == "douban" {
-            let is_write_ready = target_profile
-                .and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok())
-                .and_then(|v| v.get("write_ready").and_then(|w| w.as_bool()))
-                .unwrap_or(false);
-            if !is_write_ready {
+            let cookie = config.platforms.douban.cookie.as_deref().unwrap_or("");
+            let has_ck = cinerecord_platforms::douban_ck_from_cookie(cookie).is_some();
+            let has_dbcl2 = cinerecord_platforms::extract_douban_user_id_from_cookie(cookie).is_some();
+            if !has_ck || !has_dbcl2 {
                 return Err(anyhow::anyhow!(
                     "豆瓣未登录或写入凭据缺失（缺少 dbcl2/ck Cookie），请先在“设置”中重新绑定完整 Cookie。"
                 ));

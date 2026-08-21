@@ -11,6 +11,7 @@ base64.workspace = true
 cbc.workspace = true
 chrono.workspace = true
 cinerecord-core = { path = "../cinerecord-core" }
+cinerecord-storage = { path = "../cinerecord-storage" }
 csv.workspace = true
 md5.workspace = true
 reqwest.workspace = true

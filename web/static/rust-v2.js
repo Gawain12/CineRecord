@@ -44,22 +44,34 @@ const state = {
     traktDeviceAuth: null,
     traktAuthPollTimer: null,
     library: {
-        filter: "all",
+        mode: "unified", // "unified" | "platform" | "diff"
+        subfilter: "all", // "all" | "shared" | "single"
+        platformTab: "douban",
+        diffSource: "douban",
+        diffTarget: "imdb",
+        diffCategory: "missing", // "missing" | "mismatch" | "synced" | "all"
+        diffResult: null,
         page: 1,
         total: 0,
         items: [],
         view: localStorage.getItem("cinerecord_library_view_v3") || "list",
-        platformsInitialized: false,
-        logic: "and",
         search: "",
     },
     wishlist: {
+        mode: "unified", // "unified" | "platform" | "diff"
+        subfilter: "all",
+        platformTab: "douban",
+        diffSource: "douban",
+        diffTarget: "imdb",
+        diffCategory: "missing",
+        diffResult: null,
+        page: 1,
+        total: 0,
         items: [],
         filteredItems: [],
-        page: 1,
         view: localStorage.getItem("cinerecord_legacy_wishlist_view") || "list",
-        sources: new Set(["douban", "imdb", "trakt", "tmdb", "letterboxd"]),
         onlyUnmatched: localStorage.getItem("cinerecord_wishlist_unmatched") === "1",
+        search: "",
     },
     sync: {
         preview: null,
@@ -195,14 +207,36 @@ function normalizeImdbId(rawValue) {
 function buildDownloadSiteUrl(template, tokens) {
     if (!template) return "";
     let url = template;
+    const hasImdb = Boolean(tokens.imdbid);
+    
     if (url.includes("{imdbid}")) {
-        if (!tokens.imdbid) return "";
-        url = url.replaceAll("{imdbid}", encodeURIComponent(tokens.imdbid));
+        if (hasImdb) {
+            url = url.replaceAll("{imdbid}", encodeURIComponent(tokens.imdbid));
+        } else if (tokens.search_name) {
+            if (url.includes("search_type=imdb")) {
+                url = url.replace("search_type=imdb", "search_type=title");
+            }
+            if (url.includes("query=imdb:")) {
+                url = url.replace("query=imdb:", "query=");
+            }
+            url = url.replaceAll("{imdbid}", encodeURIComponent(tokens.search_name));
+        } else {
+            return "";
+        }
     }
+    
     if (url.includes("{imdbno}")) {
-        if (!tokens.imdbno) return "";
-        url = url.replaceAll("{imdbno}", encodeURIComponent(tokens.imdbno));
+        if (tokens.imdbno) {
+            url = url.replaceAll("{imdbno}", encodeURIComponent(tokens.imdbno));
+        } else if (tokens.search_name) {
+            url = url.replaceAll("imdb{imdbno}", encodeURIComponent(tokens.search_name))
+                     .replaceAll("imdbid={imdbno}", `search=${encodeURIComponent(tokens.search_name)}`)
+                     .replaceAll("{imdbno}", encodeURIComponent(tokens.search_name));
+        } else {
+            return "";
+        }
     }
+    
     if (url.includes("{search_name}")) {
         if (!tokens.search_name) return "";
         url = url.replaceAll("{search_name}", encodeURIComponent(tokens.search_name));
@@ -550,19 +584,25 @@ let actionStatusTimer = null;
 
 function setActionStatus(message, tone = "info", options = {}) {
     if (!ui.actionStatus) return;
+    if (!message || message === "准备就绪" || tone === "idle") {
+        ui.actionStatus.style.display = "none";
+        return;
+    }
+    ui.actionStatus.style.display = "block";
     ui.actionStatus.textContent = message;
     ui.actionStatus.className = `action-status-bar${tone && tone !== "info" ? ` ${tone}` : ""}`;
     if (actionStatusTimer) {
         clearTimeout(actionStatusTimer);
         actionStatusTimer = null;
     }
-    if (options.reset && tone !== "loading") {
+    if (options.persist !== true && tone !== "loading") {
         actionStatusTimer = setTimeout(() => {
             if (ui.actionStatus) {
-                ui.actionStatus.textContent = "准备就绪";
+                ui.actionStatus.style.display = "none";
+                ui.actionStatus.textContent = "";
                 ui.actionStatus.className = "action-status-bar";
             }
-        }, options.timeout ?? 4000);
+        }, options.timeout ?? 3000);
     }
 }
 
@@ -667,18 +707,7 @@ function defaultAvatar(platform) {
 function proxyAvatarUrl(url) {
     if (!url) return "";
     if (url.startsWith("data:") || url.startsWith("/")) return url;
-    const lower = url.toLowerCase();
-    if (
-        lower.includes("doubanio.com") ||
-        lower.includes("douban.com") ||
-        lower.includes("media-amazon.com") ||
-        lower.includes("imdb.com") ||
-        lower.includes("trakt.tv") ||
-        lower.includes("tmdb.org")
-    ) {
-        return `/proxy/avatar?url=${encodeURIComponent(url)}`;
-    }
-    return url;
+    return `/api/v2/image-proxy?url=${encodeURIComponent(url)}`;
 }
 
 function proxyImageUrl(url) {
@@ -699,6 +728,31 @@ function proxyImageUrl(url) {
     return url;
 }
 
+function statusBadgeClass(configured, platformId, configPresent = false, lastValidatedAt = null, descriptor = null) {
+    if (platformId === "letterboxd") return "info";
+    const isExpired = descriptor?.status?.token_expires_at && new Date(descriptor.status.token_expires_at) <= new Date();
+    if (isExpired) return "disconnected";
+    if (!configured && configPresent && lastValidatedAt) return "disconnected";
+    if (!configured && configPresent) return "validating";
+    return configured ? "connected" : "disconnected";
+}
+
+function statusBadgeText(configured, configPresent = false, lastValidatedAt = null, descriptor = null) {
+    const isExpired = descriptor?.status?.token_expires_at && new Date(descriptor.status.token_expires_at) <= new Date();
+    if (isExpired) return "● 授权已过期";
+    if (configured) return "● 已连接";
+    if (configPresent && lastValidatedAt) return "● 验证失败";
+    if (configPresent) return "● 待验证";
+    return "● 未配置";
+}
+
+function dotClass(configured, platformId, descriptor = null) {
+    if (platformId === "letterboxd") return "info";
+    const isExpired = descriptor?.status?.token_expires_at && new Date(descriptor.status.token_expires_at) <= new Date();
+    if (isExpired) return "disconnected";
+    return configured ? "connected" : "disconnected";
+}
+
 function posterFallback(title) {
     const first = String(title || "?").trim().charAt(0).toUpperCase() || "?";
     return `<div class="unified-media-fallback">${escapeHtml(first)}</div>`;
@@ -713,6 +767,30 @@ function updateStat(platform, key, value, href = null) {
     }
 }
 
+function platformHint(platformId) {
+    return {
+        douban: "Cookie 登录 · 支持读取与双向同步",
+        imdb: "Cookie 登录 · 支持读取与查重同步",
+        trakt: "OAuth 设备授权 · 支持双向同步",
+        tmdb: "API / Session · 支持读取与评分同步",
+        letterboxd: "CSV 导入 · 支持本地映射",
+        cinepersona: "API Key · 支持片库同步",
+    }[platformId] || "待配置";
+}
+
+function defaultPlatformStatus(platformId) {
+    return platformHint(platformId);
+}
+
+function prettyStatusMessage(message) {
+    if (!message) return "";
+    return String(message)
+        .replace(/ · 可读取评分数据 \(\d+ 条\)/g, "")
+        .replace(/ · 可读取 \d+ 部看过，\d+ 部想看/g, "")
+        .replace(/ · 可读取 \d+ 部看过，\d+ 部评分/g, "")
+        .replace(/ · 记录数: \d+/g, "");
+}
+
 function renderPlatformAccount(platform, descriptor) {
     const status = descriptor?.status || {};
     const profile = status.profile || {};
@@ -721,16 +799,19 @@ function renderPlatformAccount(platform, descriptor) {
     const userIdEl = document.getElementById(`${platform}-user-id-display`);
     const metaEl = document.getElementById(`${platform}-join-date`);
     const profileLinkEl = document.getElementById(`${platform}-profile-link`);
-    const configured = Boolean(status.configured);
+    const isExpired = status.token_expires_at && new Date(status.token_expires_at) <= new Date();
+    const configured = Boolean(status.configured) && !isExpired;
     const configPresent = platformHasLocalConfig(platform, descriptor);
     const fallbackId = platformConfigId(platform) || "--";
     const displayName =
         profileValue(profile, ["display_name", "name", "username"]) ||
         (configured
             ? `${descriptor?.name || platform.toUpperCase()} 账户`
-            : configPresent
-              ? `${descriptor?.name || platform.toUpperCase()} 待验证`
-              : `${descriptor?.name || platform.toUpperCase()} 未配置`);
+            : isExpired
+              ? `${descriptor?.name || platform.toUpperCase()} 授权已过期`
+              : configPresent
+                ? `${descriptor?.name || platform.toUpperCase()} 待验证`
+                : `${descriptor?.name || platform.toUpperCase()} 未配置`);
     const userId = profileValue(profile, ["user_id", "account_id", "username"]) || fallbackId;
     const profileLink = profileValue(profile, ["profile_link", "profile_url"]);
     const avatar = proxyAvatarUrl(profileValue(profile, ["avatar"]) || defaultAvatar(platform));
@@ -745,9 +826,19 @@ function renderPlatformAccount(platform, descriptor) {
     if (nameEl) nameEl.textContent = displayName;
     if (userIdEl) userIdEl.textContent = userId || "--";
     if (metaEl) {
-        metaEl.textContent =
-            prettyStatusMessage(status.message) ||
-            (configured ? "已连接，等待测试或更新数据" : defaultPlatformStatus(platform));
+        if (isExpired) {
+            metaEl.textContent = "授权已过期，请重新登录";
+            metaEl.style.color = "#ef4444";
+        } else if (status.last_fetch_at) {
+            metaEl.textContent = `上次同步: ${formatShortDate(status.last_fetch_at)}`;
+            metaEl.style.color = "";
+        } else if (configured) {
+            metaEl.textContent = "已连接";
+            metaEl.style.color = "";
+        } else {
+            metaEl.textContent = "未连接 · 点击测试连接";
+            metaEl.style.color = "";
+        }
     }
     if (profileLinkEl) {
         profileLinkEl.href = profileLink || profileLinkEl.href;
@@ -786,7 +877,8 @@ function renderPlatformAccount(platform, descriptor) {
 }
 
 function setPlatformUi(platform, descriptor) {
-    const configured = Boolean(descriptor?.status?.configured);
+    const isExpired = descriptor?.status?.token_expires_at && new Date(descriptor.status.token_expires_at) <= new Date();
+    const configured = Boolean(descriptor?.status?.configured) && !isExpired;
     const configPresent = platformHasLocalConfig(platform, descriptor);
     const lastValidatedAt = descriptor?.status?.last_validated_at || null;
     const summaryStats = document.getElementById(`summary-stats-${platform}`);
@@ -814,9 +906,11 @@ function setPlatformUi(platform, descriptor) {
     const hasMeaningfulCounts = libraryCount > 0 || wishlistCount > 0;
     const statsText = configured || hasMeaningfulCounts
         ? `看过 ${libraryCount} · 想看 ${wishlistCount}`
-        : configPresent
-          ? prettyStatusMessage(descriptor?.status?.message) || "已填写配置，等待测试连接"
-          : platformHint(platform);
+        : isExpired
+          ? "授权已过期，请重新登录"
+          : configPresent
+            ? prettyStatusMessage(descriptor?.status?.message) || "已填写配置，等待测试连接"
+            : platformHint(platform);
     const summaryIdentity =
         profileValue(profile, ["display_name", "user_id", "username"]) || platformConfigId(platform);
 
@@ -860,7 +954,16 @@ function updateCounts() {
     if (sidebarWishlistTotal) sidebarWishlistTotal.textContent = counts.wishlist_total || 0;
     if (sidebarTaskTotal) sidebarTaskTotal.textContent = (state.tasks || []).length;
 
-    updateLibraryFilterCounts({ shared: counts.library_shared ?? counts.library_total, ...library }, counts.library_total || 0);
+    updateLibraryFilterCounts({
+        all: counts.library_total,
+        shared: counts.library_shared,
+        ...library
+    }, counts.library_total || 0);
+
+    updateWishlistFilterCounts({
+        all: counts.wishlist_total,
+        ...wishlist
+    });
 
     PLATFORM_IDS.forEach((platform) => {
         setPlatformUi(
@@ -869,20 +972,6 @@ function updateCounts() {
                 status: { configured: false, message: "未配置" },
             }
         );
-    });
-
-    document.getElementById("summary-stats-letterboxd").textContent = `看过 ${library.letterboxd || 0} · 想看 ${
-        wishlist.letterboxd || 0
-    }`;
-}
-
-function updateLibraryFilterCounts(platformCounts = {}, totalFallback = 0) {
-    const shared = platformCounts.shared ?? totalFallback;
-    const countAll = document.getElementById("count-all");
-    if (countAll) countAll.textContent = shared || 0;
-    PLATFORM_IDS.forEach((platform) => {
-        const el = document.getElementById(`count-${platform}`);
-        if (el) el.textContent = platformCounts[platform] || 0;
     });
 }
 
@@ -1262,23 +1351,38 @@ function ratingDifferenceTag(item) {
 }
 
 function renderPlatformBadge(source) {
-    const icon = platformIcon(source.platform);
     const label = source.platform === "letterboxd" ? "LB" : platformLabel(source.platform);
     const rating = source.rating !== null && source.rating !== undefined ? source.rating : "";
     const href = source.source_url || "";
     const content = `
-        ${icon ? `<img src="${escapeHtml(icon)}" alt="">` : ""}
-        <span>${escapeHtml(label)}</span>
-        ${rating !== "" ? `<span class="badge-rating">${escapeHtml(rating)}</span>` : ""}
+        <span class="platform-badge-name">${escapeHtml(label)}</span>
+        ${rating !== "" ? `<span class="platform-badge-score ${escapeHtml(source.platform)}">${escapeHtml(rating)}</span>` : ""}
     `;
     return href
-        ? `<a class="platform-badge ${escapeHtml(source.platform)}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${content}</a>`
+        ? `<a class="platform-badge ${escapeHtml(source.platform)}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(platformLabel(source.platform))} 评分">${content}</a>`
         : `<span class="platform-badge ${escapeHtml(source.platform)}">${content}</span>`;
+}
+
+function formatCardMeta(item) {
+    const leadParts = [];
+    if (item.genres) leadParts.push(item.genres);
+    if (item.country) leadParts.push(item.country);
+    if (item.duration) leadParts.push(item.duration);
+    if (item.public_rating) leadParts.push(`评分 ${item.public_rating}`);
+
+    const tailParts = [];
+    if (item.directors) tailParts.push(`导演: ${item.directors}`);
+    if (item.actors) tailParts.push(`主演: ${item.actors}`);
+
+    const sections = [];
+    if (leadParts.length > 0) sections.push(leadParts.join(" · "));
+    if (tailParts.length > 0) sections.push(tailParts.join(" / "));
+    return sections.join(" / ") || "暂无详细信息";
 }
 
 function renderLegacyLibraryItem(item) {
     const posterUrl = proxyImageUrl(item.poster_url || "");
-    const title = item.title || "Unknown title";
+    const title = cleanTitle(item.title);
     const year = item.year ? `<span class="movie-year">${escapeHtml(item.year)}</span>` : "";
     const primaryRating =
         item.personal_rating !== null && item.personal_rating !== undefined
@@ -1286,33 +1390,40 @@ function renderLegacyLibraryItem(item) {
             : item.sources?.find((source) => source.rating !== null && source.rating !== undefined)?.rating;
     const ratingHtml =
         primaryRating !== null && primaryRating !== undefined
-            ? `<div class="rating-main"><span class="rating-label">评分</span><span class="rating-value">${escapeHtml(primaryRating)}</span></div>`
+            ? `<span class="rating-pill">★ ${escapeHtml(primaryRating)}</span>`
             : "";
     const dateValue = item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
     const dateHtml = dateValue
-        ? `<div class="rating-date"><span class="date-label">最后操作于</span><span class="date-value">${escapeHtml(formatShortDate(dateValue))}</span></div>`
+        ? `<span class="movie-date">${escapeHtml(formatShortDate(dateValue))}</span>`
         : "";
     const poster = posterUrl
-        ? `<div class="movie-cover-wrapper"><img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');"></div>`
-        : `<div class="movie-cover-wrapper"><div class="movie-cover-placeholder large">🎬</div></div>`;
+        ? `<img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');">`
+        : `<div class="movie-cover-placeholder">🎬</div>`;
     const badges = (item.sources || []).map(renderPlatformBadge).join("");
+
+    const metaText = formatCardMeta(item);
+
+    const primaryLink = itemPrimaryLink(item);
+    const titleHtml = primaryLink
+        ? `<a class="movie-title-link" href="${escapeHtml(primaryLink)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
+        : `<span class="movie-title-link">${escapeHtml(title)}</span>`;
+
     return `
         <div class="movie-item">
-            ${poster}
+            <div class="movie-cover-wrapper">
+                ${poster}
+            </div>
             <div class="movie-info">
                 <div class="movie-title-row">
-                    <div class="movie-title">${escapeHtml(title)} ${year}</div>
+                    <div class="movie-title-group">
+                        ${titleHtml}
+                        ${year}
+                    </div>
                     <div class="platform-badges-inline">${badges}</div>
                 </div>
-                <div class="movie-metadata-grid">
-                    ${item.directors ? `<div class="meta-item"><span class="meta-icon">🎬</span><span class="meta-text">导演: ${escapeHtml(item.directors)}</span></div>` : ""}
-                    ${item.actors ? `<div class="meta-item"><span class="meta-icon">👥</span><span class="meta-text">主演: ${escapeHtml(item.actors)}</span></div>` : ""}
-                    ${item.genres ? `<div class="meta-item"><span class="meta-icon">🏷️</span><span class="meta-text">类型: ${escapeHtml(item.genres)}</span></div>` : ""}
-                    ${item.country ? `<div class="meta-item"><span class="meta-icon">🌍</span><span class="meta-text">地区: ${escapeHtml(item.country)}</span></div>` : ""}
-                    ${item.public_rating ? `<div class="meta-item"><span class="meta-icon">⭐</span><span class="meta-text">评分: ${escapeHtml(item.public_rating)} (${escapeHtml(item.public_votes || 0)}人)</span></div>` : ""}
-                </div>
-                <div class="movie-bottom">
-                    <div class="score-display">
+                <div class="movie-meta-line" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</div>
+                <div class="movie-bottom-row">
+                    <div class="movie-bottom-left">
                         ${ratingHtml}
                         ${dateHtml}
                     </div>
@@ -1321,25 +1432,25 @@ function renderLegacyLibraryItem(item) {
         </div>
     `;
 }
+
 function renderLegacyWishlistItem(item) {
     const title = cleanTitle(item.title);
     const posterUrl = proxyImageUrl(item.poster_url || "");
     const primaryLink = itemPrimaryLink(item);
     const titleHtml = primaryLink
-        ? `<a class="wishlist-title" href="${escapeHtml(primaryLink)}" target="_blank" title="${escapeHtml(item.title)}">${escapeHtml(title)}</a>`
-        : `<span class="wishlist-title" title="${escapeHtml(item.title)}">${escapeHtml(title)}</span>`;
-    const year = item.year ? `<span class="wishlist-year">${escapeHtml(item.year)}</span>` : "";
+        ? `<a class="movie-title-link" href="${escapeHtml(primaryLink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(item.title)}">${escapeHtml(title)}</a>`
+        : `<span class="movie-title-link" title="${escapeHtml(item.title)}">${escapeHtml(title)}</span>`;
+    const year = item.year ? `<span class="movie-year">${escapeHtml(item.year)}</span>` : "";
     
     const poster = posterUrl
-        ? `<img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="unified-media-fallback" style="display:none; font-size:1.2rem;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase() || "?")}</div>`
-        : `<div class="unified-media-fallback" style="font-size:1.2rem;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase() || "?")}</div>`;
+        ? `<img class="movie-cover-large" src="${escapeHtml(posterUrl)}" alt="${escapeHtml(title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src=''; this.parentNode.classList.add('error');">`
+        : `<div class="movie-cover-placeholder">🎬</div>`;
 
     const doubanRating = item.sources?.find(s => s.platform === 'douban')?.rating;
     const imdbRating = item.sources?.find(s => s.platform === 'imdb')?.rating;
     const ratingVal = doubanRating || imdbRating || "";
-    const ratingClass = doubanRating ? "rating-douban" : (imdbRating ? "rating-imdb" : "");
     const ratingLabel = doubanRating ? "豆瓣" : (imdbRating ? "IMDb" : "");
-    const ratingText = ratingVal ? `${ratingLabel} ${ratingVal}` : "";
+    const ratingHtml = ratingVal ? `<span class="rating-pill">★ ${ratingLabel} ${ratingVal}</span>` : "";
     
     const votes = item.public_votes || "";
     const formatVotes = (num) => {
@@ -1349,86 +1460,59 @@ function renderLegacyWishlistItem(item) {
         if (n >= 1000) return (n / 1000).toFixed(1) + "k";
         return String(n);
     };
-    const votesText = votes ? `${formatVotes(votes)}人评价` : "";
+    const votesText = votes ? `<span class="movie-date">${formatVotes(votes)}人评价</span>` : "";
     
     const dateValue = item.added_at || item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
-    const dateText = dateValue ? `想看于 ${escapeHtml(formatShortDate(dateValue))}` : "";
+    const dateText = dateValue ? `<span class="movie-date">想看于 ${escapeHtml(formatShortDate(dateValue))}</span>` : "";
     
     const badges = (item.sources || []).map(renderPlatformBadge).join("");
 
     let matchedAreaHtml = "";
     if (item.library_matched) {
         if (item.library_file_name) {
+            const fileNameDisplay = item.library_file_name.length > 25 ? item.library_file_name.slice(0, 22) + "..." : item.library_file_name;
             if (item.library_url) {
-                matchedAreaHtml = `
-                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                        <a class="wishlist-library-file" href="${escapeHtml(item.library_url)}" target="_blank" style="max-width: 450px; font-family: monospace; text-decoration: none; border-style: solid; border-color: rgba(74, 222, 128, 0.4); color: var(--success);" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(item.library_file_name)} ↗</a>
-                    </div>
-                `;
+                matchedAreaHtml = `<a class="wishlist-tag matched" href="${escapeHtml(item.library_url)}" target="_blank" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(fileNameDisplay)} ↗</a>`;
             } else {
-                matchedAreaHtml = `
-                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                        <span class="wishlist-library-file" style="max-width: 450px; font-family: monospace;" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(item.library_file_name)} (已入库)</span>
-                    </div>
-                `;
+                matchedAreaHtml = `<span class="wishlist-tag matched" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(fileNameDisplay)}</span>`;
             }
+        } else if (item.library_url) {
+            matchedAreaHtml = `<a class="wishlist-tag matched" href="${escapeHtml(item.library_url)}" target="_blank">▶️ 播放 ↗</a>`;
         } else {
-            if (item.library_url) {
-                matchedAreaHtml = `
-                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                        <a class="wishlist-library-link" href="${escapeHtml(item.library_url)}" style="font-weight: 500;" target="_blank">▶️ 库内播放 ↗</a>
-                    </div>
-                `;
-            } else {
-                matchedAreaHtml = `
-                    <div class="wishlist-matched-row" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                        <span class="wishlist-library-tag">已入库</span>
-                    </div>
-                `;
-            }
+            matchedAreaHtml = `<span class="wishlist-tag matched">📁 已入库</span>`;
+        }
+    } else {
+        const dLinks = buildDownloadLinks(item);
+        if (dLinks.length > 0) {
+            matchedAreaHtml = dLinks.map(l => `<a class="wishlist-link-pill" href="${escapeHtml(l.url)}" target="_blank">${escapeHtml(l.label)} ↗</a>`).join("");
         }
     }
-
-    let resourceLinksHtml = "";
-    if (!item.library_matched) {
-        resourceLinksHtml = buildDownloadLinks(item)
-            .slice(0, 6)
-            .map((link) => `<a class="wishlist-link" href="${escapeHtml(link.url)}" target="_blank">${escapeHtml(link.label)} ↗</a>`)
-            .join("");
-    }
     
-    const metaParts = [];
-    if (item.directors) metaParts.push(`<strong>导演:</strong> ${item.directors}`);
-    if (item.actors) metaParts.push(`<strong>主演:</strong> ${item.actors}`);
-    if (item.genres) metaParts.push(`<strong>类型:</strong> ${item.genres}`);
-    if (item.country) metaParts.push(`<strong>地区:</strong> ${item.country}`);
-    if (item.duration) metaParts.push(`<strong>片长:</strong> ${item.duration}`);
-    const metaText = metaParts.filter(Boolean).join(" · ");
+    const metaText = formatCardMeta(item);
 
     return `
-        <div class="wishlist-row" style="padding: 12px; min-height: 110px;">
-            <div class="wishlist-cover" style="width: 70px; height: 105px;">
+        <div class="movie-item wishlist-item">
+            <div class="movie-cover-wrapper">
                 ${poster}
             </div>
-            <div class="wishlist-main" style="gap: 8px;">
-                <div class="wishlist-title-row" style="margin-bottom: 2px;">
-                    <div class="wishlist-title-group" style="display: flex; align-items: center; gap: 8px;">
+            <div class="movie-info">
+                <div class="movie-title-row">
+                    <div class="movie-title-group">
                         ${titleHtml}
                         ${year}
-                        <div style="display: inline-flex; gap: 4px; margin-left: 8px;">${badges}</div>
                     </div>
-                    ${resourceLinksHtml ? `<div class="wishlist-links">${resourceLinksHtml}</div>` : ""}
+                    <div class="platform-badges-inline">${badges}</div>
                 </div>
-                
-                ${metaText ? `<div class="wishlist-meta" style="font-size: 0.78rem; line-height: 1.4; color: var(--text-secondary);" title="${metaText.replace(/<\/?strong>/g, '')}">${metaText}</div>` : ""}
-                
-                <div class="wishlist-submeta" style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; font-size: 0.75rem; border-top: 1px solid rgba(255,255,255,0.03); padding-top: 6px; width: 100%;">
-                    <div style="display: flex; gap: 12px; color: var(--text-muted);">
-                        ${ratingText ? `<span class="wishlist-rating ${ratingClass}">${ratingText}</span>` : ""}
-                        ${votesText ? `<span class="wishlist-votes">${votesText}</span>` : ""}
-                        ${dateText ? `<span class="wishlist-date">${dateText}</span>` : ""}
+                <div class="movie-meta-line" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</div>
+                <div class="movie-bottom-row">
+                    <div class="movie-bottom-left">
+                        ${ratingHtml}
+                        ${votesText}
+                        ${dateText}
                     </div>
-                    ${matchedAreaHtml}
+                    <div class="wishlist-actions-right">
+                        ${matchedAreaHtml}
+                    </div>
                 </div>
             </div>
         </div>
@@ -1533,46 +1617,116 @@ function renderMovieCard(item, mode = "library", view = "grid") {
     `;
 }
 
+function renderDiffCard(item, mode = "library") {
+    const posterUrl = proxyImageUrl(item.poster_url || "");
+    const title = cleanTitle(item.title);
+    const poster = posterUrl
+        ? `<img src="${escapeHtml(posterUrl)}" class="diff-item-poster" alt="${escapeHtml(title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="diff-item-poster poster-fallback" style="display:none;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase())}</div>`
+        : `<div class="diff-item-poster poster-fallback" style="display:flex;">${escapeHtml(String(title || "?").trim().charAt(0).toUpperCase())}</div>`;
+
+    const catBadge =
+        item.category === "missing"
+            ? `<span class="diff-status-badge diff-status-missing">🔴 缺失待补</span>`
+            : item.category === "mismatch"
+            ? `<span class="diff-status-badge diff-status-mismatch">🟡 评分差异</span>`
+            : `<span class="diff-status-badge diff-status-synced">🟢 完全对齐</span>`;
+
+    const sourceScore = item.source_rating !== null && item.source_rating !== undefined ? `${item.source_rating} 分` : (mode === "wishlist" ? "想看" : "--");
+    const targetScore = item.target_rating !== null && item.target_rating !== undefined ? `${item.target_rating} 分` : (mode === "wishlist" ? (item.target_rated_at ? "已想看" : "未想看") : "未评分");
+
+    const sourceLabel = platformLabel(item.source_platform);
+    const targetLabel = platformLabel(item.target_platform);
+
+    const linkingInfo = item.target_linking_id ? `目标 ID: ${escapeHtml(item.target_linking_id)}` : "未关联 ID";
+    const sourceLink = item.source_url ? `<a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--text-secondary); text-decoration:underline;">${sourceLabel} ↗</a>` : "";
+    const targetLink = item.target_url ? `<a href="${escapeHtml(item.target_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--text-secondary); text-decoration:underline;">${targetLabel} ↗</a>` : "";
+
+    return `
+        <div class="diff-item-card">
+            <div class="diff-item-left">
+                ${poster}
+                <div class="diff-item-info">
+                    <div class="diff-item-title">${escapeHtml(title)}</div>
+                    <div class="diff-item-meta">
+                        <span>${item.year ? item.year : "--"}</span>
+                        <span>·</span>
+                        <span>${linkingInfo}</span>
+                        ${sourceLink ? `<span>·</span>${sourceLink}` : ""}
+                        ${targetLink ? `<span>·</span>${targetLink}` : ""}
+                    </div>
+                </div>
+            </div>
+            <div class="diff-item-scores">
+                <div class="diff-score-box">
+                    <span class="diff-score-label">${sourceLabel}</span>
+                    <span class="diff-score-val">${escapeHtml(sourceScore)}</span>
+                </div>
+                <div class="diff-arrow" style="font-size:0.9rem;">➔</div>
+                <div class="diff-score-box">
+                    <span class="diff-score-label">${targetLabel}</span>
+                    <span class="diff-score-val" style="color:${item.category === 'missing' ? 'var(--text-muted)' : 'inherit'}">${escapeHtml(targetScore)}</span>
+                </div>
+                ${catBadge}
+            </div>
+        </div>
+    `;
+}
+
 function renderLibrary() {
     const items = state.library.items || [];
-    ui.libraryList.className = state.library.view === "list" ? "library-list library-list-view" : "rust-card-grid library-grid-view";
     if (!items.length) {
         ui.libraryEmpty.style.display = "";
         ui.libraryList.style.display = "none";
         ui.libraryPagination.style.display = "none";
-        updateLibraryInsight();
         return;
     }
     ui.libraryEmpty.style.display = "none";
     ui.libraryList.style.display = "";
-    ui.libraryList.innerHTML = items.map((item) => renderMovieCard(item, "library", state.library.view)).join("");
-    updateLibraryInsight();
+
+    if (state.library.mode === "diff") {
+        ui.libraryList.className = "diff-list-view";
+        ui.libraryList.innerHTML = items.map((item) => renderDiffCard(item, "library")).join("");
+    } else {
+        ui.libraryList.className = state.library.view === "list" ? "library-list library-list-view" : "rust-card-grid library-grid-view";
+        ui.libraryList.innerHTML = items.map((item) => renderMovieCard(item, "library", state.library.view)).join("");
+    }
+
     const totalPages = Math.max(1, Math.ceil((state.library.total || 0) / LIBRARY_PAGE_SIZE));
     ui.libraryPageInfo.textContent = `${state.library.page} / ${totalPages}`;
     ui.libPrevBtn.disabled = state.library.page <= 1;
     ui.libNextBtn.disabled = state.library.page >= totalPages;
     ui.libraryPagination.style.display = totalPages > 1 ? "flex" : "none";
-    updateLibraryInsight();
-}
-
-function filteredWishlistItems() {
-    const active = state.wishlist.sources;
-    return (state.wishlist.items || []).filter((item) => {
-        if (state.wishlist.onlyUnmatched && item.library_matched) return false;
-        const platforms = item.source_platforms || item.sources?.map((source) => source.platform) || [];
-        return !active.size || platforms.some((platform) => active.has(platform));
-    });
 }
 
 function renderWishlist() {
-    const items = filteredWishlistItems();
+    let items = state.wishlist.items || [];
+    if (state.wishlist.mode === "unified") {
+        if (state.wishlist.onlyUnmatched) {
+            items = items.filter((item) => !item.library_matched);
+        }
+    }
     state.wishlist.filteredItems = items;
+
+    if (state.wishlist.mode === "diff") {
+        if (!items.length) {
+            ui.wishlistEmpty.style.display = "";
+            ui.wishlistList.style.display = "none";
+            ui.wishlistPagination.style.display = "none";
+            return;
+        }
+        ui.wishlistEmpty.style.display = "none";
+        ui.wishlistList.style.display = "";
+        ui.wishlistList.className = "diff-list-view";
+        ui.wishlistList.innerHTML = items.map((item) => renderDiffCard(item, "wishlist")).join("");
+        ui.wishlistPagination.style.display = "none";
+        return;
+    }
+
     const totalPages = Math.max(1, Math.ceil(items.length / WISHLIST_PAGE_SIZE));
     if (state.wishlist.page > totalPages) state.wishlist.page = totalPages;
     const start = (state.wishlist.page - 1) * WISHLIST_PAGE_SIZE;
     const pageItems = items.slice(start, start + WISHLIST_PAGE_SIZE);
 
-    ui.wishlistList.className = state.wishlist.view === "list" ? "wishlist-list-view" : "rust-card-grid library-grid-view";
     if (!pageItems.length) {
         ui.wishlistEmpty.style.display = "";
         ui.wishlistList.style.display = "none";
@@ -1582,6 +1736,7 @@ function renderWishlist() {
     }
     ui.wishlistEmpty.style.display = "none";
     ui.wishlistList.style.display = "";
+    ui.wishlistList.className = state.wishlist.view === "list" ? "wishlist-list-view" : "rust-card-grid library-grid-view";
     ui.wishlistList.innerHTML = pageItems.map((item) => renderMovieCard(item, "wishlist", state.wishlist.view)).join("");
     ui.wishlistPageInfo.textContent = `${state.wishlist.page} / ${totalPages}`;
     ui.wishlistPrevBtn.disabled = state.wishlist.page <= 1;
@@ -1603,7 +1758,7 @@ function syncActionLabel(status) {
 }
 
 function isExecutablePreviewItem(item) {
-    return Boolean(item?.target_linking_id && !item.reason && ["new", "overwrite"].includes(item.action));
+    return Boolean(item && item.action !== "skip" && !item.reason && (item.target_linking_id || item.target_platform !== "imdb"));
 }
 
 function renderSyncItems(items, mode) {
@@ -1622,6 +1777,9 @@ function renderSyncItems(items, mode) {
     if (mode !== "preview") {
         state.sync.selectedTargetIds = new Set();
     }
+
+    state.sync.lastItems = items;
+    state.sync.lastMode = mode;
 
     const resultCounts = items.reduce(
         (acc, item) => {
@@ -1647,7 +1805,31 @@ function renderSyncItems(items, mode) {
                   ["返回项", items.length],
               ];
 
-    const rows = items
+    const currentFilter = state.sync.previewFilter || (resultCounts.ready > 0 ? "ready" : "skipped");
+    const filteredItems = mode !== "preview" ? items : (
+        currentFilter === "ready" ? items.filter(isExecutablePreviewItem) :
+        currentFilter === "skipped" ? items.filter(i => !isExecutablePreviewItem(i)) :
+        items
+    );
+
+    const filterBar = mode === "preview" ? `
+        <div class="sync-preview-filter-bar">
+            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'ready' ? 'active' : 'btn-ghost'}" data-filter="ready">🟢 待同步条目 (${resultCounts.ready})</button>
+            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'skipped' ? 'active' : 'btn-ghost'}" data-filter="skipped">⚪ 已跳过条目 (${resultCounts.skipped})</button>
+            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'all' ? 'active' : 'btn-ghost'}" data-filter="all">全部 (${items.length})</button>
+        </div>
+    ` : "";
+
+    const emptyNotice = filteredItems.length === 0 ? `
+        <div class="sync-empty-notice">
+            ${currentFilter === 'ready' ? '🎉 当前评估范围内的影视均已与目标平台对齐，无待同步条目。可点击上方【⚪ 已跳过条目】查看已对齐详情，或切换【✏️ 覆盖已有】规则。' : '当前分类下无条目。'}
+        </div>
+    ` : "";
+
+    const allSelectableFiltered = filteredItems.filter(isExecutablePreviewItem);
+    const isAllChecked = allSelectableFiltered.length > 0 && allSelectableFiltered.every(i => state.sync.selectedTargetIds.has(i.target_linking_id));
+
+    const rows = filteredItems
         .map((item) => {
             const status = mode === "preview" ? item.action || "preview" : item.status || "result";
             const hasRating = item.source_rating !== null && item.source_rating !== undefined;
@@ -1690,17 +1872,12 @@ function renderSyncItems(items, mode) {
         })
         .join("");
 
-    ui.syncPreviewList.innerHTML = `
-        <div class="sync-preview-overview">
-            ${overview
-                .map(([label, value]) => `<div class="sync-preview-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`)
-                .join("")}
-        </div>
+    const tableHtml = filteredItems.length > 0 ? `
         <div class="sync-preview-table-wrap">
             <table class="sync-preview-table">
                 <thead>
                     <tr>
-                        <th>选择</th>
+                        <th>${mode === 'preview' && allSelectableFiltered.length > 0 ? `<input type="checkbox" id="sync-select-all-header" title="全选 / 反选" ${isAllChecked ? 'checked' : ''}>` : '选择'}</th>
                         <th>电影</th>
                         <th>流向</th>
                         <th>源评分</th>
@@ -1712,6 +1889,16 @@ function renderSyncItems(items, mode) {
                 <tbody>${rows}</tbody>
             </table>
         </div>
+    ` : emptyNotice;
+
+    ui.syncPreviewList.innerHTML = `
+        <div class="sync-preview-overview">
+            ${overview
+                .map(([label, value]) => `<div class="sync-preview-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`)
+                .join("")}
+        </div>
+        ${filterBar}
+        ${tableHtml}
     `;
     document.getElementById("execute-sync-btn").disabled =
         mode !== "preview" || (state.sync.selectedTargetIds?.size || 0) === 0;
@@ -1992,7 +2179,9 @@ function gatherSyncPayload(options = {}) {
         refresh_before_sync: options.forceRefresh === true
             ? true
             : document.getElementById("sync-refresh-before")?.checked === true,
-        selected_target_ids: Array.from(state.sync.selectedTargetIds || []),
+        selected_target_ids: Array.from(state.sync.selectedTargetIds || []).filter(
+            (id) => typeof id === "string" && id.trim().length > 0
+        ),
     };
 }
 
@@ -2026,23 +2215,25 @@ function markSyncPreviewStale() {
     document.getElementById("execute-sync-btn").disabled = true;
 }
 
-function getPlatformSyncStatus(platformId) {
+function getPlatformSyncStatus(platformId, role = "source") {
     if (platformId === "cinepersona") {
         const hasKey = document.getElementById("cinepersona-api-key")?.value?.trim() || state.currentConfig?.cinepersona?.api_key;
         if (!hasKey) {
-            return { success: false, reason: "CinePersona 未配置，请先在“设置”中填写 API Key 并测试连接。" };
+            return { success: false, reason: "CinePersona 未配置，请先在“设置”中填写 API Key。" };
         }
         return { success: true };
     }
     const platform = (state.platforms || []).find((p) => p.id === platformId);
     if (!platform) return { success: false, reason: "平台不存在" };
-    if (!platform.status?.configured) {
-        return { success: false, reason: `${platform.name} 未登录或未配置，请先在“设置”中连接账户并验证。` };
+    if (!platform.status?.configured && platformId !== "letterboxd") {
+        return { success: false, reason: `${platform.name} 未连接或授权已失效，请先在“设置”中连接。` };
     }
-    if (platformId === "douban") {
+    if (platformId === "douban" && role === "target") {
+        const cookie = state.currentConfig?.platforms?.douban?.cookie || "";
+        const hasCk = cookie.includes("ck=") || cookie.includes("dbcl2=");
         const profile = platform.status?.profile || {};
-        if (!profile.write_ready) {
-            return { success: false, reason: "豆瓣未登录或写入凭据缺失（缺少 dbcl2/ck Cookie），请先在“设置”中重新绑定完整 Cookie。" };
+        if (!hasCk && profile.write_ready === false) {
+            return { success: false, reason: "豆瓣作为写入目标时缺少完整凭据（缺少 dbcl2/ck Cookie）。" };
         }
     }
     return { success: true };
@@ -2056,8 +2247,8 @@ function validateSyncSelection() {
     
     if (!sourceVal || !targetVal) return;
     
-    const sourceStatus = getPlatformSyncStatus(sourceVal);
-    const targetStatus = getPlatformSyncStatus(targetVal);
+    const sourceStatus = getPlatformSyncStatus(sourceVal, "source");
+    const targetStatus = getPlatformSyncStatus(targetVal, "target");
     
     if (!sourceStatus.success || !targetStatus.success) {
         const msg = !sourceStatus.success ? sourceStatus.reason : targetStatus.reason;
@@ -2166,15 +2357,7 @@ function updatePlatformUiVisibility(platforms) {
         }
     });
 
-    // 2. Library Filter Tabs
-    document.querySelectorAll(".library-filter-tabs .filter-tab").forEach(tab => {
-        const filter = tab.dataset.filter;
-        if (filter && filter !== "all") {
-            tab.style.display = configuredSet.has(filter) ? "" : "none";
-        }
-    });
-
-    // 3. Export select options
+    // 2. Export select options
     document.querySelectorAll("#export-source option").forEach(opt => {
         const val = opt.value;
         if (val && val !== "merged") {
@@ -2182,7 +2365,7 @@ function updatePlatformUiVisibility(platforms) {
         }
     });
 
-    // 4. Wishlist Fetch Buttons
+    // 3. Wishlist Fetch Buttons
     document.querySelectorAll(".rust-wishlist-btn").forEach(btn => {
         const platform = btn.dataset.platform;
         if (platform) {
@@ -2195,45 +2378,152 @@ function updatePlatformUiVisibility(platforms) {
     if (syncBtn) {
         syncBtn.style.display = hasCinePersona ? "" : "none";
     }
+}
 
-    // 5. Wishlist Filter options
-    document.querySelectorAll("#wishlist-source-filters .wishlist-source-option").forEach(lbl => {
-        const chk = lbl.querySelector("input[data-source]");
-        if (chk) {
-            const src = chk.dataset.source;
-            if (src) {
-                lbl.style.display = configuredSet.has(src) ? "" : "none";
-            }
-        }
+function updateLibraryFilterCounts(platformCounts = {}, totalFallback = 0) {
+    const total = platformCounts.all ?? totalFallback ?? 0;
+    const shared = platformCounts.shared ?? 0;
+    const single = platformCounts.single ?? Math.max(0, total - shared);
+
+    const elAll = document.getElementById("count-all");
+    if (elAll) elAll.textContent = total;
+
+    const elShared = document.getElementById("count-shared");
+    if (elShared) elShared.textContent = shared;
+
+    const elSingle = document.getElementById("count-single");
+    if (elSingle) elSingle.textContent = single;
+
+    ["douban", "imdb", "trakt", "letterboxd", "tmdb", "cinepersona"].forEach(p => {
+        const el = document.getElementById(`count-tab-${p}`);
+        if (el) el.textContent = platformCounts[p] || 0;
     });
+}
+
+function updateLibraryPlatformCounts(platformCounts) {
+    ["douban", "imdb", "trakt", "letterboxd", "tmdb", "cinepersona"].forEach(p => {
+        const el = document.getElementById(`count-tab-${p}`);
+        if (el) el.textContent = platformCounts[p] || 0;
+    });
+}
+
+function updateLibraryDiffCounts(diffResult) {
+    if (!diffResult) return;
+    const missingEl = document.getElementById("diff-missing-count");
+    if (missingEl) missingEl.textContent = diffResult.missing_count || 0;
+    const mismatchEl = document.getElementById("diff-mismatch-count");
+    if (mismatchEl) mismatchEl.textContent = diffResult.mismatch_count || 0;
+    const syncedEl = document.getElementById("diff-synced-count");
+    if (syncedEl) syncedEl.textContent = diffResult.synced_count || 0;
+    const totalEl = document.getElementById("diff-total-count");
+    if (totalEl) totalEl.textContent = diffResult.total_source || 0;
+}
+
+function updateWishlistDiffCounts(diffResult) {
+    if (!diffResult) return;
+    const missingEl = document.getElementById("wishlist-diff-missing-count");
+    if (missingEl) missingEl.textContent = diffResult.missing_count || 0;
+    const syncedEl = document.getElementById("wishlist-diff-synced-count");
+    if (syncedEl) syncedEl.textContent = diffResult.synced_count || 0;
 }
 
 async function loadLibrary() {
     const offset = (state.library.page - 1) * LIBRARY_PAGE_SIZE;
-    const platforms = selectedLibraryPlatforms();
-    const platformQuery = `&platforms=${encodeURIComponent(platforms)}`;
-    let path =
-        state.library.filter === "all"
-            ? `/library?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${platformQuery}`
-            : `/library/${state.library.filter}?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${platformQuery}`;
-    if (state.library.search) {
-        path += `&q=${encodeURIComponent(state.library.search)}`;
+    const searchParam = state.library.search ? `&q=${encodeURIComponent(state.library.search)}` : "";
+
+    if (state.library.mode === "diff") {
+        const source = state.library.diffSource || "douban";
+        const target = state.library.diffTarget || "imdb";
+        const category = state.library.diffCategory || "missing";
+        const path = `/library/diff?source=${source}&target=${target}&category=${category}&limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${searchParam}`;
+        const payload = await api(path);
+        state.library.diffResult = payload;
+        state.library.items = payload.items || [];
+        state.library.total = category === "missing" ? payload.missing_count : category === "mismatch" ? payload.mismatch_count : category === "synced" ? payload.synced_count : (payload.total_source || 0);
+        updateLibraryDiffCounts(payload);
+        renderLibrary();
+        return;
     }
+
+    if (state.library.mode === "platform") {
+        const platform = state.library.platformTab || "douban";
+        const path = `/library/${platform}?limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${searchParam}`;
+        const payload = await api(path);
+        state.library.items = payload.items || [];
+        state.library.total = payload.total || 0;
+        updateLibraryPlatformCounts(payload.platform_counts || {});
+        renderLibrary();
+        return;
+    }
+
+    // Unified Mode
+    const filter = state.library.subfilter || "all";
+    const path = `/library?filter=${filter}&limit=${LIBRARY_PAGE_SIZE}&offset=${offset}${searchParam}`;
     const payload = await api(path);
-    if (initializeLibraryPlatformCheckboxes(payload.platforms_with_data || [])) {
-        state.library.page = 1;
-        return loadLibrary();
-    }
     state.library.items = payload.items || [];
     state.library.total = payload.total || 0;
-    updateLibraryFilterCounts(payload.platform_counts || {}, payload.total || 0);
+    updateLibraryFilterCounts(payload.platform_counts || {}, payload.platform_counts?.all || payload.total || 0);
     renderLibrary();
 }
 
 async function loadWishlist() {
-    const payload = await api(`/wishlist?limit=${WISHLIST_FETCH_LIMIT}&offset=0`);
+    const searchParam = state.wishlist.search ? `&q=${encodeURIComponent(state.wishlist.search)}` : "";
+
+    if (state.wishlist.mode === "diff") {
+        const source = state.wishlist.diffSource || "douban";
+        const target = state.wishlist.diffTarget || "imdb";
+        const category = state.wishlist.diffCategory || "missing";
+        const path = `/wishlist/diff?source=${source}&target=${target}&category=${category}&limit=500&offset=0${searchParam}`;
+        const payload = await api(path);
+        state.wishlist.diffResult = payload;
+        state.wishlist.items = payload.items || [];
+        state.wishlist.total = category === "missing" ? payload.missing_count : payload.synced_count;
+        updateWishlistDiffCounts(payload);
+        renderWishlist();
+        return;
+    }
+
+    if (state.wishlist.mode === "platform") {
+        const platform = state.wishlist.platformTab || "douban";
+        const path = `/wishlist/${platform}?limit=${WISHLIST_FETCH_LIMIT}&offset=0${searchParam}`;
+        const payload = await api(path);
+        state.wishlist.items = payload.items || [];
+        renderWishlist();
+        return;
+    }
+
+    // Unified Mode
+    const path = `/wishlist?limit=${WISHLIST_FETCH_LIMIT}&offset=0${searchParam}`;
+    const payload = await api(path);
     state.wishlist.items = payload.items || [];
+    if (payload.counts) {
+        updateWishlistFilterCounts(payload.counts);
+    } else {
+        const countAll = document.getElementById("wishlist-count-all");
+        if (countAll) countAll.textContent = payload.total || state.wishlist.items.length;
+    }
     renderWishlist();
+}
+
+function updateWishlistFilterCounts(counts) {
+    if (!counts) return;
+    const countAll = document.getElementById("wishlist-count-all");
+    if (countAll) countAll.textContent = counts.all ?? counts.total ?? 0;
+
+    const countDouban = document.getElementById("wishlist-count-douban");
+    if (countDouban) countDouban.textContent = counts.douban ?? 0;
+
+    const countImdb = document.getElementById("wishlist-count-imdb");
+    if (countImdb) countImdb.textContent = counts.imdb ?? 0;
+
+    const countTrakt = document.getElementById("wishlist-count-trakt");
+    if (countTrakt) countTrakt.textContent = counts.trakt ?? 0;
+
+    const countTmdb = document.getElementById("wishlist-count-tmdb");
+    if (countTmdb) countTmdb.textContent = counts.tmdb ?? 0;
+
+    const countCinepersona = document.getElementById("wishlist-count-cinepersona");
+    if (countCinepersona) countCinepersona.textContent = counts.cinepersona ?? 0;
 }
 
 async function loadTasks() {
@@ -2314,25 +2604,50 @@ async function loadSystemInfo() {
 }
 
 async function runPlatformTest(platform, options = {}) {
-    const name = platform.toUpperCase();
-    const statusEl = platformStatusElement(platform);
-    setActionStatus(`正在测试 ${name}...`, "loading", { persist: true });
-    if (statusEl) statusEl.textContent = `正在测试 ${name}...`;
+    const settingsBadge = document.getElementById(`settings-badge-${platform}`);
+    const summaryDot = document.getElementById(`summary-dot-${platform}`);
+    
+    if (settingsBadge) {
+        settingsBadge.className = "status-badge validating";
+        settingsBadge.textContent = "● 正在验证";
+    }
+    if (summaryDot) {
+        summaryDot.className = "status-dot validating";
+    }
+    setActionStatus(`正在测试 ${platformLabel(platform)}...`, "loading", { persist: true });
+
     try {
         const payload = await api(`/platforms/${platform}/test`, { method: "POST" });
-        const message = prettyStatusMessage(payload.message) || payload.message || `${name} 测试完成`;
+        const message = prettyStatusMessage(payload.message) || payload.message || `${platformLabel(platform)} 测试完成`;
         if (options.append !== false) {
             appendLog(`platform.test.${platform}`, payload);
         }
-        if (statusEl) statusEl.textContent = message;
         setActionStatus(message, payload.success ? "success" : "error");
-        if (options.refresh !== false) {
-            await Promise.all([loadOverview(), loadConfig()]);
+
+        let targetDescriptor = (state.platforms || []).find((p) => p.id === platform);
+        if (!targetDescriptor) {
+            targetDescriptor = { id: platform, name: platformLabel(platform), status: {} };
+            state.platforms.push(targetDescriptor);
         }
+        targetDescriptor.status = {
+            ...targetDescriptor.status,
+            configured: payload.success,
+            message: payload.message,
+            profile: payload.profile || targetDescriptor.status?.profile,
+            last_validated_at: new Date().toISOString(),
+        };
+
+        setPlatformUi(platform, targetDescriptor);
         return payload;
     } catch (error) {
-        if (statusEl) statusEl.textContent = error.message || `${name} 测试失败`;
-        setActionStatus(error.message || `${name} 测试失败`, "error");
+        if (settingsBadge) {
+            settingsBadge.className = "status-badge disconnected";
+            settingsBadge.textContent = "● 验证失败";
+        }
+        if (summaryDot) {
+            summaryDot.className = "status-dot disconnected";
+        }
+        setActionStatus(error.message || `${platformLabel(platform)} 测试失败`, "error");
         throw error;
     }
 }
@@ -2640,22 +2955,31 @@ async function logoutPlatform(platform) {
     }
 }
 
-async function startTraktAuth() {
-    await saveConfig(null, { validate: false });
+async function startTraktAuth(button = null) {
+    if (button) setButtonBusy(button, true, "启动中...");
     setActionStatus("正在启动 Trakt 设备授权...", "loading", { persist: true });
-    const payload = await api("/platforms/trakt/device-auth/start", { method: "POST" });
-    state.traktDeviceAuth = payload.auth;
-    renderTraktDeviceAuthPanel();
-    startTraktAuthPolling(payload.auth?.interval || 5);
-    const message = `打开 ${payload.auth.verification_url} 并输入验证码 ${payload.auth.user_code}`;
-    if (ui.traktAuthStatus) ui.traktAuthStatus.textContent = message;
-    const statusEl = platformStatusElement("trakt");
-    if (statusEl) statusEl.textContent = message;
-    const metaEl = platformMetaElement("trakt");
-    if (metaEl) metaEl.textContent = "等待你在 Trakt 页面完成确认";
-    setActionStatus(`Trakt 设备授权已开始 · 验证码 ${payload.auth.user_code}`, "success");
-    appendLog("trakt.auth.start", payload);
-    window.open(payload.auth.verification_url, "_blank", "noopener,noreferrer");
+    try {
+        const payload = await api("/platforms/trakt/device-auth/start", { method: "POST" });
+        state.traktDeviceAuth = payload.auth;
+        renderTraktDeviceAuthPanel();
+        startTraktAuthPolling(payload.auth?.interval || 5);
+        const message = `打开 ${payload.auth.verification_url} 并输入验证码 ${payload.auth.user_code}`;
+        if (ui.traktAuthStatus) ui.traktAuthStatus.textContent = message;
+        const statusEl = platformStatusElement("trakt");
+        if (statusEl) statusEl.textContent = message;
+        const metaEl = platformMetaElement("trakt");
+        if (metaEl) metaEl.textContent = "等待你在 Trakt 页面完成确认";
+        setActionStatus(`Trakt 设备授权已开始 · 验证码 ${payload.auth.user_code}`, "success");
+        appendLog("trakt.auth.start", payload);
+        const authWin = window.open(payload.auth.verification_url, "_blank", "noopener,noreferrer");
+        if (!authWin || authWin.closed || typeof authWin.closed === "undefined") {
+            setActionStatus(`Trakt 验证码: ${payload.auth.user_code} · 请点击下方“打开授权页”`, "info");
+        }
+    } catch (err) {
+        handleError(err);
+    } finally {
+        if (button) setButtonBusy(button, false);
+    }
 }
 
 async function pollTraktAuth(options = {}) {
@@ -2878,6 +3202,29 @@ function bindEvents() {
     });
 
     bindClick("theme-btn", toggleTheme);
+    
+    // Global delegation for language switch
+    document.addEventListener("click", (e) => {
+        const btn = e.target.closest("#lang-btn");
+        if (btn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const i18nObj = window.i18n || (typeof i18n !== 'undefined' ? i18n : null);
+            if (i18nObj && i18nObj.toggleLanguage) {
+                i18nObj.toggleLanguage();
+            }
+        }
+    });
+
+    window.addEventListener("languagechange", () => {
+        renderOverview();
+        renderLibrary();
+        renderWishlist();
+        renderPlatformCards();
+        renderTasks();
+        renderScheduledTasks();
+    });
+
     ui.mobileMenuBtn?.addEventListener("click", openMobileSidebar);
     ui.mobileSidebarOverlay?.addEventListener("click", closeMobileSidebar);
     bindClick("dashboard-refresh-btn", (event) => {
@@ -3022,19 +3369,71 @@ function bindEvents() {
         }
     });
 
-    $$(".filter-tab").forEach((button) => {
-        button.addEventListener("click", () => {
-            $$(".filter-tab").forEach((tab) => tab.classList.toggle("active", tab === button));
-            state.library.filter = button.dataset.filter;
+    // Library 3-Mode Primary Switcher
+    $$("[data-library-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const mode = btn.dataset.libraryMode;
+            state.library.mode = mode;
             state.library.page = 1;
+            $$("[data-library-mode]").forEach(b => b.classList.toggle("active", b === btn));
+            const subUnified = document.getElementById("sub-mode-unified");
+            const subPlatform = document.getElementById("sub-mode-platform");
+            const subDiff = document.getElementById("sub-mode-diff");
+            if (subUnified) subUnified.style.display = mode === "unified" ? "flex" : "none";
+            if (subPlatform) subPlatform.style.display = mode === "platform" ? "flex" : "none";
+            if (subDiff) subDiff.style.display = mode === "diff" ? "flex" : "none";
             loadLibrary().catch(handleError);
         });
     });
-    $$('.filter-checkbox input[type="checkbox"]').forEach((checkbox) => {
-        checkbox.addEventListener("change", () => {
+
+    // Library Subfilter Chips (All / Shared / Single)
+    $$("[data-subfilter]").forEach((chip) => {
+        chip.addEventListener("click", () => {
+            state.library.subfilter = chip.dataset.subfilter;
             state.library.page = 1;
+            $$("[data-subfilter]").forEach(c => c.classList.toggle("active", c === chip));
             loadLibrary().catch(handleError);
         });
+    });
+
+    // Library Platform Tabs (douban, imdb, trakt, etc.)
+    $$("[data-platform-tab]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+            state.library.platformTab = tab.dataset.platformTab;
+            state.library.page = 1;
+            $$("[data-platform-tab]").forEach(t => t.classList.toggle("active", t === tab));
+            loadLibrary().catch(handleError);
+        });
+    });
+
+    // Library Diff Selectors & Category Tabs
+    document.getElementById("diff-source-platform")?.addEventListener("change", (e) => {
+        state.library.diffSource = e.target.value;
+        state.library.page = 1;
+        loadLibrary().catch(handleError);
+    });
+    document.getElementById("diff-target-platform")?.addEventListener("change", (e) => {
+        state.library.diffTarget = e.target.value;
+        state.library.page = 1;
+        loadLibrary().catch(handleError);
+    });
+    $$("[data-diff-cat]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            state.library.diffCategory = btn.dataset.diffCat;
+            state.library.page = 1;
+            $$("[data-diff-cat]").forEach(b => b.classList.toggle("active", b === btn));
+            loadLibrary().catch(handleError);
+        });
+    });
+    bindClick("diff-sync-selected-btn", () => {
+        const src = state.library.diffSource || "douban";
+        const tgt = state.library.diffTarget || "imdb";
+        const srcSelect = document.getElementById("sync-source-select");
+        const tgtSelect = document.getElementById("sync-target-select");
+        if (srcSelect) srcSelect.value = src;
+        if (tgtSelect) tgtSelect.value = tgt;
+        openTab("sync");
+        previewSync().catch(handleError);
     });
 
     let searchTimeout = null;
@@ -3049,15 +3448,6 @@ function bindEvents() {
             const query = searchInput.value.trim();
             if (clearBtn) {
                 clearBtn.style.display = query ? "block" : "none";
-            }
-            if (query) {
-                document.querySelectorAll('.filter-checkbox input[type="checkbox"]').forEach((checkbox) => {
-                    checkbox.checked = false;
-                });
-                document.querySelectorAll(".library-filter-tabs .filter-tab").forEach((tab) => {
-                    tab.classList.toggle("active", tab.dataset.filter === "all");
-                });
-                state.library.filter = "all";
             }
             if (searchTimeout) {
                 clearTimeout(searchTimeout);
@@ -3081,14 +3471,85 @@ function bindEvents() {
         });
     }
 
+    // Wishlist 3-Mode Primary Switcher
+    $$("[data-wishlist-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const mode = btn.dataset.wishlistMode;
+            state.wishlist.mode = mode;
+            state.wishlist.page = 1;
+            $$("[data-wishlist-mode]").forEach(b => b.classList.toggle("active", b === btn));
+            const subUnified = document.getElementById("sub-wishlist-unified");
+            const subPlatform = document.getElementById("sub-wishlist-platform");
+            const subDiff = document.getElementById("sub-wishlist-diff");
+            if (subUnified) subUnified.style.display = mode === "unified" ? "flex" : "none";
+            if (subPlatform) subPlatform.style.display = mode === "platform" ? "flex" : "none";
+            if (subDiff) subDiff.style.display = mode === "diff" ? "flex" : "none";
+            loadWishlist().catch(handleError);
+        });
+    });
+
+    $$("[data-wishlist-platform-tab]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+            state.wishlist.platformTab = tab.dataset.wishlistPlatformTab;
+            state.wishlist.page = 1;
+            $$("[data-wishlist-platform-tab]").forEach(t => t.classList.toggle("active", t === tab));
+            loadWishlist().catch(handleError);
+        });
+    });
+
+    document.getElementById("diff-wishlist-source-platform")?.addEventListener("change", (e) => {
+        state.wishlist.diffSource = e.target.value;
+        loadWishlist().catch(handleError);
+    });
+    document.getElementById("diff-wishlist-target-platform")?.addEventListener("change", (e) => {
+        state.wishlist.diffTarget = e.target.value;
+        loadWishlist().catch(handleError);
+    });
+    $$("[data-wishlist-diff-cat]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            state.wishlist.diffCategory = btn.dataset.wishlistDiffCat;
+            $$("[data-wishlist-diff-cat]").forEach(b => b.classList.toggle("active", b === btn));
+            loadWishlist().catch(handleError);
+        });
+    });
+
+    let wishlistSearchTimeout = null;
+    const wishlistSearchInput = document.getElementById("wishlist-search-input");
+    const wishlistClearBtn = document.getElementById("wishlist-search-clear-btn");
+    if (wishlistSearchInput) {
+        wishlistSearchInput.value = state.wishlist.search || "";
+        if (wishlistClearBtn) {
+            wishlistClearBtn.style.display = state.wishlist.search ? "block" : "none";
+        }
+        wishlistSearchInput.addEventListener("input", () => {
+            const query = wishlistSearchInput.value.trim();
+            if (wishlistClearBtn) {
+                wishlistClearBtn.style.display = query ? "block" : "none";
+            }
+            if (wishlistSearchTimeout) {
+                clearTimeout(wishlistSearchTimeout);
+            }
+            wishlistSearchTimeout = setTimeout(() => {
+                state.wishlist.search = query;
+                state.wishlist.page = 1;
+                loadWishlist().catch(handleError);
+            }, 300);
+        });
+    }
+    if (wishlistClearBtn) {
+        wishlistClearBtn.addEventListener("click", () => {
+            if (wishlistSearchInput) {
+                wishlistSearchInput.value = "";
+            }
+            wishlistClearBtn.style.display = "none";
+            state.wishlist.search = "";
+            state.wishlist.page = 1;
+            loadWishlist().catch(handleError);
+        });
+    }
+
     bindClick("wishlist-view-grid", () => setWishlistView("grid"));
     bindClick("wishlist-view-list", () => setWishlistView("list"));
-    bindClick("filter-help-btn", () => {
-        const panel = document.getElementById("filter-help-panel");
-        if (panel) {
-            panel.style.display = panel.style.display === "none" ? "block" : "none";
-        }
-    });
     bindClick("import-letterboxd-legacy-btn", (event) => {
         const button = event.currentTarget;
         setButtonBusy(button, true, "导入中...");
@@ -3113,23 +3574,11 @@ function bindEvents() {
         }
     });
     ui.wishlistNextBtn.addEventListener("click", () => {
-        const totalPages = Math.max(1, Math.ceil(filteredWishlistItems().length / WISHLIST_PAGE_SIZE));
+        const totalPages = Math.max(1, Math.ceil((state.wishlist.filteredItems || []).length / WISHLIST_PAGE_SIZE));
         if (state.wishlist.page < totalPages) {
             state.wishlist.page += 1;
             renderWishlist();
         }
-    });
-
-    $$("#wishlist-source-filters input[data-source]").forEach((checkbox) => {
-        checkbox.addEventListener("change", () => {
-            if (checkbox.checked) {
-                state.wishlist.sources.add(checkbox.dataset.source);
-            } else {
-                state.wishlist.sources.delete(checkbox.dataset.source);
-            }
-            state.wishlist.page = 1;
-            renderWishlist();
-        });
     });
 
     bindClick("preview-sync-btn", (event) => {
@@ -3302,7 +3751,35 @@ function bindEvents() {
         }
     });
 
+    ui.syncPreviewList?.addEventListener("click", (event) => {
+        const filterBtn = event.target.closest(".sync-filter-btn");
+        if (filterBtn) {
+            state.sync.previewFilter = filterBtn.dataset.filter;
+            if (state.sync.lastItems) {
+                renderSyncItems(state.sync.lastItems, state.sync.lastMode || "preview");
+            }
+        }
+    });
+
     ui.syncPreviewList?.addEventListener("change", (event) => {
+        if (event.target.id === "sync-select-all-header") {
+            const checked = event.target.checked;
+            const checkboxes = ui.syncPreviewList.querySelectorAll(".sync-item-checkbox");
+            checkboxes.forEach((cb) => {
+                cb.checked = checked;
+                const targetId = cb.dataset.targetId;
+                if (targetId) {
+                    if (checked) {
+                        state.sync.selectedTargetIds.add(targetId);
+                    } else {
+                        state.sync.selectedTargetIds.delete(targetId);
+                    }
+                }
+            });
+            updateSyncSelectionSummary();
+            return;
+        }
+
         const checkbox = event.target.closest(".sync-item-checkbox");
         if (!checkbox) return;
         const targetId = checkbox.dataset.targetId;
@@ -3311,6 +3788,11 @@ function bindEvents() {
             state.sync.selectedTargetIds.add(targetId);
         } else {
             state.sync.selectedTargetIds.delete(targetId);
+        }
+        const selectAllHeader = document.getElementById("sync-select-all-header");
+        if (selectAllHeader) {
+            const allCheckboxes = Array.from(ui.syncPreviewList.querySelectorAll(".sync-item-checkbox"));
+            selectAllHeader.checked = allCheckboxes.length > 0 && allCheckboxes.every(cb => cb.checked);
         }
         updateSyncSelectionSummary();
     });
@@ -3498,6 +3980,17 @@ async function refreshAll() {
 
 async function init() {
     applyTheme();
+    const i18nHelper = typeof window.i18n !== 'undefined' ? window.i18n : (typeof i18n !== 'undefined' ? i18n : null);
+    if (i18nHelper) {
+        const langBtn = document.getElementById("lang-btn");
+        if (langBtn) {
+            langBtn.addEventListener("click", () => {
+                i18nHelper.toggleLanguage();
+            });
+            i18nHelper.updateLangButton();
+        }
+        i18nHelper.applyTranslations();
+    }
     setAppLoading(true);
     setLibraryView(state.library.view);
     setWishlistView(state.wishlist.view);

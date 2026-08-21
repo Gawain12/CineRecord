@@ -874,16 +874,16 @@
 
         .legacy-sync-layout {
             display: grid;
-            grid-template-columns: 0.7fr 1.3fr;
-            gap: 24px;
+            grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.1fr);
+            gap: 20px;
             margin-bottom: 24px;
-            align-items: start;
+            align-items: stretch;
         }
 
         .legacy-sync-left {
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 20px;
         }
 
         .legacy-sync-layout .data-card,
@@ -999,23 +999,29 @@
         }
 
 	        .legacy-default-rating-row {
-	            display: grid;
-	            grid-template-columns: auto 80px minmax(150px, 1fr) 80px;
+	            display: flex;
+	            flex-direction: column;
 	            gap: 10px;
-	            align-items: center;
-	            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.02);
-        }
+	            padding: 12px;
+	            border: 1px solid var(--border-color);
+	            border-radius: 8px;
+	            background: rgba(255, 255, 255, 0.02);
+	        }
 
-	        .legacy-default-rating-row input {
-	            width: 100%;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            padding: 4px 8px;
-            color: var(--text-primary);
+	        .rating-row-item {
+	            display: flex;
+	            align-items: center;
+	            justify-content: space-between;
+	            gap: 10px;
+	        }
+
+	        .legacy-default-rating-row input[type="number"] {
+	            width: 80px;
+	            background: rgba(0, 0, 0, 0.3);
+	            border: 1px solid var(--border-color);
+	            border-radius: 4px;
+	            padding: 4px 8px;
+	            color: var(--text-primary);
 	            text-align: center;
 	        }
 
@@ -1047,7 +1053,7 @@
         .legacy-scheduled-card {
             display: flex;
             flex-direction: column;
-            height: 520px;
+            min-height: 480px;
         }
 
         .legacy-card-desc {
@@ -1059,7 +1065,7 @@
         .legacy-scheduled-body {
             padding: 0;
             display: grid;
-            grid-template-columns: clamp(320px, 40vw, 480px) 1fr;
+            grid-template-columns: 240px 1fr;
             flex: 1;
             overflow: hidden;
         }
@@ -1287,6 +1293,37 @@
 	            font-size: 0.78rem;
 	        }
 
+	        .sync-preview-filter-bar {
+	            display: flex;
+	            align-items: center;
+	            gap: 8px;
+	            padding: 10px 20px;
+	            border-bottom: 1px solid var(--border-color);
+	            background: rgba(255, 255, 255, 0.02);
+	        }
+
+	        .sync-preview-filter-bar .sync-filter-btn {
+	            padding: 5px 12px;
+	            border-radius: 20px;
+	            font-size: 0.82rem;
+	            cursor: pointer;
+	            transition: all 0.15s ease;
+	        }
+
+	        .sync-preview-filter-bar .sync-filter-btn.active {
+	            background: var(--primary-color, #6366f1);
+	            color: #fff;
+	            border-color: transparent;
+	        }
+
+	        .sync-empty-notice {
+	            padding: 24px 20px;
+	            text-align: center;
+	            color: var(--text-secondary);
+	            font-size: 0.9rem;
+	            line-height: 1.6;
+	        }
+
 		        .sync-preview-table-wrap {
 		            padding: 12px 20px 20px;
 		            max-height: calc(100vh - 360px);
@@ -1312,10 +1349,13 @@
 		            font-weight: 700;
 		            text-transform: uppercase;
 		            letter-spacing: 0.04em;
-		            background: rgba(255, 255, 255, 0.025);
+		            background: rgba(18, 24, 38, 0.88);
+		            backdrop-filter: blur(12px);
+		            -webkit-backdrop-filter: blur(12px);
+		            border-bottom: 1px solid var(--border-color);
 		            position: sticky;
 		            top: 0;
-		            z-index: 1;
+		            z-index: 2;
 		        }
 
 		        .sync-preview-table tr.is-skipped {
@@ -1330,8 +1370,636 @@
 		            display: flex;
 		            gap: 8px;
 		            flex-wrap: wrap;
-		            margin-top: 4px;
-		            font-size: 0.78rem;
+		            margin-top: 6px;
+		            font-size: 0.76rem;
+		        }
+
+		        .sync-preview-links a {
+		            display: inline-flex;
+		            align-items: center;
+		            gap: 3px;
+		            padding: 3px 9px;
+		            border-radius: 5px;
+		            background: rgba(59, 130, 246, 0.16);
+		            color: #93c5fd;
+		            border: 1px solid rgba(96, 165, 250, 0.35);
+		            text-decoration: none;
+		            font-weight: 500;
+		            transition: all 0.15s ease;
+		        }
+
+		        .sync-preview-links a:hover {
+		            background: rgba(59, 130, 246, 0.28);
+		            color: #bfdbfe;
+		            border-color: rgba(96, 165, 250, 0.6);
+		        }
+
+		        body.light-mode .sync-preview-links a {
+		            background: #eff6ff;
+		            color: #1d4ed8;
+		            border-color: #bfdbfe;
+		        }
+
+		        body.light-mode .sync-preview-links a:hover {
+		            background: #dbeafe;
+		            color: #1e40af;
+		            border-color: #93c5fd;
+		        }
+
+		        .platform-full-card .prompt-text {
+		            display: none !important;
+		        }
+
+		        /* Apple Design Language: Fixed Height Movie Cards (No Jitter) */
+		        .library-list {
+		            display: flex;
+		            flex-direction: column;
+		            gap: 10px;
+		            padding-bottom: 32px;
+		        }
+
+		        .movie-item {
+		            display: flex !important;
+		            align-items: center !important;
+		            gap: 14px !important;
+		            padding: 10px 16px !important;
+		            background: rgba(255, 255, 255, 0.025) !important;
+		            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+		            border-radius: 12px !important;
+		            height: 104px !important;
+		            min-height: 104px !important;
+		            max-height: 104px !important;
+		            box-sizing: border-box !important;
+		            overflow: hidden !important;
+		            transition: background 0.15s ease, border-color 0.15s ease !important;
+		            margin-bottom: 0 !important;
+		        }
+
+		        .movie-item:hover {
+		            background: rgba(255, 255, 255, 0.045) !important;
+		            border-color: rgba(255, 255, 255, 0.12) !important;
+		            transform: none !important;
+		            box-shadow: none !important;
+		        }
+
+		        body.light-mode .movie-item {
+		            background: #ffffff !important;
+		            border: 1px solid rgba(0, 0, 0, 0.06) !important;
+		            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+		        }
+
+		        body.light-mode .movie-item:hover {
+		            background: #fbfbfd !important;
+		            border-color: rgba(0, 0, 0, 0.12) !important;
+		        }
+
+		        .movie-cover-wrapper {
+		            width: 54px !important;
+		            height: 80px !important;
+		            min-width: 54px !important;
+		            max-width: 54px !important;
+		            flex-shrink: 0 !important;
+		            border-radius: 6px !important;
+		            overflow: hidden !important;
+		            background: rgba(0, 0, 0, 0.3) !important;
+		            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+		            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25) !important;
+		        }
+
+		        .movie-cover-large {
+		            width: 100% !important;
+		            height: 100% !important;
+		            object-fit: cover !important;
+		            display: block !important;
+		            transform: none !important;
+		        }
+
+		        .movie-info {
+		            flex: 1 !important;
+		            min-width: 0 !important;
+		            display: flex !important;
+		            flex-direction: column !important;
+		            justify-content: center !important;
+		            gap: 5px !important;
+		            height: 100% !important;
+		            padding: 0 !important;
+		        }
+
+		        .movie-title-row {
+		            display: flex !important;
+		            justify-content: space-between !important;
+		            align-items: center !important;
+		            gap: 12px !important;
+		            margin: 0 !important;
+		        }
+
+		        .movie-title-group {
+		            display: flex !important;
+		            align-items: baseline !important;
+		            gap: 8px !important;
+		            min-width: 0 !important;
+		            overflow: hidden !important;
+		        }
+
+		        .movie-title-link {
+		            font-size: 1rem !important;
+		            font-weight: 600 !important;
+		            color: var(--text-primary) !important;
+		            text-decoration: none !important;
+		            white-space: nowrap !important;
+		            overflow: hidden !important;
+		            text-overflow: ellipsis !important;
+		            letter-spacing: -0.01em !important;
+		            line-height: 1.3 !important;
+		        }
+
+		        .movie-title-link:hover {
+		            color: var(--accent) !important;
+		        }
+
+		        .movie-year {
+		            font-size: 0.8rem !important;
+		            color: var(--text-muted) !important;
+		            font-weight: 400 !important;
+		            flex-shrink: 0 !important;
+		        }
+
+		        .movie-meta-line {
+		            font-size: 0.78rem !important;
+		            color: var(--text-secondary) !important;
+		            white-space: nowrap !important;
+		            overflow: hidden !important;
+		            text-overflow: ellipsis !important;
+		            line-height: 1.35 !important;
+		            opacity: 0.88 !important;
+		        }
+
+		        .movie-bottom-row {
+		            display: flex !important;
+		            justify-content: space-between !important;
+		            align-items: center !important;
+		            gap: 8px !important;
+		        }
+
+		        .movie-bottom-left {
+		            display: inline-flex !important;
+		            align-items: center !important;
+		            gap: 8px !important;
+		        }
+
+		        .rating-pill {
+		            display: inline-flex !important;
+		            align-items: center !important;
+		            gap: 3px !important;
+		            font-size: 0.74rem !important;
+		            font-weight: 600 !important;
+		            color: #fbbf24 !important;
+		            background: rgba(251, 191, 36, 0.12) !important;
+		            border: 1px solid rgba(251, 191, 36, 0.22) !important;
+		            padding: 1px 6px !important;
+		            border-radius: 4px !important;
+		        }
+
+		        .movie-date {
+		            font-size: 0.72rem !important;
+		            color: var(--text-muted) !important;
+		        }
+
+		        /* Low-key Apple-Style Platform Badges */
+		        .platform-badges-inline {
+		            display: flex !important;
+		            gap: 5px !important;
+		            align-items: center !important;
+		            flex-shrink: 0 !important;
+		        }
+
+		        .platform-badge {
+		            display: inline-flex !important;
+		            align-items: center !important;
+		            gap: 4px !important;
+		            padding: 2px 6px !important;
+		            border-radius: 5px !important;
+		            background: rgba(255, 255, 255, 0.05) !important;
+		            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+		            color: var(--text-secondary) !important;
+		            font-size: 0.7rem !important;
+		            font-weight: 500 !important;
+		            text-decoration: none !important;
+		            transition: all 0.15s ease !important;
+		            cursor: pointer !important;
+		            line-height: 1.3 !important;
+		        }
+
+		        .platform-badge:hover {
+		            background: rgba(255, 255, 255, 0.09) !important;
+		            border-color: rgba(255, 255, 255, 0.16) !important;
+		            color: var(--text-primary) !important;
+		            transform: none !important;
+		            box-shadow: none !important;
+		        }
+
+		        body.light-mode .platform-badge {
+		            background: rgba(0, 0, 0, 0.04) !important;
+		            border-color: rgba(0, 0, 0, 0.08) !important;
+		            color: var(--text-secondary) !important;
+		        }
+
+		        body.light-mode .platform-badge:hover {
+		            background: rgba(0, 0, 0, 0.08) !important;
+		            color: var(--text-primary) !important;
+		        }
+
+		        .platform-badge-name {
+		            opacity: 0.75;
+		            font-size: 0.68rem;
+		        }
+
+		        .platform-badge-score {
+		            font-weight: 600;
+		            font-size: 0.72rem;
+		        }
+
+		        .platform-badge-score.douban { color: #4ade80 !important; }
+		        .platform-badge-score.imdb { color: #facc15 !important; }
+		        .platform-badge-score.trakt { color: #f87171 !important; }
+		        .platform-badge-score.tmdb { color: #38bdf8 !important; }
+		        .platform-badge-score.letterboxd { color: #fb923c !important; }
+
+		        body.light-mode .platform-badge-score.douban { color: #16a34a !important; }
+		        body.light-mode .platform-badge-score.imdb { color: #ca8a04 !important; }
+		        body.light-mode .platform-badge-score.trakt { color: #dc2626 !important; }
+		        body.light-mode .platform-badge-score.tmdb { color: #0284c7 !important; }
+		        body.light-mode .platform-badge-score.letterboxd { color: #ea580c !important; }
+
+		        /* Wishlist specific action pills */
+		        .wishlist-actions-right {
+		            display: flex;
+		            align-items: center;
+		            gap: 6px;
+		        }
+
+		        .wishlist-tag.matched {
+		            font-size: 0.7rem;
+		            color: #4ade80;
+		            background: rgba(74, 222, 128, 0.1);
+		            border: 1px solid rgba(74, 222, 128, 0.25);
+		            padding: 1px 6px;
+		            border-radius: 4px;
+		            text-decoration: none;
+		        }
+
+		        .wishlist-link-pill {
+		            font-size: 0.7rem;
+		            color: #93c5fd;
+		            background: rgba(59, 130, 246, 0.1);
+		            border: 1px solid rgba(96, 165, 250, 0.25);
+		            padding: 1px 6px;
+		            border-radius: 4px;
+		            text-decoration: none;
+		        }
+
+		        .wishlist-link-pill:hover {
+		            background: rgba(59, 130, 246, 0.2);
+		            color: #bfdbfe;
+		        }
+
+		        /* Apple Style Settings Page */
+		        .platform-cards-stack {
+		            display: grid;
+		            grid-template-columns: repeat(2, minmax(0, 1fr));
+		            gap: 14px;
+		        }
+
+		        .platform-full-card {
+		            background: rgba(255, 255, 255, 0.02) !important;
+		            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+		            border-radius: 14px !important;
+		            overflow: hidden !important;
+		            box-shadow: none !important;
+		            transition: border-color 0.2s ease, background 0.2s ease !important;
+		        }
+
+		        .platform-full-card::before {
+		            display: none !important;
+		        }
+
+		        .platform-full-card:hover {
+		            border-color: rgba(255, 255, 255, 0.12) !important;
+		            background: rgba(255, 255, 255, 0.03) !important;
+		            transform: none !important;
+		        }
+
+		        .platform-full-card .card-header {
+		            display: flex !important;
+		            justify-content: space-between !important;
+		            align-items: center !important;
+		            padding: 12px 16px !important;
+		            border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+		            min-height: unset !important;
+		        }
+
+		        .platform-full-card .card-brand h3 {
+		            font-size: 0.95rem !important;
+		            font-weight: 600 !important;
+		        }
+
+		        .platform-full-card .status-badge {
+		            font-size: 0.7rem !important;
+		            padding: 3px 9px !important;
+		            border-radius: 6px !important;
+		            min-width: unset !important;
+		            font-weight: 500 !important;
+		        }
+
+		        .account-profile-panel {
+		            padding: 14px 16px !important;
+		        }
+
+		        .account-profile-row {
+		            display: flex !important;
+		            align-items: center !important;
+		            gap: 12px !important;
+		            margin-bottom: 12px !important;
+		        }
+
+		        .account-profile-avatar {
+		            width: 44px !important;
+		            height: 44px !important;
+		            border-radius: 50% !important;
+		            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+		            object-fit: cover !important;
+		        }
+
+		        .account-profile-name {
+		            font-size: 0.95rem !important;
+		            font-weight: 600 !important;
+		            margin: 0 0 2px 0 !important;
+		        }
+
+		        .account-profile-id {
+		            font-size: 0.76rem !important;
+		            color: var(--text-muted) !important;
+		            margin: 0 0 2px 0 !important;
+		        }
+
+		        .account-profile-meta {
+		            font-size: 0.72rem !important;
+		            color: var(--text-muted) !important;
+		            margin: 0 !important;
+		        }
+
+		        .account-profile-link {
+		            margin-left: auto !important;
+		            font-size: 0.75rem !important;
+		            color: #60a5fa !important;
+		            text-decoration: none !important;
+		            padding: 3px 8px !important;
+		            border-radius: 5px !important;
+		            background: rgba(59, 130, 246, 0.08) !important;
+		            border: 1px solid rgba(59, 130, 246, 0.2) !important;
+		        }
+
+		        .account-stats-row {
+		            display: grid !important;
+		            grid-template-columns: repeat(3, 1fr) !important;
+		            gap: 6px !important;
+		            background: rgba(0, 0, 0, 0.22) !important;
+		            border: 1px solid rgba(255, 255, 255, 0.04) !important;
+		            border-radius: 8px !important;
+		            padding: 8px 10px !important;
+		            text-align: center !important;
+		        }
+
+		        body.light-mode .account-stats-row {
+		            background: rgba(0, 0, 0, 0.03) !important;
+		            border-color: rgba(0, 0, 0, 0.06) !important;
+		        }
+
+		        .account-stat {
+		            text-decoration: none !important;
+		            color: inherit !important;
+		            display: flex !important;
+		            flex-direction: column !important;
+		            gap: 2px !important;
+		        }
+
+		        .account-stat-value {
+		            font-size: 1.15rem !important;
+		            font-weight: 600 !important;
+		            color: var(--text-primary) !important;
+		        }
+
+		        .account-stat-label {
+		            font-size: 0.68rem !important;
+		            color: var(--text-muted) !important;
+		        }
+
+		        .platform-full-card .card-actions {
+		            display: flex !important;
+		            gap: 8px !important;
+		            padding: 10px 16px 14px !important;
+		        }
+
+		        .platform-full-card .card-actions .btn {
+		            flex: 1 !important;
+		            font-size: 0.78rem !important;
+		            padding: 6px 12px !important;
+		            border-radius: 7px !important;
+		            font-weight: 500 !important;
+		            background: rgba(255, 255, 255, 0.04) !important;
+		            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+		            color: var(--text-secondary) !important;
+		            transition: all 0.15s ease !important;
+		        }
+
+		        .platform-full-card .card-actions .btn:hover {
+		            background: rgba(255, 255, 255, 0.08) !important;
+		            color: var(--text-primary) !important;
+		            border-color: rgba(255, 255, 255, 0.16) !important;
+		        }
+
+		        .platform-full-card .card-actions .rust-test-btn {
+		            background: rgba(59, 130, 246, 0.08) !important;
+		            border-color: rgba(96, 165, 250, 0.22) !important;
+		            color: #93c5fd !important;
+		        }
+
+		        .platform-full-card .card-actions .rust-test-btn:hover {
+		            background: rgba(59, 130, 246, 0.16) !important;
+		            border-color: rgba(96, 165, 250, 0.38) !important;
+		            color: #bfdbfe !important;
+		        }
+
+		        .log-container-sidebar {
+		            background: #090d16 !important;
+		            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+		            border-radius: 8px !important;
+		            padding: 10px 12px !important;
+		            color: #e2e8f0 !important;
+		        }
+
+		        .log-container-sidebar p {
+		            color: #94a3b8;
+		        }
+
+		        .log-container-sidebar p.success {
+		            color: #4ade80 !important;
+		        }
+
+		        .log-container-sidebar p.error {
+		            color: #f87171 !important;
+		        }
+
+		        .log-container-sidebar p.info {
+		            color: #60a5fa !important;
+		        }
+
+		        .log-container-sidebar p.warning {
+		            color: #fbbf24 !important;
+		        }
+
+		        /* Floating non-blocking Action Status Toast */
+		        .action-status-bar {
+		            position: fixed !important;
+		            top: 20px !important;
+		            right: 24px !important;
+		            z-index: 99999 !important;
+		            max-width: 420px !important;
+		            padding: 10px 16px !important;
+		            border-radius: 10px !important;
+		            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+		            backdrop-filter: blur(16px) !important;
+		            -webkit-backdrop-filter: blur(16px) !important;
+		            display: none;
+		            margin: 0 !important;
+		            animation: fadeInSlide 0.2s ease-out !important;
+		        }
+
+		        @keyframes fadeInSlide {
+		            from { opacity: 0; transform: translateY(-10px); }
+		            to { opacity: 1; transform: translateY(0); }
+		        }
+
+		        /* Comprehensive Light Mode Contrast & Theme Fixes */
+		        body.light-mode {
+		            --bg-primary: #f8fafc;
+		            --bg-card: #ffffff;
+		            --bg-card-hover: #f1f5f9;
+		            --border-color: #e2e8f0;
+		            --text-primary: #0f172a;
+		            --text-secondary: #475569;
+		            --text-muted: #94a3b8;
+		        }
+
+		        body.light-mode .sync-preview-table th {
+		            background: #f1f5f9 !important;
+		            color: #475569 !important;
+		            border-bottom: 1px solid #cbd5e1 !important;
+		        }
+
+		        body.light-mode .sync-preview-table td {
+		            color: #1e293b !important;
+		            border-bottom: 1px solid #e2e8f0 !important;
+		        }
+
+		        body.light-mode .sync-preview-table tr:hover {
+		            background: #f8fafc !important;
+		        }
+
+		        body.light-mode .sync-preview-table tr.is-skipped td {
+		            color: #64748b !important;
+		        }
+
+		        body.light-mode .sync-preview-overview,
+		        body.light-mode .sync-preview-metric {
+		            background: #ffffff !important;
+		            border: 1px solid #e2e8f0 !important;
+		        }
+
+		        body.light-mode .sync-preview-metric strong {
+		            color: #0f172a !important;
+		        }
+
+		        body.light-mode .sync-preview-metric span {
+		            color: #64748b !important;
+		        }
+
+		        body.light-mode .sync-preview-section.data-card,
+		        body.light-mode .platform-full-card,
+		        body.light-mode .scheduled-task-item,
+		        body.light-mode .scheduled-task-card,
+		        body.light-mode .stat-card,
+		        body.light-mode .stat-item,
+		        body.light-mode .data-card,
+		        body.light-mode .sync-box {
+		            background: #ffffff !important;
+		            border: 1px solid #e2e8f0 !important;
+		            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+		        }
+
+		        body.light-mode .account-stats-row {
+		            background: #f8fafc !important;
+		            border: 1px solid #e2e8f0 !important;
+		        }
+
+		        body.light-mode .account-stat-value {
+		            color: #0f172a !important;
+		        }
+
+		        body.light-mode .account-stat-label {
+		            color: #64748b !important;
+		        }
+
+		        body.light-mode .filter-chip {
+		            background: #f1f5f9 !important;
+		            border: 1px solid #e2e8f0 !important;
+		            color: #475569 !important;
+		        }
+
+		        body.light-mode .filter-chip.active {
+		            background: #2563eb !important;
+		            color: #ffffff !important;
+		            border-color: #1d4ed8 !important;
+		        }
+
+		        body.light-mode .filter-chip .chip-count {
+		            background: rgba(0, 0, 0, 0.08) !important;
+		            color: inherit !important;
+		        }
+
+		        body.light-mode .filter-chip.active .chip-count {
+		            background: rgba(255, 255, 255, 0.25) !important;
+		            color: #ffffff !important;
+		        }
+
+		        body.light-mode .scheduled-tasks-container,
+		        body.light-mode .scheduled-task-form-panel {
+		            background: #ffffff !important;
+		            border: 1px solid #e2e8f0 !important;
+		            color: #0f172a !important;
+		        }
+
+		        body.light-mode .scheduled-tasks-table th {
+		            background: #f1f5f9 !important;
+		            color: #475569 !important;
+		            border-bottom: 1px solid #cbd5e1 !important;
+		        }
+
+		        body.light-mode .scheduled-tasks-table td {
+		            color: #1e293b !important;
+		            border-bottom: 1px solid #e2e8f0 !important;
+		        }
+
+		        body.light-mode .sync-filter-btn {
+		            background: #f1f5f9 !important;
+		            border: 1px solid #e2e8f0 !important;
+		            color: #475569 !important;
+		        }
+
+		        body.light-mode .sync-filter-btn.active {
+		            background: #2563eb !important;
+		            color: #ffffff !important;
+		            border-color: #1d4ed8 !important;
 		        }
 
 		        .sync-preview-card-list {
@@ -1686,6 +2354,179 @@
                 overflow: visible;
             }
         }
+
+        /* Diff / Matrix View Cards & Postcard Fallbacks */
+        .diff-list-view {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .diff-item-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.025);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .diff-item-card:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .diff-item-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .diff-item-poster {
+            width: 36px;
+            height: 50px;
+            min-width: 36px;
+            max-width: 36px;
+            border-radius: 4px;
+            object-fit: cover;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            flex-shrink: 0;
+        }
+
+        .diff-item-poster.poster-fallback,
+        .poster-fallback.diff-item-poster {
+            width: 36px !important;
+            height: 50px !important;
+            min-height: 50px !important;
+            max-height: 50px !important;
+            min-width: 36px !important;
+            max-width: 36px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: rgba(255, 255, 255, 0.04) !important;
+            color: var(--text-muted) !important;
+            font-size: 0.85rem !important;
+            font-weight: 600 !important;
+            border-radius: 4px !important;
+            border: 1px dashed rgba(255, 255, 255, 0.12) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            flex-shrink: 0 !important;
+        }
+
+        .diff-item-info {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        .diff-item-title {
+            font-weight: 600;
+            font-size: 0.92rem;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .diff-item-meta {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .diff-item-scores {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .diff-score-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            min-width: 58px;
+        }
+
+        .diff-score-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .diff-score-val {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .diff-status-badge {
+            font-size: 0.76rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .diff-status-missing {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.25);
+        }
+
+        .diff-status-mismatch {
+            background: rgba(245, 158, 11, 0.12);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.25);
+        }
+
+        .diff-status-synced {
+            background: rgba(34, 197, 94, 0.12);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+
+        /* Compact Unified Media Fallbacks */
+        .unified-media-fallback {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-muted);
+            font-size: 0.85rem !important;
+            font-weight: 600;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .movie-cover-wrapper.error,
+        .rust-card-poster-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            border-radius: 4px;
+        }
     </style>
 </head>
 
@@ -1707,6 +2548,7 @@
                 <button class="icon-btn" id="mobile-menu-btn" title="平台状态" style="display:none;">☰</button>
                 <button class="icon-btn" id="theme-btn" title="切换主题">🌙</button>
                 <button id="lang-btn"
+                    onclick="if (window.i18n) window.i18n.toggleLanguage();"
                     style="padding: 6px 12px; min-width: 40px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 600;"
                     title="Switch Language">EN</button>
             </div>
@@ -1859,76 +2701,83 @@
                                 <option value="cinepersona">CinePersona</option>
                             </select>
                             <button class="btn btn-secondary btn-sm" id="export-library-btn">📥 导出</button>
-	                        </div>
+                        </div>
                     </div>
 
-                    <div class="library-filter-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                        <div class="library-filter-tabs" id="library-filter-tabs" style="margin-bottom:0;">
-                            <button class="filter-tab active" data-filter="all">🔗 共有 <span class="filter-count"
-                                    id="count-all">0</span></button>
-                            <button class="filter-tab" data-filter="douban">
-                                <label class="filter-checkbox" onclick="event.stopPropagation();">
-                                    <input type="checkbox" value="douban" id="platform-check-douban" checked>
-                                </label>
-                                <img src="/static/images/platforms/douban.png"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 豆瓣 <span class="filter-count"
-                                    id="count-douban">0</span></button>
-                            <button class="filter-tab" data-filter="imdb">
-                                <label class="filter-checkbox" onclick="event.stopPropagation();">
-                                    <input type="checkbox" value="imdb" id="platform-check-imdb" checked>
-                                </label>
-                                <img src="/static/images/platforms/imdb.svg"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> IMDb <span class="filter-count"
-                                    id="count-imdb">0</span></button>
-                            <button class="filter-tab" data-filter="trakt">
-                                <label class="filter-checkbox" onclick="event.stopPropagation();">
-                                    <input type="checkbox" value="trakt" id="platform-check-trakt" checked>
-                                </label>
-                                <img src="/static/images/platforms/trakt.png"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Trakt <span class="filter-count"
-                                    id="count-trakt">0</span></button>
-                            <button class="filter-tab" data-filter="letterboxd">
-                                <label class="filter-checkbox" onclick="event.stopPropagation();">
-                                    <input type="checkbox" value="letterboxd" id="platform-check-letterboxd" checked>
-                                </label>
-                                <img src="/static/images/platforms/letterboxd.png"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Letterboxd <span class="filter-count"
-                                    id="count-letterboxd">0</span></button>
-                            <button class="filter-tab" data-filter="tmdb">
-                                <label class="filter-checkbox" onclick="event.stopPropagation();">
-                                    <input type="checkbox" value="tmdb" id="platform-check-tmdb" checked>
-                                </label>
-                                <img src="/static/images/platforms/tmdb.png"
-                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> TMDB <span class="filter-count"
-                                    id="count-tmdb">0</span></button>
-                            <button class="filter-tab" data-filter="cinepersona">
-                                <label class="filter-checkbox" onclick="event.stopPropagation();">
-                                    <input type="checkbox" value="cinepersona" id="platform-check-cinepersona" checked>
-                                </label>
-                                🎨 CinePersona <span class="filter-count"
-                                    id="count-cinepersona">0</span></button>
+                    <!-- 3-Mode Primary Navigation -->
+                    <div class="view-mode-bar">
+                        <div class="view-mode-segmented">
+                            <button class="mode-tab-btn active" data-library-mode="unified">🌐 全景聚合</button>
+                            <button class="mode-tab-btn" data-library-mode="platform">📱 平台单站</button>
+                            <button class="mode-tab-btn" data-library-mode="diff">🔍 查漏补缺</button>
                         </div>
-                        <div class="library-search-container" style="display:flex; align-items:center; position:relative; margin-left:auto;">
-                            <input type="text" id="library-search-input" placeholder="🔍 检索电影、原名、导演、演员..." style="padding: 6px 30px 6px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-card); color: var(--text-color); font-size: 0.85rem; width: 220px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--primary-color)'" onblur="this.style.borderColor='var(--border-color)'">
-                            <span id="library-search-clear-btn" style="display:none; position:absolute; right:10px; cursor:pointer; color:var(--text-muted); font-size:0.9rem;" title="清除检索">✕</span>
-                        </div>
-                        <div class="filter-help-trigger" style="cursor:pointer; font-size:0.85rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; padding: 4px 8px; border-radius: 4px; border: 1px dashed var(--border-color);" id="filter-help-btn">
-                            ❓ 筛选逻辑说明
+
+                        <!-- Search Bar -->
+                        <div class="library-search-container">
+                            <input type="text" id="library-search-input" placeholder="🔍 检索电影、导演、演员..." autocomplete="off">
+                            <span id="library-search-clear-btn" title="清除检索">✕</span>
                         </div>
                     </div>
-                    <div id="filter-help-panel" style="display:none; margin: 8px 0 16px 0; padding: 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.8rem; line-height: 1.6; color: var(--text-secondary);">
-                        <strong>💡 平台勾选与筛选逻辑说明：</strong>
-                        <ul style="margin: 6px 0 0 16px; padding: 0; list-style-type: disc;">
-                            <li><strong>全都不勾选</strong>：默认展示<strong>所有已导入数据的并集</strong>（即全量电影）。</li>
-                            <li><strong>勾选多个平台（例如：豆瓣 + IMDb）</strong>：
-                                <ul style="margin-left: 16px; list-style-type: circle; margin-top: 4px;">
-                                    <li>点击 <strong>🔗 共有</strong>：仅展示<strong>同时存在于这些已勾选平台</strong>的电影（交集，即 豆瓣 ∩ IMDb）。</li>
-                                    <li>点击某个具体平台（如 <strong>豆瓣</strong>）：展示<strong>该平台独有</strong>的电影（即存在于豆瓣且不存在于 IMDb 的差集，即 豆瓣 \ IMDb）。</li>
-                                </ul>
-                            </li>
-                        </ul>
+
+                    <!-- Sub-bar for Unified Mode -->
+                    <div class="sub-mode-bar" id="sub-mode-unified">
+                        <div class="filter-chips">
+                            <button class="filter-chip active" data-subfilter="all">全部条目 <span class="chip-count" id="count-all">0</span></button>
+                            <button class="filter-chip" data-subfilter="shared">🔗 多平台共有 <span class="chip-count" id="count-shared">0</span></button>
+                            <button class="filter-chip" data-subfilter="single">仅单平台有 <span class="chip-count" id="count-single">0</span></button>
+                        </div>
                     </div>
-                    <div class="library-insight-bar" id="library-insight-bar" style="display:none;"></div>
+
+                    <!-- Sub-bar for Platform Mode -->
+                    <div class="sub-mode-bar" id="sub-mode-platform" style="display:none;">
+                        <div class="platform-tabs">
+                            <button class="platform-tab-btn active" data-platform-tab="douban"><img src="/static/images/platforms/douban.png"> 豆瓣 <span class="tab-count" id="count-tab-douban">0</span></button>
+                            <button class="platform-tab-btn" data-platform-tab="imdb"><img src="/static/images/platforms/imdb.svg"> IMDb <span class="tab-count" id="count-tab-imdb">0</span></button>
+                            <button class="platform-tab-btn" data-platform-tab="trakt"><img src="/static/images/platforms/trakt.png"> Trakt <span class="tab-count" id="count-tab-trakt">0</span></button>
+                            <button class="platform-tab-btn" data-platform-tab="letterboxd"><img src="/static/images/platforms/letterboxd.png"> Letterboxd <span class="tab-count" id="count-tab-letterboxd">0</span></button>
+                            <button class="platform-tab-btn" data-platform-tab="tmdb"><img src="/static/images/platforms/tmdb.png"> TMDB <span class="tab-count" id="count-tab-tmdb">0</span></button>
+                            <button class="platform-tab-btn" data-platform-tab="cinepersona">🎨 CinePersona <span class="tab-count" id="count-tab-cinepersona">0</span></button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-bar for Diff Mode -->
+                    <div class="sub-mode-bar diff-control-bar" id="sub-mode-diff" style="display:none;">
+                        <div class="diff-platform-selectors">
+                            <div class="diff-select-group">
+                                <label>主记录站 (基准):</label>
+                                <select id="diff-source-platform" class="diff-select">
+                                    <option value="douban" selected>豆瓣</option>
+                                    <option value="imdb">IMDb</option>
+                                    <option value="trakt">Trakt</option>
+                                    <option value="tmdb">TMDB</option>
+                                    <option value="letterboxd">Letterboxd</option>
+                                    <option value="cinepersona">CinePersona</option>
+                                </select>
+                            </div>
+                            <div class="diff-arrow">➔</div>
+                            <div class="diff-select-group">
+                                <label>对比目标站:</label>
+                                <select id="diff-target-platform" class="diff-select">
+                                    <option value="imdb" selected>IMDb</option>
+                                    <option value="douban">豆瓣</option>
+                                    <option value="trakt">Trakt</option>
+                                    <option value="tmdb">TMDB</option>
+                                    <option value="cinepersona">CinePersona</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="diff-category-tabs">
+                            <button class="diff-cat-btn active" data-diff-cat="missing">🔴 目标站缺失待补 <span class="cat-count" id="diff-missing-count">0</span></button>
+                            <button class="diff-cat-btn" data-diff-cat="mismatch">🟡 评分不一致 <span class="cat-count" id="diff-mismatch-count">0</span></button>
+                            <button class="diff-cat-btn" data-diff-cat="synced">🟢 已完全对齐 <span class="cat-count" id="diff-synced-count">0</span></button>
+                            <button class="diff-cat-btn" data-diff-cat="all">全部对比 (<span id="diff-total-count">0</span>)</button>
+                        </div>
+
+                        <div class="diff-actions">
+                            <button class="btn btn-primary btn-sm" id="diff-sync-selected-btn">⚡ 前往同步中心快速执行</button>
+                        </div>
+                    </div>
 
                     <div class="unified-library">
                         <div class="library-empty" id="library-empty">
@@ -1947,8 +2796,8 @@
                 <div class="tab-content" id="tab-sync">
                     <div class="content-header">
                         <h2>数据同步</h2>
+                        <p>跨平台影视评分实时同步与定时任务调度</p>
                     </div>
-
                     <div class="legacy-sync-layout">
                         <div class="legacy-sync-left">
                             <div class="data-card sync-main-card">
@@ -2003,17 +2852,23 @@
 	                                            </div>
 		                                            <div class="rust-compact-note">预览默认使用本地库以保持快速；执行同步会强制刷新双方后再次确认，避免旧数据覆盖目标平台已有评分。</div>
 		                                            <div class="legacy-default-rating-row">
-		                                                <label for="sync-recent-limit">最近条目数</label>
-		                                                <input type="number" id="sync-recent-limit" min="1" max="500" value="100">
-	                                                    <label class="legacy-default-rating-toggle" for="sync-refresh-before">
-	                                                        <input type="checkbox" id="sync-refresh-before">
-	                                                        预览前也刷新双方
-	                                                    </label>
-		                                                <label class="legacy-default-rating-toggle" for="sync-default-rating-enabled">
-		                                                    <input type="checkbox" id="sync-default-rating-enabled">
-		                                                    未评分使用默认分
-	                                                </label>
-	                                                <input type="number" id="sync-default-rating" min="1" max="10" step="0.5" value="7" disabled>
+		                                                <div class="rating-row-item">
+		                                                    <label for="sync-recent-limit">最近条目数 (0 为全量)</label>
+		                                                    <input type="number" id="sync-recent-limit" min="0" max="5000" value="100">
+		                                                </div>
+		                                                <div class="rating-row-item">
+	                                                        <label class="legacy-default-rating-toggle" for="sync-refresh-before">
+	                                                            <input type="checkbox" id="sync-refresh-before">
+	                                                            预览前也刷新双方
+	                                                        </label>
+		                                                </div>
+		                                                <div class="rating-row-item">
+			                                                <label class="legacy-default-rating-toggle" for="sync-default-rating-enabled">
+			                                                    <input type="checkbox" id="sync-default-rating-enabled">
+			                                                    未评分使用默认分
+		                                                    </label>
+		                                                    <input type="number" id="sync-default-rating" min="1" max="10" step="0.5" value="7" disabled>
+		                                                </div>
 	                                            </div>
                                         </div>
                                     </div>
@@ -2151,7 +3006,7 @@
                 <div class="tab-content" id="tab-wishlist">
                     <div class="content-header">
                         <h2>想看清单</h2>
-                        <p>“想看”列表、来源筛选和平台刷新入口都在这里，当前由本地想看库驱动。</p>
+                        <p>跨平台想看聚合 · 单站想看与查漏补缺</p>
                     </div>
 
                     <div class="wishlist-controls-row">
@@ -2178,16 +3033,70 @@
                         </div>
                     </div>
 
-                    <div class="wishlist-source-filters" id="wishlist-source-filters">
-                        <span class="filter-label">来源：</span>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="douban" checked> 豆瓣</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="imdb" checked> IMDb</label>
-                        <label class="wishlist-source-option"><input type="checkbox" data-source="trakt" checked> Trakt</label>
-	                        <label class="wishlist-source-option"><input type="checkbox" data-source="tmdb" checked> TMDB</label>
-	                        <label class="wishlist-source-option"><input type="checkbox" data-source="letterboxd" checked> Letterboxd</label>
-	                        <label class="wishlist-source-option"><input type="checkbox" data-source="cinepersona" checked> CinePersona</label>
-	                        <label class="wishlist-source-option"><input type="checkbox" id="wishlist-filter-unmatched"> 仅未入库</label>
-	                    </div>
+                    <!-- 3-Mode Primary Navigation for Wishlist -->
+                    <div class="view-mode-bar">
+                        <div class="view-mode-segmented">
+                            <button class="mode-tab-btn active" data-wishlist-mode="unified">🌐 全景聚合想看</button>
+                            <button class="mode-tab-btn" data-wishlist-mode="platform">📱 平台单站想看</button>
+                            <button class="mode-tab-btn" data-wishlist-mode="diff">🔍 想看查漏矩阵</button>
+                        </div>
+
+                        <div class="library-search-container">
+                            <input type="text" id="wishlist-search-input" placeholder="🔍 检索想看电影、导演..." autocomplete="off">
+                            <span id="wishlist-search-clear-btn" title="清除检索">✕</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-bar for Wishlist Unified Mode -->
+                    <div class="sub-mode-bar" id="sub-wishlist-unified">
+                        <div class="filter-chips">
+                            <button class="filter-chip active" data-wishlist-subfilter="all">全部想看 <span class="chip-count" id="wishlist-count-all">0</span></button>
+                            <label class="filter-chip-checkbox"><input type="checkbox" id="wishlist-filter-unmatched"> 仅未在个人片库中</label>
+                        </div>
+                    </div>
+
+                    <!-- Sub-bar for Wishlist Platform Mode -->
+                    <div class="sub-mode-bar" id="sub-wishlist-platform" style="display:none;">
+                        <div class="platform-tabs">
+                            <button class="platform-tab-btn active" data-wishlist-platform-tab="douban"><img src="/static/images/platforms/douban.png"> 豆瓣 <span class="tab-count" id="wishlist-count-douban">0</span></button>
+                            <button class="platform-tab-btn" data-wishlist-platform-tab="imdb"><img src="/static/images/platforms/imdb.svg"> IMDb <span class="tab-count" id="wishlist-count-imdb">0</span></button>
+                            <button class="platform-tab-btn" data-wishlist-platform-tab="trakt"><img src="/static/images/platforms/trakt.png"> Trakt <span class="tab-count" id="wishlist-count-trakt">0</span></button>
+                            <button class="platform-tab-btn" data-wishlist-platform-tab="tmdb"><img src="/static/images/platforms/tmdb.png"> TMDB <span class="tab-count" id="wishlist-count-tmdb">0</span></button>
+                            <button class="platform-tab-btn" data-wishlist-platform-tab="cinepersona">🎨 CinePersona <span class="tab-count" id="wishlist-count-cinepersona">0</span></button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-bar for Wishlist Diff Mode -->
+                    <div class="sub-mode-bar diff-control-bar" id="sub-wishlist-diff" style="display:none;">
+                        <div class="diff-platform-selectors">
+                            <div class="diff-select-group">
+                                <label>主记录站 (基准):</label>
+                                <select id="diff-wishlist-source-platform" class="diff-select">
+                                    <option value="douban" selected>豆瓣</option>
+                                    <option value="imdb">IMDb</option>
+                                    <option value="trakt">Trakt</option>
+                                    <option value="tmdb">TMDB</option>
+                                    <option value="cinepersona">CinePersona</option>
+                                </select>
+                            </div>
+                            <div class="diff-arrow">➔</div>
+                            <div class="diff-select-group">
+                                <label>对比目标站:</label>
+                                <select id="diff-wishlist-target-platform" class="diff-select">
+                                    <option value="imdb" selected>IMDb</option>
+                                    <option value="douban">豆瓣</option>
+                                    <option value="trakt">Trakt</option>
+                                    <option value="tmdb">TMDB</option>
+                                    <option value="cinepersona">CinePersona</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="diff-category-tabs">
+                            <button class="diff-cat-btn active" data-wishlist-diff-cat="missing">🔴 目标站缺失待补 <span class="cat-count" id="wishlist-diff-missing-count">0</span></button>
+                            <button class="diff-cat-btn" data-wishlist-diff-cat="synced">🟢 两站均已想看 <span class="cat-count" id="wishlist-diff-synced-count">0</span></button>
+                        </div>
+                    </div>
 
                     <div class="unified-library">
                         <div class="library-empty" id="wishlist-empty">
@@ -2673,7 +3582,8 @@
         </nav>
     </div>
 
-    <script src="/static/rust-v2.js?v=20260612-packaging-scheduler3"></script>
+    <script src="/static/i18n.js?v=20260612-v9"></script>
+    <script src="/static/rust-v2.js?v=20260612-v9"></script>
 </body>
 
 </html>

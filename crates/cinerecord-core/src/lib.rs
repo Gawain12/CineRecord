@@ -116,6 +116,8 @@ pub struct PlatformStatus {
     pub config_present: bool,
     pub configured: bool,
     pub last_validated_at: Option<DateTime<Utc>>,
+    pub last_fetch_at: Option<DateTime<Utc>>,
+    pub token_expires_at: Option<DateTime<Utc>>,
     pub message: Option<String>,
     pub profile: Option<serde_json::Value>,
 }
@@ -347,8 +349,21 @@ pub struct SyncExecuteRequest {
     pub default_rating: Option<f64>,
     #[serde(default)]
     pub refresh_before_sync: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_tolerant_vec")]
     pub selected_target_ids: Vec<String>,
+}
+
+fn deserialize_null_tolerant_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_vec: Option<Vec<Option<String>>> = Option::deserialize(deserializer)?;
+    Ok(opt_vec
+        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .collect())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -447,3 +462,35 @@ pub struct MediaServerItem {
     pub media_path: Option<String>,
     pub file_name: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformDiffItem {
+    pub title: String,
+    pub year: Option<i32>,
+    pub category: String, // "missing" | "mismatch" | "synced"
+    pub source_platform: String,
+    pub source_rating: Option<f64>,
+    pub source_rated_at: Option<DateTime<Utc>>,
+    pub source_url: Option<String>,
+    pub target_platform: String,
+    pub target_rating: Option<f64>,
+    pub target_rated_at: Option<DateTime<Utc>>,
+    pub target_url: Option<String>,
+    pub identifiers: MovieIdentifiers,
+    pub target_linking_id: Option<String>,
+    pub poster_url: Option<String>,
+    pub syncable: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlatformDiffResult {
+    pub source_platform: String,
+    pub target_platform: String,
+    pub total_source: usize,
+    pub total_target: usize,
+    pub missing_count: usize,
+    pub mismatch_count: usize,
+    pub synced_count: usize,
+    pub items: Vec<PlatformDiffItem>,
+}
+
