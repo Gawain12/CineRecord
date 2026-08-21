@@ -733,6 +733,101 @@ const i18n = {
                 }
             });
         });
+
+        // 12. Scheduled Tasks & Sync Stat Labels
+        const taskHeader = document.querySelector('.legacy-scheduled-card h3');
+        if (taskHeader) taskHeader.textContent = isEn ? '⏰ Scheduled Sync Tasks' : '⏰ 定时同步任务';
+        const taskDesc = document.querySelector('.legacy-scheduled-card .legacy-card-desc');
+        if (taskDesc) taskDesc.textContent = isEn ? 'Automated background sync' : '自动后台同步';
+        const addTaskBtn = document.getElementById('open-create-task-modal-btn');
+        if (addTaskBtn) addTaskBtn.textContent = isEn ? '+ Add Task' : '+ 添加任务';
+
+        // 12. Scheduled Tasks & Sync Form Text Maps
+        const syncTextMap = {
+            '定时同步任务': isEn ? 'Scheduled Tasks' : '定时同步任务',
+            'Scheduled Tasks': isEn ? 'Scheduled Tasks' : '定时同步任务',
+            '自动后台同步': isEn ? 'Automated background sync' : '自动后台同步',
+            'Automated background sync': isEn ? 'Automated background sync' : '自动后台同步',
+            '任务列表': isEn ? 'Task List' : '任务列表',
+            'Task List': isEn ? 'Task List' : '任务列表',
+            '执行日志': isEn ? 'Execution Logs' : '执行日志',
+            'Execution Logs': isEn ? 'Execution Logs' : '执行日志',
+            '全部任务': isEn ? 'All Tasks' : '全部任务',
+            'All Tasks': isEn ? 'All Tasks' : '全部任务',
+            '任务表单': isEn ? 'Task Form' : '任务表单',
+            'Task Form': isEn ? 'Task Form' : '任务表单',
+            '任务名称': isEn ? 'Task Name' : '任务名称',
+            'Task Name': isEn ? 'Task Name' : '任务名称',
+            '源平台': isEn ? 'Source Platform' : '源平台',
+            'Source Platform': isEn ? 'Source Platform' : '源平台',
+            '目标平台': isEn ? 'Target Platform' : '目标平台',
+            'Target Platform': isEn ? 'Target Platform' : '目标平台',
+            'Cron 表达式': isEn ? 'Cron Expression' : 'Cron 表达式',
+            'Cron Expression': isEn ? 'Cron Expression' : 'Cron 表达式',
+            '每日 2 点': isEn ? 'Daily 2 AM' : '每日 2 点',
+            'Daily 2 AM': isEn ? 'Daily 2 AM' : '每日 2 点',
+            '每 6 小时': isEn ? 'Every 6 Hours' : '每 6 小时',
+            'Every 6 Hours': isEn ? 'Every 6 Hours' : '每 6 小时',
+            '每周日': isEn ? 'Weekly Sunday' : '每周日',
+            'Weekly Sunday': isEn ? 'Weekly Sunday' : '每周日',
+            '启用任务': isEn ? 'Enable Task' : '启用任务',
+            'Enable Task': isEn ? 'Enable Task' : '启用任务',
+            '保存任务': isEn ? 'Save Task' : '保存任务',
+            'Save Task': isEn ? 'Save Task' : '保存任务',
+            '收起': isEn ? 'Close' : '收起',
+            'Close': isEn ? 'Close' : '收起',
+            '立即运行': isEn ? 'Run Now' : '立即运行',
+            'Run Now': isEn ? 'Run Now' : '立即运行',
+            '编辑': isEn ? 'Edit' : '编辑',
+            'Edit': isEn ? 'Edit' : '编辑',
+            '暂停': isEn ? 'Pause' : '暂停',
+            'Pause': isEn ? 'Pause' : '暂停',
+            '删除': isEn ? 'Delete' : '删除',
+            'Delete': isEn ? 'Delete' : '删除',
+            '已启用': isEn ? 'Enabled' : '已启用',
+            'Enabled': isEn ? 'Enabled' : '已启用',
+            '刷新': isEn ? 'Refresh' : '刷新',
+            'Refresh': isEn ? 'Refresh' : '刷新',
+            '数据同步': isEn ? 'Data Sync' : '数据同步',
+            'Data Sync': isEn ? 'Data Sync' : '数据同步',
+            '同步流向': isEn ? 'Sync Flow' : '同步流向',
+            'Sync Flow': isEn ? 'Sync Flow' : '同步流向',
+            '高级同步选项': isEn ? 'Advanced Options' : '高级同步选项',
+            'Advanced Options': isEn ? 'Advanced Options' : '高级同步选项',
+            '跨平台影视评分实时同步与定时任务调度': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度',
+            'Cross-platform movie & TV rating sync & automated scheduler': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度'
+        };
+        document.querySelectorAll('#tab-sync *').forEach(el => {
+            if (el.children.length === 0 && el.textContent.trim()) {
+                const txt = el.textContent.trim();
+                if (syncTextMap[txt]) el.textContent = syncTextMap[txt];
+            }
+        });
+
+        const syncMetricMap = {
+            '源库': isEn ? 'Source' : '源库',
+            'Source': isEn ? 'Source' : '源库',
+            '目标库': isEn ? 'Target' : '目标库',
+            'Target': isEn ? 'Target' : '目标库',
+            '可执行': isEn ? 'Executable' : '可执行',
+            'Executable': isEn ? 'Executable' : '可执行',
+            '已跳过': isEn ? 'Skipped' : '已跳过',
+            'Skipped': isEn ? 'Skipped' : '已跳过'
+        };
+        document.querySelectorAll('.stat-label').forEach(label => {
+            const text = label.textContent.trim();
+            if (syncMetricMap[text]) label.textContent = syncMetricMap[text];
+        });
+
+        // 13. Sync table headers
+        const thSource = document.querySelector('.sync-preview-table th:nth-child(2)');
+        if (thSource) thSource.textContent = isEn ? 'Movie / Show' : '电影 / 剧集';
+        const thFlow = document.querySelector('.sync-preview-table th:nth-child(3)');
+        if (thFlow) thFlow.textContent = isEn ? 'Flow' : '流向';
+        const thRatings = document.querySelector('.sync-preview-table th:nth-child(4)');
+        if (thRatings) thRatings.textContent = isEn ? 'Ratings' : '评分对比';
+        const thStatus = document.querySelector('.sync-preview-table th:nth-child(5)');
+        if (thStatus) thStatus.textContent = isEn ? 'Action / Status' : '操作 / 状态';
     },
 
     /**

@@ -136,7 +136,7 @@ async function capture() {
         ],
         defaultViewport: {
             width: 1440,
-            height: 900,
+            height: 1000,
             deviceScaleFactor: 2, // Retina 2x
         },
     });
@@ -203,10 +203,40 @@ async function capture() {
         console.log('  -> Sync');
         await page.evaluate(async () => {
             if (typeof openTab === 'function') openTab('sync');
+            const sourceSelect = document.getElementById('sync-source-select');
+            if (sourceSelect) {
+                sourceSelect.value = 'douban';
+                sourceSelect.dispatchEvent(new Event('change'));
+            }
+            const targetSelect = document.getElementById('sync-target-select');
+            if (targetSelect) {
+                targetSelect.value = 'tmdb';
+                targetSelect.dispatchEvent(new Event('change'));
+            }
             const previewBtn = document.getElementById('preview-sync-btn');
             if (previewBtn) previewBtn.click();
         });
-        await wait(2500);
+        await wait(3000);
+        await page.evaluate((isEnglish) => {
+            const formPanel = document.getElementById('scheduled-task-form-panel');
+            if (formPanel) formPanel.style.display = 'block';
+            const placeholder = document.getElementById('task-form-placeholder') || document.querySelector('.scheduled-right-panel > div:not(#scheduled-task-form-panel)');
+            if (placeholder) placeholder.style.display = 'none';
+
+            const nameInput = document.getElementById('scheduled-task-name');
+            if (nameInput) nameInput.value = isEnglish ? 'Daily Douban to TMDB Sync' : '每日豆瓣到TMDB增量同步';
+            const srcSelect = document.getElementById('scheduled-task-source');
+            if (srcSelect) srcSelect.value = 'douban';
+            const tgtSelect = document.getElementById('scheduled-task-target');
+            if (tgtSelect) tgtSelect.value = 'tmdb';
+            const cronInput = document.getElementById('scheduled-task-cron');
+            if (cronInput) cronInput.value = '0 2 * * *';
+
+            if (window.i18n && window.i18n.applyTranslations) {
+                window.i18n.applyTranslations();
+            }
+        }, lang.code === 'en');
+        await wait(600);
         await anonymize(page);
         const syncPath = path.join(OUTPUT_DIR, `sync_${lang.suffix}.png`);
         await page.screenshot({ path: syncPath });
