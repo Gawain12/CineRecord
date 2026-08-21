@@ -31,6 +31,11 @@ This project is a complete full-stack rewrite of the original Python version usi
 
   <img src="docs/images/wishlist_en.png" width="800" alt="Wishlist Preview">
   <p><i>Wishlist: Cross-platform wishlist aggregation, media server matching & multi-site search</i></p>
+
+  <br>
+
+  <img src="docs/images/settings_en.png" width="800" alt="Settings Page Preview">
+  <p><i>Settings & Management: Multi-platform account setup, media server & backup configuration</i></p>
 </div>
 
 ---

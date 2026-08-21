@@ -31,6 +31,11 @@ CineRecord 是一个本地优先的跨平台电影记录管理、评分同步与
 
   <img src="docs/images/wishlist_cn.png" width="800" alt="想看清单预览">
   <p><i>想看清单：聚合各源平台想看数据，支持比对媒体服务器找出未入库影片并一键检索</i></p>
+
+  <br>
+
+  <img src="docs/images/settings_cn.png" width="800" alt="设置页面预览">
+  <p><i>设置与管理：多平台账户连接、媒体服务器及备份参数配置</i></p>
 </div>
 
 ---

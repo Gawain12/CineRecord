@@ -2,7 +2,8 @@
 
 /**
  * Automated Screenshot Generator for CineRecord
- * Captures high-resolution Retina screenshots for documentation in both Chinese and English.
+ * Captures high-resolution Retina screenshots for documentation in both Chinese and English
+ * with full anonymization and privacy protection.
  */
 
 const fs = require('fs');
@@ -25,6 +26,66 @@ async function isServerRunning(url) {
 
 async function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function anonymize(page) {
+    await page.evaluate(() => {
+        // 1. Sidebar Accounts
+        const doubanUser = document.getElementById('summary-id-douban') || document.querySelector('#summary-douban .summary-id');
+        if (doubanUser) doubanUser.textContent = 'MovieFan';
+        const imdbUser = document.getElementById('summary-id-imdb') || document.querySelector('#summary-imdb .summary-id');
+        if (imdbUser) imdbUser.textContent = 'ur12345678';
+        const traktUser = document.getElementById('summary-id-trakt') || document.querySelector('#summary-trakt .summary-id');
+        if (traktUser) traktUser.textContent = 'trakt_user';
+        const tmdbUser = document.getElementById('summary-id-tmdb') || document.querySelector('#summary-tmdb .summary-id');
+        if (tmdbUser) tmdbUser.textContent = 'tmdb_user';
+        const cpUser = document.getElementById('summary-id-cinepersona') || document.querySelector('#summary-cinepersona .summary-id');
+        if (cpUser) cpUser.textContent = 'cinepersona';
+
+        // 2. Settings Account Cards
+        const doubanName = document.getElementById('douban-display-name');
+        if (doubanName) doubanName.textContent = 'MovieFan';
+        const doubanId = document.getElementById('douban-user-id-display');
+        if (doubanId) doubanId.textContent = 'moviefan';
+
+        const imdbName = document.getElementById('imdb-display-name');
+        if (imdbName) imdbName.textContent = 'IMDb User';
+        const imdbId = document.getElementById('imdb-user-id-display');
+        if (imdbId) imdbId.textContent = 'ur12345678';
+
+        const traktName = document.getElementById('trakt-display-name');
+        if (traktName) traktName.textContent = 'trakt_user';
+        const traktId = document.getElementById('trakt-user-id-display');
+        if (traktId) traktId.textContent = 'trakt_user';
+
+        const tmdbName = document.getElementById('tmdb-display-name');
+        if (tmdbName) tmdbName.textContent = 'tmdb_user';
+        const tmdbId = document.getElementById('tmdb-user-id-display');
+        if (tmdbId) tmdbId.textContent = '12345678';
+
+        // 3. Settings Inputs & Sensitive fields
+        const mediaServerUrl = document.getElementById('media-server-url-input');
+        if (mediaServerUrl) mediaServerUrl.value = 'http://192.168.1.100:8096';
+        const mediaServerKey = document.getElementById('media-server-key-input');
+        if (mediaServerKey) mediaServerKey.value = '••••••••••••••••••••••••••••••••';
+
+        const ccHost = document.getElementById('cookiecloud-host-input');
+        if (ccHost) ccHost.value = 'https://cookiecloud.example.com';
+        const ccKey = document.getElementById('cookiecloud-key-input');
+        if (ccKey) ccKey.value = '••••••••••••••••';
+        const ccPass = document.getElementById('cookiecloud-password-input');
+        if (ccPass) ccPass.value = '••••••••••••••••';
+
+        // 4. Sidebar & Terminal Logs Sanitization
+        const logContainer = document.querySelector('.log-container-sidebar');
+        if (logContainer) {
+            logContainer.innerHTML = '<p class="info">[15:00:00] CineRecord core ready</p><p class="success">[15:00:01] All platforms connected</p><p class="info">[15:00:02] Local SQLite database loaded</p>';
+        }
+        const syncTerminal = document.querySelector('.sync-terminal');
+        if (syncTerminal) {
+            syncTerminal.innerHTML = '<p class="info">[15:05:00] 🚀 Generating sync preview...</p><p class="success">[15:05:01] ✅ Diff preview ready: 1874 items examined</p><p class="success">[15:05:02] ✅ All candidate records analyzed</p>';
+        }
+    });
 }
 
 async function capture() {
@@ -111,6 +172,7 @@ async function capture() {
             if (typeof openTab === 'function') openTab('dashboard');
         });
         await wait(1000);
+        await anonymize(page);
         const dashPath = path.join(OUTPUT_DIR, `dashboard_${lang.suffix}.png`);
         await page.screenshot({ path: dashPath });
         console.log(`     Saved: ${dashPath}`);
@@ -121,6 +183,7 @@ async function capture() {
             if (typeof openTab === 'function') openTab('data');
         });
         await wait(1200);
+        await anonymize(page);
         const libPath = path.join(OUTPUT_DIR, `library_${lang.suffix}.png`);
         await page.screenshot({ path: libPath });
         console.log(`     Saved: ${libPath}`);
@@ -131,6 +194,7 @@ async function capture() {
             if (typeof openTab === 'function') openTab('wishlist');
         });
         await wait(1200);
+        await anonymize(page);
         const wishPath = path.join(OUTPUT_DIR, `wishlist_${lang.suffix}.png`);
         await page.screenshot({ path: wishPath });
         console.log(`     Saved: ${wishPath}`);
@@ -143,14 +207,26 @@ async function capture() {
             if (previewBtn) previewBtn.click();
         });
         await wait(2500);
+        await anonymize(page);
         const syncPath = path.join(OUTPUT_DIR, `sync_${lang.suffix}.png`);
         await page.screenshot({ path: syncPath });
         console.log(`     Saved: ${syncPath}`);
+
+        // 5. Settings Tab
+        console.log('  -> Settings');
+        await page.evaluate(() => {
+            if (typeof openTab === 'function') openTab('settings');
+        });
+        await wait(1200);
+        await anonymize(page);
+        const settingsPath = path.join(OUTPUT_DIR, `settings_${lang.suffix}.png`);
+        await page.screenshot({ path: settingsPath });
+        console.log(`     Saved: ${settingsPath}`);
     }
 
     await browser.close();
 
-    console.log('\n✨ All screenshots captured successfully in docs/images/!\n');
+    console.log('\n✨ All sanitized screenshots captured successfully in docs/images/!\n');
 }
 
 capture().catch((err) => {

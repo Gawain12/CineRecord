@@ -653,6 +653,23 @@ const i18n = {
             if (headerTitleMap[text]) h2.textContent = headerTitleMap[text];
         });
 
+        const subtitleMap = {
+            '跨平台聚合总览 · 核心数据与最近同步': isEn ? 'Cross-platform aggregated overview & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
+            'Cross-platform aggregated overview & recent syncs': isEn ? 'Cross-platform aggregated overview & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
+            '跨平台统一视图，自动按电影去重': isEn ? 'Unified cross-platform view with deduplication' : '跨平台统一视图，自动按电影去重',
+            'Unified cross-platform view with deduplication': isEn ? 'Unified cross-platform view with deduplication' : '跨平台统一视图，自动按电影去重',
+            '跨平台想看聚合 · 单站想看与查漏补缺': isEn ? 'Cross-platform wishlist aggregation & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
+            'Cross-platform wishlist aggregation & diff matrix': isEn ? 'Cross-platform wishlist aggregation & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
+            '跨平台影视评分实时同步与定时任务调度': isEn ? 'Real-time rating sync & scheduled task scheduler' : '跨平台影视评分实时同步与定时任务调度',
+            'Real-time rating sync & scheduled task scheduler': isEn ? 'Real-time rating sync & scheduled task scheduler' : '跨平台影视评分实时同步与定时任务调度',
+            '账户连接、备份与系统设置': isEn ? 'Account connections, backups & system configuration' : '账户连接、备份与系统设置',
+            'Account connections, backups & system configuration': isEn ? 'Account connections, backups & system configuration' : '账户连接、备份与系统设置'
+        };
+        document.querySelectorAll('.content-header p').forEach(p => {
+            const text = p.textContent.trim();
+            if (subtitleMap[text]) p.textContent = subtitleMap[text];
+        });
+
         // 8. Search Input Placeholders
         const libSearch = document.getElementById('library-search-input');
         if (libSearch) libSearch.placeholder = isEn ? 'Search movie, director, actor...' : '检索电影、导演、演员...';
@@ -669,15 +686,53 @@ const i18n = {
         const clearSync = document.getElementById('clear-sync-btn');
         if (clearSync) clearSync.textContent = isEn ? 'Clear' : '清空';
 
-        // 10. Wishlist Refresh Buttons
+        // 10. Wishlist Refresh Buttons & Mode Buttons
         const refreshDoubanWish = document.getElementById('refresh-wishlist-douban-btn');
-        if (refreshDoubanWish) refreshDoubanWish.innerHTML = `豆瓣 ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        if (refreshDoubanWish) refreshDoubanWish.innerHTML = `豆瓣 ${isEn ? 'Refresh' : '刷新想看'}`;
         const refreshImdbWish = document.getElementById('refresh-wishlist-imdb-btn');
-        if (refreshImdbWish) refreshImdbWish.innerHTML = `IMDb ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        if (refreshImdbWish) refreshImdbWish.innerHTML = `IMDb ${isEn ? 'Refresh' : '刷新想看'}`;
         const refreshTraktWish = document.getElementById('refresh-wishlist-trakt-btn');
-        if (refreshTraktWish) refreshTraktWish.innerHTML = `Trakt ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        if (refreshTraktWish) refreshTraktWish.innerHTML = `Trakt ${isEn ? 'Refresh' : '刷新想看'}`;
         const refreshTmdbWish = document.getElementById('refresh-wishlist-tmdb-btn');
-        if (refreshTmdbWish) refreshTmdbWish.innerHTML = `TMDB ${isEn ? 'Refresh Wishlist' : '刷新想看'}`;
+        if (refreshTmdbWish) refreshTmdbWish.innerHTML = `TMDB ${isEn ? 'Refresh' : '刷新想看'}`;
+        const importLetterboxdWish = document.getElementById('import-letterboxd-wishlist-btn');
+        if (importLetterboxdWish) importLetterboxdWish.innerHTML = isEn ? 'Import Letterboxd CSV' : '导入 Letterboxd diary.csv';
+
+        const wishUnifiedBtn = document.querySelector('[data-wishlist-mode="unified"]');
+        if (wishUnifiedBtn) wishUnifiedBtn.innerHTML = `🌐 ${isEn ? 'Unified Wishlist' : '全景聚合想看'}`;
+        const wishPlatformBtn = document.querySelector('[data-wishlist-mode="platform"]');
+        if (wishPlatformBtn) wishPlatformBtn.innerHTML = `📱 ${isEn ? 'Single Platform' : '平台单站想看'}`;
+        const wishDiffBtn = document.querySelector('[data-wishlist-mode="diff"]');
+        if (wishDiffBtn) wishDiffBtn.innerHTML = `🔍 ${isEn ? 'Wishlist Diff Matrix' : '想看查漏矩阵'}`;
+
+        const unmatchLabel = document.querySelector('.wishlist-unmatched-label');
+        if (unmatchLabel) {
+            const cb = unmatchLabel.querySelector('input');
+            unmatchLabel.innerHTML = '';
+            if (cb) unmatchLabel.appendChild(cb);
+            unmatchLabel.appendChild(document.createTextNode(isEn ? ' Only Missing from Library' : ' 仅未在个人片库中'));
+        }
+
+        // 11. Wishlist and Library Item Card Text (Added on, Director, Actors)
+        document.querySelectorAll('.movie-item, .wishlist-card').forEach(card => {
+            card.querySelectorAll('.movie-meta, .wishlist-meta').forEach(meta => {
+                if (isEn) {
+                    meta.innerHTML = meta.innerHTML
+                        .replace(/想看于/g, 'Added on')
+                        .replace(/导演:/g, 'Director:')
+                        .replace(/主演:/g, 'Actors:')
+                        .replace(/评分/g, 'Rating')
+                        .replace(/暂无详细信息/g, 'No details available');
+                } else {
+                    meta.innerHTML = meta.innerHTML
+                        .replace(/Added on/g, '想看于')
+                        .replace(/Director:/g, '导演:')
+                        .replace(/Actors:/g, '主演:')
+                        .replace(/Rating/g, '评分')
+                        .replace(/No details available/g, '暂无详细信息');
+                }
+            });
+        });
     },
 
     /**
