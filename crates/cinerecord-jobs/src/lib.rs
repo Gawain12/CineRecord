@@ -1146,6 +1146,7 @@ mod tests {
 
         let mut config = AppConfig::default();
         config.platforms.trakt.client_id = Some("test-client".to_string());
+        config.platforms.trakt.access_token = Some("test-token".to_string());
         let platforms = list_platforms(&config, &pool)
             .await
             .expect("platform state should load");

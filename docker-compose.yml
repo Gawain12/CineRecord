@@ -11,5 +11,7 @@ services:
     environment:
       CINERECORD_HOST: 0.0.0.0
       CINERECORD_PORT: 18000
+      # Set to require a login (strongly recommended when reachable from other machines).
+      CINERECORD_PASSWORD: ${CINERECORD_PASSWORD:-}
       RUST_LOG: info,tower_http=warn
     restart: unless-stopped

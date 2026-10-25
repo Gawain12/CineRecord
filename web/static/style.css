@@ -5185,3 +5185,68 @@ select option {
     border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+
+/* Mobile header: keep brand and actions on one 60px row so the off-canvas
+   sidebar (positioned at top: 60px) lines up with the header edge. */
+@media (max-width: 768px) {
+    .top-nav {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        height: 60px;
+        padding: 0 16px;
+    }
+
+    .top-nav .nav-title {
+        font-size: 1.05rem;
+    }
+
+    .top-nav .nav-actions {
+        gap: 6px;
+    }
+}
+
+/* Mobile library / wishlist toolbars: keep controls on compact single lines. */
+@media (max-width: 768px) {
+    .data-controls-row .btn,
+    .view-mode-segmented .mode-tab-btn {
+        white-space: nowrap;
+    }
+
+    .data-controls-row .export-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .library-view-toggle {
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 6px;
+    }
+
+    .view-mode-bar {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .view-mode-segmented {
+        overflow-x: auto;
+        max-width: 100%;
+        scrollbar-width: none;
+    }
+}
+
+/* Header sign-out link (only shown when CINERECORD_PASSWORD is set). */
+a#logout-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+
+a#logout-link[hidden] {
+    display: none;
+}

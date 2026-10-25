@@ -63,7 +63,7 @@ This project is a complete full-stack rewrite of the original Python version usi
 * **🌐 Multi-Site 1-Click Search**: For missing wishlist items, built-in search buttons (KG, HDR, Tik, IN, HDB, OMG, BHD, ADE) provide instant lookups with automatic IMDb ID and title fallbacks.
 * **⚙️ Visual Scheduler**: Built-in cron-based background scheduler for automated sync runs with a live log console streaming via SSE.
 * **🌍 Bilingual & Adaptive Theme**: Seamless instantaneous Chinese/English switching with polished dark and light themes.
-* **🔒 Privacy-First & Offline-First**: Sensitive credentials (Cookies, API keys, OAuth Tokens) are encrypted locally. Zero telemetry code—your data is 100% yours.
+* **🔒 Privacy-First & Offline-First**: Sensitive credentials (Cookies, API keys, OAuth Tokens) stay on your machine in `config/v2/config.toml` (plain text — keep that file private). Zero telemetry code—your data is 100% yours.
 
 ---
 
@@ -92,6 +92,8 @@ For running on servers or NAS devices:
 docker compose up -d --build
 ```
 The service will be listening on `http://127.0.0.1:18000`. Persistent database and configuration files are stored locally in the `./cinerecord-data` directory.
+
+> 🔐 When exposing CineRecord on a LAN or the internet, set `CINERECORD_PASSWORD` (and optionally `CINERECORD_USERNAME`, default `cinerecord`) to require a login — otherwise anyone who can reach the port can read your platform credentials.
 
 ---
 

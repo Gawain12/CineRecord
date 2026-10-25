@@ -311,8 +311,9 @@ function formatShortDate(value) {
 }
 
 function platformLabel(platform) {
+    const isEn = window.i18n?.currentLang === "en";
     return {
-        douban: "豆瓣",
+        douban: isEn ? "Douban" : "豆瓣",
         imdb: "IMDb",
         trakt: "Trakt",
         tmdb: "TMDB",
@@ -322,24 +323,26 @@ function platformLabel(platform) {
 }
 
 function statusText(task) {
+    const isEn = window.i18n?.currentLang === "en";
     return {
-        pending: "等待中",
-        running: "执行中",
-        succeeded: "已完成",
-        failed: "失败",
-        cancelled: "已取消",
+        pending: isEn ? "Pending" : "等待中",
+        running: isEn ? "Running" : "执行中",
+        succeeded: isEn ? "Completed" : "已完成",
+        failed: isEn ? "Failed" : "失败",
+        cancelled: isEn ? "Cancelled" : "已取消",
     }[task?.status] || (task?.status || "--");
 }
 
 function taskTypeLabel(kind) {
+    const isEn = window.i18n?.currentLang === "en";
     return {
-        fetch_platform: "更新看过",
-        fetch_wishlist: "更新想看",
-        import_legacy: "导入旧版数据",
-        sync_preview: "同步预览",
-        sync_execute: "执行同步",
-        maintenance: "维护任务",
-    }[kind] || String(kind || "任务");
+        fetch_platform: isEn ? "Update Watched" : "更新看过",
+        fetch_wishlist: isEn ? "Update Wishlist" : "更新想看",
+        import_legacy: isEn ? "Import Legacy CSV" : "导入旧版数据",
+        sync_preview: isEn ? "Sync Preview" : "同步预览",
+        sync_execute: isEn ? "Execute Sync" : "执行同步",
+        maintenance: isEn ? "Maintenance" : "维护任务",
+    }[kind] || (isEn ? "Task" : String(kind || "任务"));
 }
 
 function statusBadgeClass(configured, platformId, configPresent = false, lastValidatedAt = null) {
@@ -350,10 +353,11 @@ function statusBadgeClass(configured, platformId, configPresent = false, lastVal
 }
 
 function statusBadgeText(configured, configPresent = false, lastValidatedAt = null) {
-    if (configured) return "● 已连接";
-    if (configPresent && lastValidatedAt) return "● 验证失败";
-    if (configPresent) return "● 待验证";
-    return "● 未配置";
+    const isEn = window.i18n?.currentLang === "en";
+    if (configured) return isEn ? "● Connected" : "● 已连接";
+    if (configPresent && lastValidatedAt) return isEn ? "● Failed" : "● 验证失败";
+    if (configPresent) return isEn ? "● Pending" : "● 待验证";
+    return isEn ? "● Not Configured" : "● 未配置";
 }
 
 function platformHint(platformId) {
@@ -584,12 +588,23 @@ let actionStatusTimer = null;
 
 function setActionStatus(message, tone = "info", options = {}) {
     if (!ui.actionStatus) return;
-    if (!message || message === "准备就绪" || tone === "idle") {
+    if (!message || message === "准备就绪" || message === "Ready" || tone === "idle") {
         ui.actionStatus.style.display = "none";
         return;
     }
+    const isEn = window.i18n?.currentLang === "en";
+    let displayMessage = message;
+    if (isEn && typeof displayMessage === "string") {
+        displayMessage = displayMessage
+            .replace(/^同步预览已更新 · 可执行 (\d+) \/ (\d+) 项$/, "Sync preview updated · Executable $1 / $2 items")
+            .replace(/^正在生成同步预览\.\.\.$/, "Generating sync preview...")
+            .replace(/^正在执行同步\.\.\.$/, "Executing sync...")
+            .replace(/^同步执行完成 · 成功 (\d+) · 跳过 (\d+) · 失败 (\d+)$/, "Sync completed · Success $1 · Skipped $2 · Failed $3")
+            .replace(/^先生成同步预览，确认待执行条目后再同步$/, "Please preview first to verify items before sync")
+            .replace(/^先在预览里至少选中一项再执行同步$/, "Please select at least one item before sync");
+    }
     ui.actionStatus.style.display = "block";
-    ui.actionStatus.textContent = message;
+    ui.actionStatus.textContent = displayMessage;
     ui.actionStatus.className = `action-status-bar${tone && tone !== "info" ? ` ${tone}` : ""}`;
     if (actionStatusTimer) {
         clearTimeout(actionStatusTimer);
@@ -613,8 +628,9 @@ function setAppLoading(isLoading) {
 function setButtonBusy(button, busy, text) {
     if (!button) return;
     if (busy) {
-        if (!button.dataset.originalText) {
-            button.dataset.originalText = button.textContent;
+        // Save markup, not text, so icon <img>s survive the busy state.
+        if (!button.dataset.originalHtml) {
+            button.dataset.originalHtml = button.innerHTML;
         }
         const nonce = `${Date.now()}-${Math.random()}`;
         button.dataset.busyNonce = nonce;
@@ -630,9 +646,9 @@ function setButtonBusy(button, busy, text) {
         button.disabled = false;
         button.classList.remove("is-busy");
         delete button.dataset.busyNonce;
-        if (button.dataset.originalText) {
-            button.textContent = button.dataset.originalText;
-            delete button.dataset.originalText;
+        if (button.dataset.originalHtml) {
+            button.innerHTML = button.dataset.originalHtml;
+            delete button.dataset.originalHtml;
         }
     }
 }
@@ -707,7 +723,7 @@ function defaultAvatar(platform) {
 function proxyAvatarUrl(url) {
     if (!url) return "";
     if (url.startsWith("data:") || url.startsWith("/")) return url;
-    return `/api/v2/image-proxy?url=${encodeURIComponent(url)}`;
+    return `/proxy/avatar?url=${encodeURIComponent(url)}`;
 }
 
 function proxyImageUrl(url) {
@@ -738,12 +754,13 @@ function statusBadgeClass(configured, platformId, configPresent = false, lastVal
 }
 
 function statusBadgeText(configured, configPresent = false, lastValidatedAt = null, descriptor = null) {
+    const isEn = window.i18n?.currentLang === "en";
     const isExpired = descriptor?.status?.token_expires_at && new Date(descriptor.status.token_expires_at) <= new Date();
-    if (isExpired) return "● 授权已过期";
-    if (configured) return "● 已连接";
-    if (configPresent && lastValidatedAt) return "● 验证失败";
-    if (configPresent) return "● 待验证";
-    return "● 未配置";
+    if (isExpired) return isEn ? "● Auth Expired" : "● 授权已过期";
+    if (configured) return isEn ? "● Connected" : "● 已连接";
+    if (configPresent && lastValidatedAt) return isEn ? "● Validation Failed" : "● 验证失败";
+    if (configPresent) return isEn ? "● Pending" : "● 待验证";
+    return isEn ? "● Not Configured" : "● 未配置";
 }
 
 function dotClass(configured, platformId, descriptor = null) {
@@ -792,6 +809,7 @@ function prettyStatusMessage(message) {
 }
 
 function renderPlatformAccount(platform, descriptor) {
+    const isEn = window.i18n?.currentLang === "en";
     const status = descriptor?.status || {};
     const profile = status.profile || {};
     const avatarEl = document.getElementById(`${platform}-avatar`);
@@ -806,12 +824,12 @@ function renderPlatformAccount(platform, descriptor) {
     const displayName =
         profileValue(profile, ["display_name", "name", "username"]) ||
         (configured
-            ? `${descriptor?.name || platform.toUpperCase()} 账户`
+            ? (isEn ? `${descriptor?.name || platform.toUpperCase()} Account` : `${descriptor?.name || platform.toUpperCase()} 账户`)
             : isExpired
-              ? `${descriptor?.name || platform.toUpperCase()} 授权已过期`
+              ? (isEn ? `${descriptor?.name || platform.toUpperCase()} Auth Expired` : `${descriptor?.name || platform.toUpperCase()} 授权已过期`)
               : configPresent
-                ? `${descriptor?.name || platform.toUpperCase()} 待验证`
-                : `${descriptor?.name || platform.toUpperCase()} 未配置`);
+                ? (isEn ? `${descriptor?.name || platform.toUpperCase()} Pending` : `${descriptor?.name || platform.toUpperCase()} 待验证`)
+                : (isEn ? `${descriptor?.name || platform.toUpperCase()} Not Configured` : `${descriptor?.name || platform.toUpperCase()} 未配置`));
     const userId = profileValue(profile, ["user_id", "account_id", "username"]) || fallbackId;
     const profileLink = profileValue(profile, ["profile_link", "profile_url"]);
     const avatar = proxyAvatarUrl(profileValue(profile, ["avatar"]) || defaultAvatar(platform));
@@ -827,16 +845,16 @@ function renderPlatformAccount(platform, descriptor) {
     if (userIdEl) userIdEl.textContent = userId || "--";
     if (metaEl) {
         if (isExpired) {
-            metaEl.textContent = "授权已过期，请重新登录";
+            metaEl.textContent = isEn ? "Auth expired, please re-login" : "授权已过期，请重新登录";
             metaEl.style.color = "#ef4444";
         } else if (status.last_fetch_at) {
-            metaEl.textContent = `上次同步: ${formatShortDate(status.last_fetch_at)}`;
+            metaEl.textContent = `${isEn ? "Last synced: " : "上次同步: "}${formatShortDate(status.last_fetch_at)}`;
             metaEl.style.color = "";
         } else if (configured) {
-            metaEl.textContent = "已连接";
+            metaEl.textContent = isEn ? "Connected" : "已连接";
             metaEl.style.color = "";
         } else {
-            metaEl.textContent = "未连接 · 点击测试连接";
+            metaEl.textContent = isEn ? "Not connected · Click test" : "未连接 · 点击测试连接";
             metaEl.style.color = "";
         }
     }
@@ -877,6 +895,7 @@ function renderPlatformAccount(platform, descriptor) {
 }
 
 function setPlatformUi(platform, descriptor) {
+    const isEn = window.i18n?.currentLang === "en";
     const isExpired = descriptor?.status?.token_expires_at && new Date(descriptor.status.token_expires_at) <= new Date();
     const configured = Boolean(descriptor?.status?.configured) && !isExpired;
     const configPresent = platformHasLocalConfig(platform, descriptor);
@@ -905,12 +924,12 @@ function setPlatformUi(platform, descriptor) {
     );
     const hasMeaningfulCounts = libraryCount > 0 || wishlistCount > 0;
     const statsText = configured || hasMeaningfulCounts
-        ? `看过 ${libraryCount} · 想看 ${wishlistCount}`
+        ? (isEn ? `Watched ${libraryCount} · Wishlist ${wishlistCount}` : `看过 ${libraryCount} · 想看 ${wishlistCount}`)
         : isExpired
-          ? "授权已过期，请重新登录"
+          ? (isEn ? "Auth expired, please re-login" : "授权已过期，请重新登录")
           : configPresent
-            ? prettyStatusMessage(descriptor?.status?.message) || "已填写配置，等待测试连接"
-            : platformHint(platform);
+            ? prettyStatusMessage(descriptor?.status?.message) || (isEn ? "Configured, awaiting test" : "已填写配置，等待测试连接")
+            : (isEn ? "Not connected" : platformHint(platform));
     const summaryIdentity =
         profileValue(profile, ["display_name", "user_id", "username"]) || platformConfigId(platform);
 
@@ -918,8 +937,8 @@ function setPlatformUi(platform, descriptor) {
     if (summaryId) summaryId.textContent = summaryIdentity || "";
     if (summaryDot) summaryDot.className = `status-dot ${dotClass(configured, platform)}`;
     if (settingsBadge) {
-        settingsBadge.className = `status-badge ${statusBadgeClass(configured, platform, configPresent, lastValidatedAt)}`;
-        settingsBadge.textContent = statusBadgeText(configured, configPresent, lastValidatedAt);
+        settingsBadge.className = `status-badge ${statusBadgeClass(configured, platform, configPresent, lastValidatedAt, descriptor)}`;
+        settingsBadge.textContent = statusBadgeText(configured, configPresent, lastValidatedAt, descriptor);
     }
     if (platformStatus) {
         platformStatus.textContent = livePlatformMessage(
@@ -956,7 +975,6 @@ function updateCounts() {
 
     updateLibraryFilterCounts({
         all: counts.library_total,
-        shared: counts.library_shared,
         ...library
     }, counts.library_total || 0);
 
@@ -1070,6 +1088,7 @@ function hideScheduledTaskForm() {
 }
 
 function renderScheduledTasks() {
+    const isEn = window.i18n?.currentLang === "en";
     const tasks = state.scheduled.tasks || [];
     if (!ui.scheduledTasksList || !ui.scheduledTasksEmpty) return;
     if (!tasks.length) {
@@ -1082,34 +1101,51 @@ function renderScheduledTasks() {
     ui.scheduledTasksList.style.display = "";
     ui.scheduledTasksList.innerHTML = tasks
         .map(
-            (task) => `
+            (task) => {
+                let statusBadge = task.running ? (isEn ? "Running" : "执行中") : task.paused ? (isEn ? "Paused" : "已暂停") : (isEn ? "Enabled" : "已启用");
+                let nextRun = task.next_run_at ? (isEn ? `Next: ${formatDate(task.next_run_at)}` : `下次 ${formatDate(task.next_run_at)}`) : (isEn ? "Not scheduled" : "未计划");
+                let lastStatus = task.last_status_message || (isEn ? "Awaiting first run" : "等待首次执行");
+                if (isEn && lastStatus) {
+                    lastStatus = lastStatus
+                        .replace(/完成[：:]\s*成功\s*(\d+)[,，\s]*跳过\s*(\d+)[,，\s]*失败\s*(\d+)/g, "Completed: Success $1, Skipped $2, Failed $3")
+                        .replace(/下次执行[：:]/g, "Next run: ");
+                }
+                let taskDisplayName = task.name;
+                if (isEn) {
+                    if (taskDisplayName === "IMDb到CinePersona双向同步") taskDisplayName = "IMDb to CinePersona Two-way Sync";
+                    if (taskDisplayName === "每日豆瓣到TMDB增量同步") taskDisplayName = "Daily Douban to TMDB Sync";
+                    if (taskDisplayName === "每周豆瓣到Trakt全量归档") taskDisplayName = "Weekly Douban to Trakt Full Archive";
+                }
+                return `
         <div class="scheduled-task-card">
             <div class="scheduled-task-head">
                 <div>
-                    <div class="rust-movie-title">${escapeHtml(task.name)}</div>
+                    <div class="rust-movie-title">${escapeHtml(taskDisplayName)}</div>
                     <div class="rust-movie-meta">${escapeHtml(task.source_platform.toUpperCase())} -> ${escapeHtml(
                 task.target_platform.toUpperCase()
             )} · ${escapeHtml(task.schedule)}</div>
                 </div>
-                <span class="rust-tag">${task.running ? "执行中" : task.paused ? "已暂停" : "已启用"}</span>
+                <span class="rust-tag">${statusBadge}</span>
             </div>
             <div class="scheduled-task-meta">
-                <span class="rust-tag">${task.next_run_at ? `下次 ${formatDate(task.next_run_at)}` : "未计划"}</span>
-                <span class="rust-tag">${escapeHtml(task.last_status_message || "等待首次执行")}</span>
+                <span class="rust-tag">${nextRun}</span>
+                <span class="rust-tag">${escapeHtml(lastStatus)}</span>
             </div>
             <div class="scheduled-task-actions">
-                <button class="btn btn-secondary btn-sm scheduled-run-btn" data-id="${task.id}" ${task.paused || task.running ? "disabled" : ""}>立即运行</button>
-                <button class="btn btn-outline btn-sm scheduled-edit-btn" data-id="${task.id}">编辑</button>
-                <button class="btn btn-outline btn-sm scheduled-toggle-btn" data-id="${task.id}" data-paused="${task.paused ? "1" : "0"}">${task.paused ? "启用" : "暂停"}</button>
-                <button class="btn btn-outline btn-sm scheduled-delete-btn" data-id="${task.id}">删除</button>
+                <button class="btn btn-secondary btn-sm scheduled-run-btn" data-id="${task.id}" ${task.paused || task.running ? "disabled" : ""}>${isEn ? "Run Now" : "立即运行"}</button>
+                <button class="btn btn-outline btn-sm scheduled-edit-btn" data-id="${task.id}">${isEn ? "Edit" : "编辑"}</button>
+                <button class="btn btn-outline btn-sm scheduled-toggle-btn" data-id="${task.id}" data-paused="${task.paused ? "1" : "0"}">${task.paused ? (isEn ? "Resume" : "启用") : (isEn ? "Pause" : "暂停")}</button>
+                <button class="btn btn-outline btn-sm scheduled-delete-btn" data-id="${task.id}">${isEn ? "Delete" : "删除"}</button>
             </div>
         </div>
-    `
+    `;
+            }
         )
         .join("");
 }
 
 function renderScheduledTaskLogs() {
+    const isEn = window.i18n?.currentLang === "en";
     const container = document.getElementById("scheduled-task-logs");
     if (!container) return;
     const logs = state.scheduled.logs || [];
@@ -1119,7 +1155,7 @@ function renderScheduledTaskLogs() {
                   (log) => `
             <div class="rust-list-row">
                 <div>
-                    <div class="rust-movie-title">${escapeHtml(log.task_name || "定时任务")}</div>
+                    <div class="rust-movie-title">${escapeHtml(log.task_name || (isEn ? "Scheduled Task" : "定时任务"))}</div>
                     <div class="rust-movie-meta">${escapeHtml(
                         [log.source_platform?.toUpperCase(), log.target_platform?.toUpperCase()]
                             .filter(Boolean)
@@ -1132,7 +1168,7 @@ function renderScheduledTaskLogs() {
         `
               )
               .join("")
-        : '<div class="rust-empty">暂无执行日志。任务首次执行后会显示开始、完成或失败状态。</div>';
+        : (isEn ? '<div class="rust-empty">No execution logs yet. Logs will appear after scheduled tasks run.</div>' : '<div class="rust-empty">暂无执行日志。任务首次执行后会显示开始、完成或失败状态。</div>');
 }
 
 function renderBackups() {
@@ -1237,6 +1273,7 @@ function switchScheduledPanel(targetId) {
 }
 
 function renderPlatformGrid() {
+    const isEn = window.i18n?.currentLang === "en";
     const grid = ui.dashboardPlatformGrid;
     if (!grid) return;
     grid.innerHTML = (state.platforms || [])
@@ -1262,12 +1299,12 @@ function renderPlatformGrid() {
                 <div class="rust-movie-card">
                     <div class="rust-tag-row">
                         <span class="rust-tag">${escapeHtml(platform.name)}</span>
-                        <span class="rust-tag">${platform.status?.configured ? "已配置" : "未配置"}</span>
+                        <span class="rust-tag">${platform.status?.configured ? (isEn ? "Configured" : "已配置") : (isEn ? "Not configured" : "未配置")}</span>
                     </div>
                     <div class="rust-movie-title">${escapeHtml(livePlatformMessage(platform.id, prettyStatusMessage(platform.status?.message) || platformHint(platform.id)))}</div>
-                    <div class="rust-movie-meta">看过 ${libraryCount} · 想看 ${wishlistCount}</div>
+                    <div class="rust-movie-meta">${isEn ? `Watched ${libraryCount} · Wishlist ${wishlistCount}` : `看过 ${libraryCount} · 想看 ${wishlistCount}`}</div>
                     <div class="rust-card-actions">
-                        <button class="btn btn-outline btn-sm rust-open-tab-btn" data-tab="settings">管理账户</button>
+                        <button class="btn btn-outline btn-sm rust-open-tab-btn" data-tab="settings">${isEn ? "Manage Account" : "管理账户"}</button>
                     </div>
                 </div>
             `;
@@ -1364,20 +1401,21 @@ function renderPlatformBadge(source) {
 }
 
 function formatCardMeta(item) {
+    const isEn = window.i18n?.currentLang === "en";
     const leadParts = [];
     if (item.genres) leadParts.push(item.genres);
     if (item.country) leadParts.push(item.country);
     if (item.duration) leadParts.push(item.duration);
-    if (item.public_rating) leadParts.push(`评分 ${item.public_rating}`);
+    if (item.public_rating) leadParts.push(`${isEn ? "Rating " : "评分 "}${item.public_rating}`);
 
     const tailParts = [];
-    if (item.directors) tailParts.push(`导演: ${item.directors}`);
-    if (item.actors) tailParts.push(`主演: ${item.actors}`);
+    if (item.directors) tailParts.push(`${isEn ? "Director: " : "导演: "}${item.directors}`);
+    if (item.actors) tailParts.push(`${isEn ? "Cast: " : "主演: "}${item.actors}`);
 
     const sections = [];
     if (leadParts.length > 0) sections.push(leadParts.join(" · "));
     if (tailParts.length > 0) sections.push(tailParts.join(" / "));
-    return sections.join(" / ") || "暂无详细信息";
+    return sections.join(" / ") || (isEn ? "No details available" : "暂无详细信息");
 }
 
 function renderLegacyLibraryItem(item) {
@@ -1434,6 +1472,7 @@ function renderLegacyLibraryItem(item) {
 }
 
 function renderLegacyWishlistItem(item) {
+    const isEn = window.i18n?.currentLang === "en";
     const title = cleanTitle(item.title);
     const posterUrl = proxyImageUrl(item.poster_url || "");
     const primaryLink = itemPrimaryLink(item);
@@ -1449,21 +1488,21 @@ function renderLegacyWishlistItem(item) {
     const doubanRating = item.sources?.find(s => s.platform === 'douban')?.rating;
     const imdbRating = item.sources?.find(s => s.platform === 'imdb')?.rating;
     const ratingVal = doubanRating || imdbRating || "";
-    const ratingLabel = doubanRating ? "豆瓣" : (imdbRating ? "IMDb" : "");
+    const ratingLabel = doubanRating ? (isEn ? "Douban" : "豆瓣") : (imdbRating ? "IMDb" : "");
     const ratingHtml = ratingVal ? `<span class="rating-pill">★ ${ratingLabel} ${ratingVal}</span>` : "";
     
     const votes = item.public_votes || "";
     const formatVotes = (num) => {
         const n = parseFloat(num);
         if (Number.isNaN(n)) return "";
-        if (n >= 10000) return (n / 10000).toFixed(1) + "万";
+        if (n >= 10000) return (n / 10000).toFixed(1) + (isEn ? "0k" : "万");
         if (n >= 1000) return (n / 1000).toFixed(1) + "k";
         return String(n);
     };
-    const votesText = votes ? `<span class="movie-date">${formatVotes(votes)}人评价</span>` : "";
+    const votesText = votes ? `<span class="movie-date">${formatVotes(votes)} ${isEn ? "votes" : "人评价"}</span>` : "";
     
     const dateValue = item.added_at || item.rated_at || item.sources?.find((source) => source.rated_at)?.rated_at || "";
-    const dateText = dateValue ? `<span class="movie-date">想看于 ${escapeHtml(formatShortDate(dateValue))}</span>` : "";
+    const dateText = dateValue ? `<span class="movie-date">${isEn ? "Added on " : "想看于 "}${escapeHtml(formatShortDate(dateValue))}</span>` : "";
     
     const badges = (item.sources || []).map(renderPlatformBadge).join("");
 
@@ -1477,9 +1516,9 @@ function renderLegacyWishlistItem(item) {
                 matchedAreaHtml = `<span class="wishlist-tag matched" title="${escapeHtml(item.library_media_path || item.library_file_name)}">📁 ${escapeHtml(fileNameDisplay)}</span>`;
             }
         } else if (item.library_url) {
-            matchedAreaHtml = `<a class="wishlist-tag matched" href="${escapeHtml(item.library_url)}" target="_blank">▶️ 播放 ↗</a>`;
+            matchedAreaHtml = `<a class="wishlist-tag matched" href="${escapeHtml(item.library_url)}" target="_blank">▶️ ${isEn ? "Play" : "播放"} ↗</a>`;
         } else {
-            matchedAreaHtml = `<span class="wishlist-tag matched">📁 已入库</span>`;
+            matchedAreaHtml = `<span class="wishlist-tag matched">📁 ${isEn ? "In Library" : "已入库"}</span>`;
         }
     } else {
         const dLinks = buildDownloadLinks(item);
@@ -1745,7 +1784,16 @@ function renderWishlist() {
 }
 
 function syncActionLabel(status) {
-    const labels = {
+    const isEn = window.i18n?.currentLang === "en";
+    const labels = isEn ? {
+        new: "Add",
+        overwrite: "Overwrite",
+        keep: "Skip",
+        success: "Success",
+        skipped: "Skip",
+        failed: "Failed",
+        error: "Failed",
+    } : {
         new: "新增",
         overwrite: "覆盖",
         keep: "跳过",
@@ -1754,7 +1802,7 @@ function syncActionLabel(status) {
         failed: "失败",
         error: "失败",
     };
-    return labels[status] || status || "待处理";
+    return labels[status] || status || (isEn ? "Pending" : "待处理");
 }
 
 function isExecutablePreviewItem(item) {
@@ -1762,13 +1810,14 @@ function isExecutablePreviewItem(item) {
 }
 
 function renderSyncItems(items, mode) {
+    const isEn = window.i18n?.currentLang === "en";
     if (!items?.length) {
         ui.syncPreviewEmpty.style.display = "";
         ui.syncPreviewEmpty.textContent = mode === "preview"
-            ? "没有发现可同步条目。可以调整同步方向、覆盖规则或最近条目数后重新预览。"
-            : "本次执行没有返回条目。";
+            ? (isEn ? "No syncable items found. You can adjust sync direction, rules, or recent limits and preview again." : "没有发现可同步条目。可以调整同步方向、覆盖规则或最近条目数后重新预览。")
+            : (isEn ? "No items returned in this run." : "本次执行没有返回条目。");
         ui.syncPreviewList.style.display = "none";
-        if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = "待预览";
+        if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = isEn ? "Awaiting Preview" : "待预览";
         document.getElementById("execute-sync-btn").disabled = true;
         return;
     }
@@ -1793,16 +1842,16 @@ function renderSyncItems(items, mode) {
     const overview =
         mode === "preview"
             ? [
-                  ["源库", preview.source_count ?? "--"],
-                  ["目标库", preview.target_count ?? "--"],
-                  ["可执行", resultCounts.ready || 0],
-                  ["已跳过", resultCounts.skipped || 0],
+                  [isEn ? "Source Library" : "源库", preview.source_count ?? "--"],
+                  [isEn ? "Target Library" : "目标库", preview.target_count ?? "--"],
+                  [isEn ? "Executable" : "可执行", resultCounts.ready || 0],
+                  [isEn ? "Skipped" : "已跳过", resultCounts.skipped || 0],
               ]
             : [
-                  ["成功", resultCounts.success || 0],
-                  ["跳过", resultCounts.skipped || 0],
-                  ["失败", resultCounts.failed || 0],
-                  ["返回项", items.length],
+                  [isEn ? "Success" : "成功", resultCounts.success || 0],
+                  [isEn ? "Skipped" : "跳过", resultCounts.skipped || 0],
+                  [isEn ? "Failed" : "失败", resultCounts.failed || 0],
+                  [isEn ? "Total Items" : "返回项", items.length],
               ];
 
     const currentFilter = state.sync.previewFilter || (resultCounts.ready > 0 ? "ready" : "skipped");
@@ -1814,15 +1863,15 @@ function renderSyncItems(items, mode) {
 
     const filterBar = mode === "preview" ? `
         <div class="sync-preview-filter-bar">
-            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'ready' ? 'active' : 'btn-ghost'}" data-filter="ready">🟢 待同步条目 (${resultCounts.ready})</button>
-            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'skipped' ? 'active' : 'btn-ghost'}" data-filter="skipped">⚪ 已跳过条目 (${resultCounts.skipped})</button>
-            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'all' ? 'active' : 'btn-ghost'}" data-filter="all">全部 (${items.length})</button>
+            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'ready' ? 'active' : 'btn-ghost'}" data-filter="ready">🟢 ${isEn ? 'Pending Sync' : '待同步条目'} (${resultCounts.ready})</button>
+            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'skipped' ? 'active' : 'btn-ghost'}" data-filter="skipped">⚪ ${isEn ? 'Skipped' : '已跳过条目'} (${resultCounts.skipped})</button>
+            <button type="button" class="btn btn-sm sync-filter-btn ${currentFilter === 'all' ? 'active' : 'btn-ghost'}" data-filter="all">${isEn ? 'All' : '全部'} (${items.length})</button>
         </div>
     ` : "";
 
     const emptyNotice = filteredItems.length === 0 ? `
         <div class="sync-empty-notice">
-            ${currentFilter === 'ready' ? '🎉 当前评估范围内的影视均已与目标平台对齐，无待同步条目。可点击上方【⚪ 已跳过条目】查看已对齐详情，或切换【✏️ 覆盖已有】规则。' : '当前分类下无条目。'}
+            ${currentFilter === 'ready' ? (isEn ? '🎉 All movies in the current evaluation scope are already aligned with the target platform. No items to sync.' : '🎉 当前评估范围内的影视均已与目标平台对齐，无待同步条目。可点击上方【⚪ 已跳过条目】查看已对齐详情，或切换【✏️ 覆盖已有】规则。') : (isEn ? 'No items in this category.' : '当前分类下无条目。')}
         </div>
     ` : "";
 
@@ -1833,23 +1882,23 @@ function renderSyncItems(items, mode) {
         .map((item) => {
             const status = mode === "preview" ? item.action || "preview" : item.status || "result";
             const hasRating = item.source_rating !== null && item.source_rating !== undefined;
-            const sourceRating = hasRating ? item.source_rating : "未评分";
+            const sourceRating = hasRating ? item.source_rating : (isEn ? "Unrated" : "未评分");
             const targetRating =
                 item.target_existing_rating !== null && item.target_existing_rating !== undefined
                     ? item.target_existing_rating
-                    : "无";
+                    : (isEn ? "None" : "无");
             const reason =
                 item.reason ||
-                (mode === "preview" && !hasRating ? "目标平台需要评分时，可在高级选项启用默认分后重新预览。" : "");
+                (mode === "preview" && !hasRating ? (isEn ? "When target platform requires ratings, enable default rating in advanced options and preview again." : "目标平台需要评分时，可在高级选项启用默认分后重新预览。") : "");
             const selectable = mode === "preview" && isExecutablePreviewItem(item);
             const checked = selectable && state.sync.selectedTargetIds.has(item.target_linking_id) ? "checked" : "";
             const checkbox = selectable
-                ? `<input type="checkbox" class="sync-preview-checkbox sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" aria-label="选择 ${escapeHtml(item.title || "条目")}" ${checked}>`
+                ? `<input type="checkbox" class="sync-preview-checkbox sync-item-checkbox" data-target-id="${escapeHtml(item.target_linking_id)}" aria-label="${isEn ? 'Select' : '选择'} ${escapeHtml(item.title || "item")}" ${checked}>`
                 : `<span class="sync-action-pill ${escapeHtml(status)}">${escapeHtml(syncActionLabel(status))}</span>`;
             const sourceLabel = item.source_platform
                 ? `${platformLabel(item.source_platform)} → ${platformLabel(item.target_platform)}`
                 : state.sync.preview?.direction || state.sync.result?.direction || "";
-            const idLabel = item.target_linking_id ? `目标 ID ${item.target_linking_id}` : "缺少目标平台 ID";
+            const idLabel = item.target_linking_id ? (isEn ? `Target ID ${item.target_linking_id}` : `目标 ID ${item.target_linking_id}`) : (isEn ? "Missing Target ID" : "缺少目标平台 ID");
             const rowClass = selectable ? "" : " class=\"is-skipped\"";
             return `
                 <tr${rowClass}>
@@ -1858,8 +1907,8 @@ function renderSyncItems(items, mode) {
                         <strong>${escapeHtml(item.title || "Unknown title")}</strong>
                         <div class="rust-movie-meta">${escapeHtml([item.year || "", idLabel].filter(Boolean).join(" · "))}</div>
                         <div class="sync-preview-links">
-                            ${item.source_url ? `<a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">源页面 ↗</a>` : ""}
-                            ${item.target_url ? `<a href="${escapeHtml(item.target_url)}" target="_blank" rel="noopener noreferrer">目标页面 ↗</a>` : ""}
+                            ${item.source_url ? `<a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${isEn ? 'Source ↗' : '源页面 ↗'}</a>` : ""}
+                            ${item.target_url ? `<a href="${escapeHtml(item.target_url)}" target="_blank" rel="noopener noreferrer">${isEn ? 'Target ↗' : '目标页面 ↗'}</a>` : ""}
                         </div>
                     </td>
                     <td>${escapeHtml(sourceLabel)}</td>
@@ -1877,13 +1926,13 @@ function renderSyncItems(items, mode) {
             <table class="sync-preview-table">
                 <thead>
                     <tr>
-                        <th>${mode === 'preview' && allSelectableFiltered.length > 0 ? `<input type="checkbox" id="sync-select-all-header" title="全选 / 反选" ${isAllChecked ? 'checked' : ''}>` : '选择'}</th>
-                        <th>电影</th>
-                        <th>流向</th>
-                        <th>源评分</th>
-                        <th>目标评分</th>
-                        <th>动作</th>
-                        <th>说明</th>
+                        <th>${mode === 'preview' && allSelectableFiltered.length > 0 ? `<input type="checkbox" id="sync-select-all-header" title="${isEn ? 'Select All / Invert' : '全选 / 反选'}" ${isAllChecked ? 'checked' : ''}>` : (isEn ? 'Select' : '选择')}</th>
+                        <th>${isEn ? 'Movie' : '电影'}</th>
+                        <th>${isEn ? 'Direction' : '流向'}</th>
+                        <th>${isEn ? 'Source Rating' : '源评分'}</th>
+                        <th>${isEn ? 'Target Rating' : '目标评分'}</th>
+                        <th>${isEn ? 'Action' : '动作'}</th>
+                        <th>${isEn ? 'Reason / Details' : '说明'}</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -2187,18 +2236,20 @@ function gatherSyncPayload(options = {}) {
 
 function updateSyncSelectionSummary() {
     if (!ui.syncSelectionSummary) return;
+    const isEn = window.i18n?.currentLang === "en";
     const previewItems = state.sync.preview?.items || [];
     if (!previewItems.length) {
-        ui.syncSelectionSummary.textContent = "待预览";
+        ui.syncSelectionSummary.textContent = isEn ? "Awaiting Preview" : "待预览";
         return;
     }
     const selectableCount = previewItems.filter(isExecutablePreviewItem).length;
     const selectedCount = Array.from(state.sync.selectedTargetIds || []).filter(Boolean).length;
-    ui.syncSelectionSummary.textContent = `已选 ${selectedCount} / ${selectableCount}`;
+    ui.syncSelectionSummary.textContent = isEn ? `Selected ${selectedCount} / ${selectableCount}` : `已选 ${selectedCount} / ${selectableCount}`;
     document.getElementById("execute-sync-btn").disabled = selectedCount === 0;
 }
 
 function markSyncPreviewStale() {
+    const isEn = window.i18n?.currentLang === "en";
     state.sync.preview = null;
     state.sync.result = null;
     state.sync.selectedTargetIds = new Set();
@@ -2208,10 +2259,10 @@ function markSyncPreviewStale() {
     }
     if (ui.syncPreviewEmpty) {
         ui.syncPreviewEmpty.style.display = "";
-        ui.syncPreviewEmpty.textContent = "同步方向或规则已变化，请重新预览。";
+        ui.syncPreviewEmpty.textContent = isEn ? "Sync direction or options changed, please preview again." : "同步方向或规则已变化，请重新预览。";
     }
-    if (ui.syncSummaryText) ui.syncSummaryText.textContent = "尚未生成同步预览";
-    if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = "待预览";
+    if (ui.syncSummaryText) ui.syncSummaryText.textContent = isEn ? "No sync preview generated yet" : "尚未生成同步预览";
+    if (ui.syncSelectionSummary) ui.syncSelectionSummary.textContent = isEn ? "Awaiting Preview" : "待预览";
     document.getElementById("execute-sync-btn").disabled = true;
 }
 
@@ -2268,6 +2319,8 @@ function validateSyncSelection() {
 async function loadHealth() {
     const payload = await api("/health");
     ui.healthStatus.textContent = `CineRecord ${payload.version || ""} · ${payload.os || ""} ${payload.arch || ""} · 服务正常`;
+    const logoutLink = document.getElementById("logout-link");
+    if (logoutLink) logoutLink.hidden = !payload.auth_required;
 }
 
 async function loadConfig() {
@@ -2382,17 +2435,19 @@ function updatePlatformUiVisibility(platforms) {
 
 function updateLibraryFilterCounts(platformCounts = {}, totalFallback = 0) {
     const total = platformCounts.all ?? totalFallback ?? 0;
-    const shared = platformCounts.shared ?? 0;
-    const single = platformCounts.single ?? Math.max(0, total - shared);
 
     const elAll = document.getElementById("count-all");
     if (elAll) elAll.textContent = total;
 
-    const elShared = document.getElementById("count-shared");
-    if (elShared) elShared.textContent = shared;
-
-    const elSingle = document.getElementById("count-single");
-    if (elSingle) elSingle.textContent = single;
+    // Overview payloads don't carry shared/single; leave the last library values intact
+    // instead of resetting them to 0 / total.
+    if (platformCounts.shared != null) {
+        const elShared = document.getElementById("count-shared");
+        if (elShared) elShared.textContent = platformCounts.shared;
+        const single = platformCounts.single ?? Math.max(0, total - platformCounts.shared);
+        const elSingle = document.getElementById("count-single");
+        if (elSingle) elSingle.textContent = single;
+    }
 
     ["douban", "imdb", "trakt", "letterboxd", "tmdb", "cinepersona"].forEach(p => {
         const el = document.getElementById(`count-tab-${p}`);
@@ -2699,6 +2754,41 @@ async function importLegacy(platformOverride = null) {
     );
 }
 
+// kind: "library" (diary.csv / ratings.csv / watched.csv) or "watchlist" (watchlist.csv)
+function uploadLetterboxdCsv(kind, button) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+    input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const isEn = window.i18n?.currentLang === "en";
+        setButtonBusy(button, true, isEn ? "Importing..." : "导入中...");
+        setActionStatus(`${isEn ? "Importing" : "正在导入"} ${file.name}...`, "loading", { persist: true });
+        try {
+            const payload = await api(`/platforms/letterboxd/upload?kind=${kind}`, {
+                method: "POST",
+                headers: { "Content-Type": "text/csv; charset=utf-8" },
+                body: await file.text(),
+            });
+            appendLog(`platform.letterboxd.upload.${kind}`, payload);
+            await Promise.all([loadOverview(), loadLibrary(), loadWishlist()]);
+            const count = payload.result?.item_count ?? 0;
+            setActionStatus(
+                isEn
+                    ? `Letterboxd ${kind === "watchlist" ? "watchlist" : "library"} imported · ${count} films`
+                    : `Letterboxd ${kind === "watchlist" ? "想看" : "看过"}已导入 · ${count} 部`,
+                "success"
+            );
+        } catch (error) {
+            handleError(error);
+        } finally {
+            setButtonBusy(button, false);
+        }
+    });
+    input.click();
+}
+
 function csvCell(value) {
     const text = String(value ?? "");
     return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
@@ -2798,10 +2888,11 @@ async function previewSync() {
             .filter(isExecutablePreviewItem)
             .map((item) => item.target_linking_id)
     );
-    ui.syncSummaryText.textContent = `${payload.result.direction} · 共 ${payload.result.preview_count} 项`;
+    const isEn = window.i18n?.currentLang === "en";
+    ui.syncSummaryText.textContent = `${payload.result.direction} · ${isEn ? `${payload.result.preview_count} items total` : `共 ${payload.result.preview_count} 项`}`;
     renderSyncItems(payload.result.items, "preview");
     appendLog("sync.preview", payload);
-    setActionStatus(`同步预览已更新 · 可执行 ${state.sync.selectedTargetIds.size} / ${payload.result.preview_count} 项`, "success");
+    setActionStatus(isEn ? `Sync preview updated · Executable ${state.sync.selectedTargetIds.size} / ${payload.result.preview_count}` : `同步预览已更新 · 可执行 ${state.sync.selectedTargetIds.size} / ${payload.result.preview_count} 项`, "success");
     loadTasks().catch(handleError);
 }
 
@@ -2813,6 +2904,15 @@ async function executeSync() {
     if (state.sync.preview && state.sync.selectedTargetIds.size === 0) {
         setActionStatus("先在预览里至少选中一项再执行同步", "warning");
         return;
+    }
+    {
+        const isEn = window.i18n?.currentLang === "en";
+        const target = platformLabel(document.getElementById("sync-target-select")?.value);
+        const count = state.sync.selectedTargetIds.size;
+        const question = isEn
+            ? `Write ${count} rating(s) to your ${target} account? This changes data on ${target}.`
+            : `将向 ${target} 账号写入 ${count} 条评分（会修改 ${target} 上的数据），确认执行？`;
+        if (!window.confirm(question)) return;
     }
     state.sync.liveItems = [];
     if (ui.syncLiveProgress) ui.syncLiveProgress.hidden = false;
@@ -3158,6 +3258,10 @@ async function toggleScheduledTask(taskId, paused) {
 }
 
 async function deleteScheduledTask(taskId) {
+    const task = (state.scheduled.tasks || []).find((item) => item.id === taskId);
+    const isEn = window.i18n?.currentLang === "en";
+    const name = task?.name || (isEn ? "this task" : "该任务");
+    if (!window.confirm(isEn ? `Delete scheduled task "${name}"?` : `确定删除定时任务「${name}」？`)) return;
     await api(`/scheduled-tasks/${taskId}`, {
         method: "DELETE",
     });
@@ -3217,12 +3321,12 @@ function bindEvents() {
     });
 
     window.addEventListener("languagechange", () => {
-        renderOverview();
-        renderLibrary();
-        renderWishlist();
-        renderPlatformCards();
-        renderTasks();
-        renderScheduledTasks();
+        if (typeof updateCounts === "function") updateCounts();
+        if (typeof renderLibrary === "function") renderLibrary();
+        if (typeof renderWishlist === "function") renderWishlist();
+        if (typeof renderTasks === "function") renderTasks();
+        if (typeof renderScheduledTasks === "function") renderScheduledTasks();
+        if (typeof renderPlatformGrid === "function") renderPlatformGrid();
     });
 
     ui.mobileMenuBtn?.addEventListener("click", openMobileSidebar);
@@ -3346,13 +3450,7 @@ function bindEvents() {
             .catch(handleError)
             .finally(() => setButtonBusy(button, false));
     });
-    bindClick("import-letterboxd-library-btn", (event) => {
-        const button = event.currentTarget;
-        setButtonBusy(button, true, "导入中...");
-        importLegacy("letterboxd")
-            .catch(handleError)
-            .finally(() => setButtonBusy(button, false));
-    });
+    bindClick("import-letterboxd-library-btn", (event) => uploadLetterboxdCsv("library", event.currentTarget));
     bindClick("library-view-grid", () => setLibraryView("grid"));
     bindClick("library-view-list", () => setLibraryView("list"));
     ui.libPrevBtn.addEventListener("click", () => {
@@ -3550,13 +3648,7 @@ function bindEvents() {
 
     bindClick("wishlist-view-grid", () => setWishlistView("grid"));
     bindClick("wishlist-view-list", () => setWishlistView("list"));
-    bindClick("import-letterboxd-legacy-btn", (event) => {
-        const button = event.currentTarget;
-        setButtonBusy(button, true, "导入中...");
-        importLegacy("letterboxd")
-            .catch(handleError)
-            .finally(() => setButtonBusy(button, false));
-    });
+    bindClick("import-letterboxd-legacy-btn", (event) => uploadLetterboxdCsv("watchlist", event.currentTarget));
     const wishlistUnmatched = document.getElementById("wishlist-filter-unmatched");
     if (wishlistUnmatched) {
         wishlistUnmatched.checked = state.wishlist.onlyUnmatched;
@@ -3585,12 +3677,13 @@ function bindEvents() {
         const consoleLogs = document.getElementById("sync-console-logs");
         if (consoleLogs) {
             consoleLogs.innerHTML = "";
-            consoleLogs.style.display = "block";
+            consoleLogs.style.display = "none";
         }
         logToSyncConsole("🚀 开始生成同步预览...", "info");
 
         const button = event.currentTarget;
-        setButtonBusy(button, true, "预览中...");
+        const isEn = window.i18n?.currentLang === "en";
+        setButtonBusy(button, true, isEn ? "Previewing..." : "预览中...");
         previewSync()
             .catch(handleError)
             .finally(() => setButtonBusy(button, false));
@@ -4007,7 +4100,8 @@ async function init() {
             if (configuredCount === 0) {
                 setActionStatus("欢迎使用 CineRecord · 请先在设置中连接至少一个平台", "warning");
             } else {
-                setActionStatus("已加载最新账号和片库状态", "success", { reset: true, timeout: 2500 });
+                // A routine load needs no toast; just clear the initial "loading" status.
+                setActionStatus("", "idle");
             }
         }
     } catch (error) {

@@ -1861,7 +1861,8 @@
 		        /* Floating non-blocking Action Status Toast */
 		        .action-status-bar {
 		            position: fixed !important;
-		            top: 20px !important;
+		            /* below the 60px header so it never covers the theme / language buttons */
+		            top: 72px !important;
 		            right: 24px !important;
 		            z-index: 99999 !important;
 		            max-width: 420px !important;
@@ -1873,6 +1874,16 @@
 		            display: none;
 		            margin: 0 !important;
 		            animation: fadeInSlide 0.2s ease-out !important;
+		        }
+
+		        @media (max-width: 768px) {
+		            .action-status-bar {
+		                top: auto !important;
+		                bottom: 76px !important;
+		                left: 16px !important;
+		                right: 16px !important;
+		                max-width: none !important;
+		            }
 		        }
 
 		        @keyframes fadeInSlide {
@@ -2527,7 +2538,14 @@
             font-size: 0.82rem;
             border-radius: 4px;
         }
-    </style>
+            .data-controls-label {
+            font-size: 12px;
+            color: var(--text-muted, #8b8b95);
+            margin-right: 2px;
+            white-space: nowrap;
+            align-self: center;
+        }
+</style>
 </head>
 
 <body>
@@ -2547,6 +2565,7 @@
             <div class="nav-actions">
                 <button class="icon-btn" id="mobile-menu-btn" title="平台状态" style="display:none;">☰</button>
                 <button class="icon-btn" id="theme-btn" title="切换主题">🌙</button>
+                <a class="icon-btn" id="logout-link" href="/logout" title="退出登录 / Sign out" hidden>⎋</a>
                 <button id="lang-btn"
                     onclick="if (window.i18n) window.i18n.toggleLanguage();"
                     style="padding: 6px 12px; min-width: 40px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 600;"
@@ -2668,6 +2687,7 @@
 
                     <div class="data-controls-row">
                         <div class="data-controls">
+                            <span class="data-controls-label" data-i18n="data.fetch_label">从平台更新</span>
                             <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="douban"><img
                                     src="/static/images/platforms/douban.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 豆瓣</button>
@@ -2677,7 +2697,7 @@
                             <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="trakt"><img
                                     src="/static/images/platforms/trakt.png"
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Trakt</button>
-	                            <button class="btn btn-secondary btn-sm" id="import-letterboxd-library-btn"><img
+	                            <button class="btn btn-secondary btn-sm" id="import-letterboxd-library-btn" title="上传 Letterboxd 导出的 diary.csv / ratings.csv"><img
 	                                    src="/static/images/platforms/letterboxd.png"
 	                                    style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> Letterboxd CSV</button>
 	                            <button class="btn btn-secondary btn-sm rust-fetch-btn" data-platform="tmdb"><img
@@ -2691,8 +2711,8 @@
                                 <button class="btn btn-secondary btn-sm" id="library-view-grid" data-view="grid" title="海报网格视图">🔳 网格</button>
                                 <button class="btn btn-secondary btn-sm active" id="library-view-list" data-view="list" title="详细列表视图">📋 列表</button>
                             </div>
-                            <select id="export-source" class="export-select">
-                                <option value="merged" selected>合并数据</option>
+                            <select id="export-source" class="export-select" title="选择要导出的数据来源">
+                                <option value="merged" selected>全部平台（合并）</option>
                                 <option value="douban">豆瓣</option>
                                 <option value="imdb">IMDb</option>
                                 <option value="trakt">Trakt</option>
@@ -3025,7 +3045,7 @@
                                     style="width:14px;height:14px;vertical-align:middle;border-radius:2px;"> 刷新 TMDB 想看</button>
                             <button class="btn btn-secondary btn-sm rust-wishlist-btn" data-platform="cinepersona">🎨 刷新 CinePersona 想看</button>
                             <button class="btn btn-secondary btn-sm" id="sync-cinepersona-btn-wishlist" style="display:none;">📤 同步想看至 CinePersona</button>
-                            <button class="btn btn-outline btn-sm" id="import-letterboxd-legacy-btn">导入 Letterboxd diary.csv</button>
+                            <button class="btn btn-outline btn-sm" id="import-letterboxd-legacy-btn" title="上传 Letterboxd 导出的 watchlist.csv">导入 Letterboxd watchlist.csv</button>
                         </div>
                         <div class="wishlist-view-toggle" role="group" aria-label="Wishlist view mode">
                             <button class="btn btn-secondary btn-sm" id="wishlist-view-grid" data-view="grid">🔳 网格</button>
@@ -3582,8 +3602,8 @@
         </nav>
     </div>
 
-    <script src="/static/i18n.js?v=20260612-v9"></script>
-    <script src="/static/rust-v2.js?v=20260612-v9"></script>
+    <script src="/static/i18n.js?v=20261019"></script>
+    <script src="/static/rust.js?v=20261019"></script>
 </body>
 
 </html>

@@ -46,6 +46,7 @@ pub async fn fetch_media_server_movies(
     api_key: Option<&str>,
 ) -> Result<Vec<MediaServerItem>> {
     let client = Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     let trimmed = url.trim().trim_end_matches('/');
@@ -101,7 +102,12 @@ pub async fn fetch_media_server_movies(
                 }
                 return Err(anyhow!("media server returned status {}", r.status()));
             }
-            Err(e) => return Err(anyhow!("failed to connect to media server: {e}")),
+            Err(e) => {
+                return Err(anyhow!(
+                    "failed to connect to media server: {}",
+                    e.without_url()
+                ));
+            }
         };
 
         let data: Value = resp.json().await.with_context(|| "failed to parse media server JSON")?;

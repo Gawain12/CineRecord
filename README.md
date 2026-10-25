@@ -63,7 +63,7 @@ CineRecord 是一个本地优先的跨平台电影记录管理、评分同步与
 * **🌐 多站点一键资源检索**：针对未入库影片，内置 KG、HDR、Tik、IN、HDB、OMG、BHD、ADE 等主流检索站点快捷跳转，智能支持 IMDb ID 与标题回退。
 * **⚙️ 可视化任务调度**：内置定时任务调度器，支持配置每日/每周自动刷新和同步任务，配备 SSE 实时日志流。
 * **🌍 中英双语与主题自适应**：全界面即时中英文无缝切换，提供深色与浅色双套高对比度精致 UI。
-* **🔒 隐私与本地优先**：敏感凭据（Cookies、Tokens、API 密钥）加密存储于本地，零遥测代码，数据完全归您所有。
+* **🔒 隐私与本地优先**：敏感凭据（Cookies、Tokens、API 密钥）仅保存在本地配置文件 `config/v2/config.toml` 中（明文，请妥善保管该文件），零遥测代码，数据完全归您所有。
 
 ---
 
@@ -92,6 +92,8 @@ cargo run -p cinerecord-server
 docker compose up -d --build
 ```
 服务将在 `http://127.0.0.1:18000` 运行，持久化配置和数据库文件保存在宿主机的 `./cinerecord-data` 目录。
+
+> 🔐 部署到局域网 / 公网时，建议设置环境变量 `CINERECORD_PASSWORD`（可选 `CINERECORD_USERNAME`，默认 `cinerecord`）开启登录保护，否则任何能访问端口的人都能读取您的平台凭据。
 
 ---
 

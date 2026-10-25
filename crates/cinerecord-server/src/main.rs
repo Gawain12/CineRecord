@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod api;
+mod auth;
 mod scheduler;
 
 use std::{collections::HashMap, env, io::Write, path::PathBuf, sync::Arc};
@@ -17,10 +18,7 @@ use chrono::{DateTime, Utc};
 use cinerecord_core::{AppConfig, AppEvent};
 use cinerecord_storage::{StoragePaths, connect, load_or_init_config};
 use tokio::sync::{RwLock, broadcast};
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
-};
+use tower_http::trace::TraceLayer;
 use tracing::info;
 
 mod embedded_assets {
@@ -36,6 +34,11 @@ pub struct AppState {
     pub auth_sessions: Arc<RwLock<HashMap<String, PendingBrowserAuth>>>,
     pub media_server_cache:
         Arc<RwLock<Option<(DateTime<Utc>, Vec<cinerecord_core::MediaServerItem>)>>>,
+    /// Last failed media server fetch; used to back off instead of blocking every request.
+    pub media_server_failed_at: Arc<RwLock<Option<DateTime<Utc>>>>,
+    /// Serializes media server fetches so concurrent requests share one in-flight fetch.
+    pub media_server_fetch_lock: Arc<tokio::sync::Mutex<()>>,
+    pub server_auth: Option<Arc<auth::ServerAuth>>,
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +85,9 @@ async fn main() -> Result<()> {
         events: event_tx,
         auth_sessions: Arc::new(RwLock::new(HashMap::new())),
         media_server_cache: Arc::new(RwLock::new(None)),
+        media_server_failed_at: Arc::new(RwLock::new(None)),
+        media_server_fetch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        server_auth: auth::ServerAuth::from_env(),
     };
 
     scheduler::spawn_scheduler_loop(app_state.clone());
@@ -137,15 +143,18 @@ fn open_browser(url: &str) -> Result<()> {
 }
 
 fn build_router(state: AppState) -> Router {
+    if state.server_auth.is_some() {
+        info!("Login required (CINERECORD_PASSWORD is set)");
+    }
     Router::new()
         .merge(api::router())
         .route("/static/{*path}", get(static_asset))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_headers(Any)
-                .allow_methods(Any),
-        )
+        .route("/login", get(auth::login_page).post(auth::login_submit))
+        .route("/logout", get(auth::logout))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_login,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

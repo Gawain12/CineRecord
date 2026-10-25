@@ -42,6 +42,7 @@ const i18n = {
             'data.title': '我的影片库',
             'data.subtitle': '跨平台统一视图，自动按电影去重',
             'data.export': '导出',
+            'data.fetch_label': '从平台更新',
             'data.filter.all': '共有',
             'data.filter.douban_only': '豆瓣独占',
             'data.filter.imdb_only': 'IMDB独占',
@@ -272,6 +273,7 @@ const i18n = {
             'data.title': 'My Library',
             'data.subtitle': 'Unified cross-platform view with auto-deduplication',
             'data.export': 'Export',
+            'data.fetch_label': 'Refresh from',
             'data.filter.all': 'All',
             'data.filter.douban_only': 'Douban Only',
             'data.filter.imdb_only': 'IMDB Only',
@@ -500,13 +502,19 @@ const i18n = {
      * Switch language
      */
     switchLanguage(lang) {
-        if (this.translations[lang]) {
-            this.currentLang = lang;
-            localStorage.setItem('app_language', lang);
-            this.applyTranslations();
-            this.updateLangButton();
-            window.dispatchEvent(new CustomEvent('languagechange', { detail: { lang } }));
-        }
+        this.currentLang = (lang === 'en' || lang === 'en-US') ? 'en' : 'zh-CN';
+        localStorage.setItem('app_language', this.currentLang);
+        localStorage.setItem('cinerecord_lang', this.currentLang);
+        document.documentElement.lang = this.currentLang;
+        this.applyTranslations();
+        this.updateLangButton();
+        window.dispatchEvent(new CustomEvent('languagechange', { detail: { lang: this.currentLang } }));
+        if (typeof updateCounts === 'function') updateCounts();
+        if (typeof renderLibrary === 'function') renderLibrary();
+        if (typeof renderWishlist === 'function') renderWishlist();
+        if (typeof renderTasks === 'function') renderTasks();
+        if (typeof renderScheduledTasks === 'function') renderScheduledTasks();
+        if (typeof renderPlatformGrid === 'function') renderPlatformGrid();
     },
 
     /**
@@ -563,28 +571,65 @@ const i18n = {
             }
         });
 
+        // 2.1 Tab Main Headers
+        const dashH2 = document.querySelector('#tab-dashboard .content-header h2');
+        if (dashH2) dashH2.textContent = isEn ? 'Dashboard' : '总览';
+        const dataH2 = document.querySelector('#tab-data .content-header h2');
+        if (dataH2) dataH2.textContent = isEn ? 'Movie Library' : '我的影片库';
+        const syncH2 = document.querySelector('#tab-sync .content-header h2');
+        if (syncH2) syncH2.textContent = isEn ? 'Data Sync' : '数据同步';
+        const wishH2 = document.querySelector('#tab-wishlist .content-header h2');
+        if (wishH2) wishH2.textContent = isEn ? 'Wishlist' : '想看管理';
+        const setH2 = document.querySelector('#tab-settings .content-header h2');
+        if (setH2) setH2.textContent = isEn ? 'Settings & Management' : '设置与管理';
+
+        const dashP = document.querySelector('#tab-dashboard .content-header p');
+        if (dashP) dashP.textContent = isEn ? 'Quickly check status and perform common actions' : '快速查看状态并执行常用操作';
+        const dataP = document.querySelector('#tab-data .content-header p');
+        if (dataP) dataP.textContent = isEn ? 'Unified cross-platform view with automated deduplication' : '跨平台统一视图，自动按电影去重';
+        const syncP = document.querySelector('#tab-sync .content-header p');
+        if (syncP) syncP.textContent = isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度';
+        const wishP = document.querySelector('#tab-wishlist .content-header p');
+        if (wishP) wishP.textContent = isEn ? 'Cross-platform wishlist aggregation · Single-site wishlist & diff matrix' : '跨平台全景想看聚合 · 平台单站想看与查漏矩阵';
+        const setP = document.querySelector('#tab-settings .content-header p');
+        if (setP) setP.textContent = isEn ? 'Platform credentials, data storage & automation preferences' : '平台账号授权、数据存储与自动化偏好';
+
         // 3. Sidebar headings and stat labels
         const sidebarTitles = document.querySelectorAll('.sidebar-title');
         if (sidebarTitles.length >= 2) {
-            sidebarTitles[0].textContent = isEn ? 'Platform Status' : '平台状态';
-            sidebarTitles[1].textContent = isEn ? 'System Logs' : '运行日志';
+            sidebarTitles[0].textContent = isEn ? 'PLATFORM STATUS' : '平台状态';
+            sidebarTitles[1].textContent = isEn ? 'SYSTEM LOGS' : '运行日志';
         }
 
-        const statLabelMap = {
-            '看过': isEn ? 'Watched' : '看过',
-            '想看': isEn ? 'Wishlist' : '想看',
-            '在看': isEn ? 'Watching' : '在看',
-            '已评分': isEn ? 'Rated' : '已评分',
-            '列表': isEn ? 'Lists' : '列表',
-            'Watched': isEn ? 'Watched' : '看过',
-            'Wishlist': isEn ? 'Wishlist' : '想看',
-            'Watching': isEn ? 'Watching' : '在看',
-            'Rated': isEn ? 'Rated' : '已评分',
-            'Lists': isEn ? 'Lists' : '列表'
-        };
-        document.querySelectorAll('.account-stat-label').forEach(label => {
-            const text = label.textContent.trim();
-            if (statLabelMap[text]) label.textContent = statLabelMap[text];
+        const doubanSummaryName = document.querySelector('#summary-douban .summary-name');
+        if (doubanSummaryName) {
+            const idSpan = document.getElementById('summary-id-douban');
+            doubanSummaryName.innerHTML = '';
+            doubanSummaryName.appendChild(document.createTextNode(isEn ? 'Douban ' : '豆瓣 '));
+            if (idSpan) doubanSummaryName.appendChild(idSpan);
+        }
+
+        // Sidebar summary stats
+        document.querySelectorAll('.account-summary-card .summary-stats').forEach(el => {
+            if (isEn) {
+                el.textContent = el.textContent
+                    .replace(/看过/g, 'Watched')
+                    .replace(/想看/g, 'Wishlist')
+                    .replace(/加载中/g, 'Loading...')
+                    .replace(/导入入口保留/g, 'CSV Import Only')
+                    .replace(/已填写配置，等待测试连接/g, 'Configured, awaiting test')
+                    .replace(/授权已过期，请重新登录/g, 'Auth expired, please re-login')
+                    .replace(/未连接 · 本地 SQLite 模式/g, 'Not connected · Local SQLite mode');
+            } else {
+                el.textContent = el.textContent
+                    .replace(/Watched/g, '看过')
+                    .replace(/Wishlist/g, '想看')
+                    .replace(/Loading\.\.\./g, '加载中')
+                    .replace(/CSV Import Only/g, '导入入口保留')
+                    .replace(/Configured, awaiting test/g, '已填写配置，等待测试连接')
+                    .replace(/Auth expired, please re-login/g, '授权已过期，请重新登录')
+                    .replace(/Not connected · Local SQLite mode/g, '未连接 · 本地 SQLite 模式');
+            }
         });
 
         // 4. Subfilter chips
@@ -611,11 +656,11 @@ const i18n = {
         }
 
         // 5. View modes & toolbar buttons
-        const modeUnified = document.querySelector('[data-platform-mode="unified"]');
+        const modeUnified = document.querySelector('[data-platform-mode="unified"], [data-library-mode="unified"]');
         if (modeUnified) modeUnified.innerHTML = `🌐 ${isEn ? 'Unified View' : '全景聚合'}`;
-        const modePlatform = document.querySelector('[data-platform-mode="platform"]');
+        const modePlatform = document.querySelector('[data-platform-mode="platform"], [data-library-mode="platform"]');
         if (modePlatform) modePlatform.innerHTML = `📱 ${isEn ? 'Single Platform' : '平台单站'}`;
-        const modeDiff = document.querySelector('[data-platform-mode="diff"]');
+        const modeDiff = document.querySelector('[data-platform-mode="diff"], [data-library-mode="diff"]');
         if (modeDiff) modeDiff.innerHTML = `🔍 ${isEn ? 'Diff Matrix' : '查漏补缺'}`;
 
         const gridBtn = document.getElementById('library-view-grid');
@@ -623,7 +668,7 @@ const i18n = {
         const listBtn = document.getElementById('library-view-list');
         if (listBtn) listBtn.innerHTML = `📋 ${isEn ? 'List' : '列表'}`;
         const exportBtn = document.getElementById('export-library-btn');
-        if (exportBtn) exportBtn.innerHTML = `🕹️ ${isEn ? 'Export' : '导出'}`;
+        if (exportBtn) exportBtn.innerHTML = `📥 ${isEn ? 'Export' : '导出'}`;
         const importBtn = document.getElementById('import-legacy-btn');
         if (importBtn) importBtn.textContent = isEn ? 'Import CSV' : '导入旧版 CSV';
 
@@ -637,10 +682,12 @@ const i18n = {
 
         // 7. Page Titles & Subtitles
         const headerTitleMap = {
-            '总览': isEn ? 'Overview' : '总览',
-            'Overview': isEn ? 'Overview' : '总览',
-            '我的影片库': isEn ? 'My Movie Library' : '我的影片库',
-            'My Movie Library': isEn ? 'My Movie Library' : '我的影片库',
+            '总览': isEn ? 'Dashboard' : '总览',
+            'Dashboard': isEn ? 'Dashboard' : '总览',
+            'Overview': isEn ? 'Dashboard' : '总览',
+            '我的影片库': isEn ? 'Movie Library' : '我的影片库',
+            'Movie Library': isEn ? 'Movie Library' : '我的影片库',
+            'My Movie Library': isEn ? 'Movie Library' : '我的影片库',
             '数据同步': isEn ? 'Data Sync' : '数据同步',
             'Data Sync': isEn ? 'Data Sync' : '数据同步',
             '想看清单': isEn ? 'Wishlist' : '想看清单',
@@ -654,16 +701,21 @@ const i18n = {
         });
 
         const subtitleMap = {
-            '跨平台聚合总览 · 核心数据与最近同步': isEn ? 'Cross-platform aggregated overview & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
-            'Cross-platform aggregated overview & recent syncs': isEn ? 'Cross-platform aggregated overview & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
-            '跨平台统一视图，自动按电影去重': isEn ? 'Unified cross-platform view with deduplication' : '跨平台统一视图，自动按电影去重',
-            'Unified cross-platform view with deduplication': isEn ? 'Unified cross-platform view with deduplication' : '跨平台统一视图，自动按电影去重',
-            '跨平台想看聚合 · 单站想看与查漏补缺': isEn ? 'Cross-platform wishlist aggregation & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
-            'Cross-platform wishlist aggregation & diff matrix': isEn ? 'Cross-platform wishlist aggregation & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
-            '跨平台影视评分实时同步与定时任务调度': isEn ? 'Real-time rating sync & scheduled task scheduler' : '跨平台影视评分实时同步与定时任务调度',
-            'Real-time rating sync & scheduled task scheduler': isEn ? 'Real-time rating sync & scheduled task scheduler' : '跨平台影视评分实时同步与定时任务调度',
-            '账户连接、备份与系统设置': isEn ? 'Account connections, backups & system configuration' : '账户连接、备份与系统设置',
-            'Account connections, backups & system configuration': isEn ? 'Account connections, backups & system configuration' : '账户连接、备份与系统设置'
+            '跨平台聚合总览 · 核心数据与最近同步': isEn ? 'Cross-platform aggregated overview · Core stats & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
+            'Cross-platform aggregated overview · Core stats & recent syncs': isEn ? 'Cross-platform aggregated overview · Core stats & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
+            'Cross-platform aggregated overview & recent syncs': isEn ? 'Cross-platform aggregated overview · Core stats & recent syncs' : '跨平台聚合总览 · 核心数据与最近同步',
+            '跨平台统一视图，自动按电影去重': isEn ? 'Unified cross-platform view with automated deduplication' : '跨平台统一视图，自动按电影去重',
+            'Unified cross-platform view with automated deduplication': isEn ? 'Unified cross-platform view with automated deduplication' : '跨平台统一视图，自动按电影去重',
+            'Unified cross-platform view with deduplication': isEn ? 'Unified cross-platform view with automated deduplication' : '跨平台统一视图，自动按电影去重',
+            '跨平台想看聚合 · 单站想看与查漏补缺': isEn ? 'Cross-platform wishlist aggregation · Single-site wishlist & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
+            'Cross-platform wishlist aggregation · Single-site wishlist & diff matrix': isEn ? 'Cross-platform wishlist aggregation · Single-site wishlist & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
+            'Cross-platform wishlist aggregation & diff matrix': isEn ? 'Cross-platform wishlist aggregation · Single-site wishlist & diff matrix' : '跨平台想看聚合 · 单站想看与查漏补缺',
+            '跨平台影视评分实时同步与定时任务调度': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度',
+            'Cross-platform movie & TV rating sync & automated scheduler': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度',
+            'Real-time rating sync & scheduled task scheduler': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度',
+            '账户连接、备份与系统设置': isEn ? 'Platform credentials, data storage & automation preferences' : '账户连接、备份与系统设置',
+            'Platform credentials, data storage & automation preferences': isEn ? 'Platform credentials, data storage & automation preferences' : '账户连接、备份与系统设置',
+            'Account connections, backups & system configuration': isEn ? 'Platform credentials, data storage & automation preferences' : '账户连接、备份与系统设置'
         };
         document.querySelectorAll('.content-header p').forEach(p => {
             const text = p.textContent.trim();
@@ -672,31 +724,106 @@ const i18n = {
 
         // 8. Search Input Placeholders
         const libSearch = document.getElementById('library-search-input');
-        if (libSearch) libSearch.placeholder = isEn ? 'Search movie, director, actor...' : '检索电影、导演、演员...';
+        if (libSearch) libSearch.placeholder = isEn ? '🔍 Search movie, director, actor...' : '🔍 检索电影、导演、演员...';
         const wishSearch = document.getElementById('wishlist-search-input');
-        if (wishSearch) wishSearch.placeholder = isEn ? 'Search wishlist movies, directors...' : '检索想看电影、导演...';
+        if (wishSearch) wishSearch.placeholder = isEn ? '🔍 Search wishlist movies, directors...' : '🔍 检索想看电影、导演...';
 
-        // 9. Sync Buttons & Preview
+        // 9. Select Options
+        const selectOptionMap = {
+            '🎬 豆瓣': isEn ? '🎬 Douban' : '🎬 豆瓣',
+            '⭐ IMDb': isEn ? '⭐ IMDb' : '⭐ IMDb',
+            '🎯 Trakt': isEn ? '🎯 Trakt' : '🎯 Trakt',
+            '🎬 TMDB': isEn ? '🎬 TMDB' : '🎬 TMDB',
+            '🎨 CinePersona': isEn ? '🎨 CinePersona' : '🎨 CinePersona',
+            '豆瓣': isEn ? 'Douban' : '豆瓣',
+            '全部平台': isEn ? 'All Platforms' : '全部平台',
+            '全部类型': isEn ? 'All Types' : '全部类型',
+            '电影': isEn ? 'Movies' : '电影',
+            '剧集': isEn ? 'TV Shows' : '剧集',
+            '按添加时间降序': isEn ? 'Date Added (Desc)' : '按添加时间降序',
+            '按评分降序': isEn ? 'Rating (High to Low)' : '按评分降序',
+            '按年份降序': isEn ? 'Release Year (Desc)' : '按年份降序'
+        };
+        document.querySelectorAll('select option').forEach(opt => {
+            const txt = opt.textContent.trim();
+            if (selectOptionMap[txt]) opt.textContent = selectOptionMap[txt];
+        });
+
+        // 10. Sync Buttons & Preview
         const previewBtn = document.getElementById('preview-sync-btn');
         if (previewBtn) previewBtn.innerHTML = `🔍 ${isEn ? 'Preview' : '预览'}`;
-        const runSyncBtn = document.getElementById('run-sync-btn');
-        if (runSyncBtn) runSyncBtn.innerHTML = `✨ ${isEn ? 'Run Sync' : '执行同步'}`;
+        const runSyncBtn = document.getElementById('execute-sync-btn') || document.getElementById('run-sync-btn');
+        if (runSyncBtn) runSyncBtn.innerHTML = `✨ ${isEn ? 'Execute Sync' : '执行同步'}`;
         const selectAllSync = document.getElementById('select-all-sync-btn');
         if (selectAllSync) selectAllSync.textContent = isEn ? 'Select All Executable' : '全选可执行';
         const clearSync = document.getElementById('clear-sync-btn');
         if (clearSync) clearSync.textContent = isEn ? 'Clear' : '清空';
 
-        // 10. Wishlist Refresh Buttons & Mode Buttons
-        const refreshDoubanWish = document.getElementById('refresh-wishlist-douban-btn');
-        if (refreshDoubanWish) refreshDoubanWish.innerHTML = `豆瓣 ${isEn ? 'Refresh' : '刷新想看'}`;
-        const refreshImdbWish = document.getElementById('refresh-wishlist-imdb-btn');
-        if (refreshImdbWish) refreshImdbWish.innerHTML = `IMDb ${isEn ? 'Refresh' : '刷新想看'}`;
-        const refreshTraktWish = document.getElementById('refresh-wishlist-trakt-btn');
-        if (refreshTraktWish) refreshTraktWish.innerHTML = `Trakt ${isEn ? 'Refresh' : '刷新想看'}`;
-        const refreshTmdbWish = document.getElementById('refresh-wishlist-tmdb-btn');
-        if (refreshTmdbWish) refreshTmdbWish.innerHTML = `TMDB ${isEn ? 'Refresh' : '刷新想看'}`;
-        const importLetterboxdWish = document.getElementById('import-letterboxd-wishlist-btn');
-        if (importLetterboxdWish) importLetterboxdWish.innerHTML = isEn ? 'Import Letterboxd CSV' : '导入 Letterboxd diary.csv';
+        const advToggleSpan = document.querySelector('#toggle-advanced-sync span:last-child');
+        if (advToggleSpan) {
+            advToggleSpan.textContent = isEn ? '⚙️ Advanced Options' : '⚙️ 高级同步选项';
+        }
+
+        // Advanced sync options
+        const syncRuleLabel = document.querySelector('#advanced-sync-options .legacy-sync-label');
+        if (syncRuleLabel) syncRuleLabel.textContent = isEn ? 'Sync Rules' : '同步规则';
+        const syncRadioNew = document.querySelector('input[name="rust-sync-mode"][value="new"]');
+        if (syncRadioNew?.parentElement) {
+            const span = syncRadioNew.parentElement.querySelector('span');
+            if (span) span.textContent = isEn ? '🆕 New Items Only' : '🆕 仅新增';
+        }
+        const syncRadioOverwrite = document.querySelector('input[name="rust-sync-mode"][value="overwrite"]');
+        if (syncRadioOverwrite?.parentElement) {
+            const span = syncRadioOverwrite.parentElement.querySelector('span');
+            if (span) span.textContent = isEn ? '✏️ Overwrite Existing' : '✏️ 覆盖已有';
+        }
+
+        const recentLimitLabel = document.querySelector('label[for="sync-recent-limit"]');
+        if (recentLimitLabel) recentLimitLabel.textContent = isEn ? 'Recent Limit (0 for all)' : '最近条目数 (0 为全量)';
+
+        const refreshBeforeToggle = document.querySelector('label[for="sync-refresh-before"]');
+        if (refreshBeforeToggle) {
+            const cb = refreshBeforeToggle.querySelector('input');
+            refreshBeforeToggle.innerHTML = '';
+            if (cb) refreshBeforeToggle.appendChild(cb);
+            refreshBeforeToggle.appendChild(document.createTextNode(isEn ? ' Refresh platforms before preview' : ' 预览前也刷新双方'));
+        }
+
+        const defaultRatingToggle = document.querySelector('label[for="sync-default-rating-enabled"]');
+        if (defaultRatingToggle) {
+            const cb = defaultRatingToggle.querySelector('input');
+            defaultRatingToggle.innerHTML = '';
+            if (cb) defaultRatingToggle.appendChild(cb);
+            defaultRatingToggle.appendChild(document.createTextNode(isEn ? ' Use default rating if unrated' : ' 未评分使用默认分'));
+        }
+
+        const syncNote = document.querySelector('.rust-compact-note');
+        if (syncNote) {
+            syncNote.textContent = isEn
+                ? 'Preview uses local cache for speed; executing sync will refresh both platforms to prevent overwriting existing ratings.'
+                : '预览默认使用本地库以保持快速；执行同步会强制刷新双方后再次确认，避免旧数据覆盖目标平台已有评分。';
+        }
+
+        const brandName = (platform) => ({
+            douban: isEn ? 'Douban' : '豆瓣',
+            imdb: 'IMDb',
+            trakt: 'Trakt',
+            tmdb: 'TMDB',
+            letterboxd: 'Letterboxd',
+            cinepersona: 'CinePersona',
+        }[platform] || platform || '');
+
+        // 11. Wishlist Buttons
+        const refreshWishlistBtns = document.querySelectorAll('.rust-wishlist-btn');
+        refreshWishlistBtns.forEach(btn => {
+            const platform = btn.dataset.platform;
+            const img = btn.querySelector('img');
+            const pName = brandName(platform);
+            btn.innerHTML = '';
+            if (img) btn.appendChild(img);
+            const sp = /^[A-Za-z]/.test(pName) ? ' ' : '';
+            btn.appendChild(document.createTextNode(isEn ? ` Refresh ${pName} Wishlist` : ` 刷新${sp}${pName}${sp}想看`));
+        });
 
         const wishUnifiedBtn = document.querySelector('[data-wishlist-mode="unified"]');
         if (wishUnifiedBtn) wishUnifiedBtn.innerHTML = `🌐 ${isEn ? 'Unified Wishlist' : '全景聚合想看'}`;
@@ -705,47 +832,12 @@ const i18n = {
         const wishDiffBtn = document.querySelector('[data-wishlist-mode="diff"]');
         if (wishDiffBtn) wishDiffBtn.innerHTML = `🔍 ${isEn ? 'Wishlist Diff Matrix' : '想看查漏矩阵'}`;
 
-        const unmatchLabel = document.querySelector('.wishlist-unmatched-label');
-        if (unmatchLabel) {
-            const cb = unmatchLabel.querySelector('input');
-            unmatchLabel.innerHTML = '';
-            if (cb) unmatchLabel.appendChild(cb);
-            unmatchLabel.appendChild(document.createTextNode(isEn ? ' Only Missing from Library' : ' 仅未在个人片库中'));
-        }
-
-        // 11. Wishlist and Library Item Card Text (Added on, Director, Actors)
-        document.querySelectorAll('.movie-item, .wishlist-card').forEach(card => {
-            card.querySelectorAll('.movie-meta, .wishlist-meta').forEach(meta => {
-                if (isEn) {
-                    meta.innerHTML = meta.innerHTML
-                        .replace(/想看于/g, 'Added on')
-                        .replace(/导演:/g, 'Director:')
-                        .replace(/主演:/g, 'Actors:')
-                        .replace(/评分/g, 'Rating')
-                        .replace(/暂无详细信息/g, 'No details available');
-                } else {
-                    meta.innerHTML = meta.innerHTML
-                        .replace(/Added on/g, '想看于')
-                        .replace(/Director:/g, '导演:')
-                        .replace(/Actors:/g, '主演:')
-                        .replace(/Rating/g, '评分')
-                        .replace(/No details available/g, '暂无详细信息');
-                }
-            });
-        });
-
-        // 12. Scheduled Tasks & Sync Stat Labels
-        const taskHeader = document.querySelector('.legacy-scheduled-card h3');
-        if (taskHeader) taskHeader.textContent = isEn ? '⏰ Scheduled Sync Tasks' : '⏰ 定时同步任务';
-        const taskDesc = document.querySelector('.legacy-scheduled-card .legacy-card-desc');
-        if (taskDesc) taskDesc.textContent = isEn ? 'Automated background sync' : '自动后台同步';
-        const addTaskBtn = document.getElementById('open-create-task-modal-btn');
-        if (addTaskBtn) addTaskBtn.textContent = isEn ? '+ Add Task' : '+ 添加任务';
-
         // 12. Scheduled Tasks & Sync Form Text Maps
         const syncTextMap = {
             '定时同步任务': isEn ? 'Scheduled Tasks' : '定时同步任务',
             'Scheduled Tasks': isEn ? 'Scheduled Tasks' : '定时同步任务',
+            '⏰ 定时同步任务': isEn ? '⏰ Scheduled Tasks' : '⏰ 定时同步任务',
+            '⏰ Scheduled Tasks': isEn ? '⏰ Scheduled Tasks' : '⏰ 定时同步任务',
             '自动后台同步': isEn ? 'Automated background sync' : '自动后台同步',
             'Automated background sync': isEn ? 'Automated background sync' : '自动后台同步',
             '任务列表': isEn ? 'Task List' : '任务列表',
@@ -790,10 +882,16 @@ const i18n = {
             'Refresh': isEn ? 'Refresh' : '刷新',
             '数据同步': isEn ? 'Data Sync' : '数据同步',
             'Data Sync': isEn ? 'Data Sync' : '数据同步',
+            '🔄 数据同步': isEn ? '🔄 Data Sync' : '🔄 数据同步',
+            '🔄 Data Sync': isEn ? '🔄 Data Sync' : '🔄 数据同步',
             '同步流向': isEn ? 'Sync Flow' : '同步流向',
             'Sync Flow': isEn ? 'Sync Flow' : '同步流向',
             '高级同步选项': isEn ? 'Advanced Options' : '高级同步选项',
             'Advanced Options': isEn ? 'Advanced Options' : '高级同步选项',
+            '▶ ⚙ 高级同步选项': isEn ? '▶ ⚙ Advanced Options' : '▶ ⚙ 高级同步选项',
+            '▼ ⚙ 高级同步选项': isEn ? '▼ ⚙ Advanced Options' : '▼ ⚙ 高级同步选项',
+            '▶ ⚙ Advanced Options': isEn ? '▶ ⚙ Advanced Options' : '▶ ⚙ 高级同步选项',
+            '▼ ⚙ Advanced Options': isEn ? '▼ ⚙ Advanced Options' : '▼ ⚙ 高级同步选项',
             '跨平台影视评分实时同步与定时任务调度': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度',
             'Cross-platform movie & TV rating sync & automated scheduler': isEn ? 'Cross-platform movie & TV rating sync & automated scheduler' : '跨平台影视评分实时同步与定时任务调度'
         };
@@ -803,6 +901,58 @@ const i18n = {
                 if (syncTextMap[txt]) el.textContent = syncTextMap[txt];
             }
         });
+
+        // 13. Action status toast
+        const actionStatus = document.getElementById('action-status');
+        if (actionStatus && actionStatus.textContent) {
+            if (isEn) {
+                actionStatus.textContent = actionStatus.textContent
+                    .replace(/同步预览已更新[ ·]*可执行\s*(\d+)\s*\/\s*(\d+)\s*项/g, 'Sync preview updated · Executable $1 / $2 items')
+                    .replace(/正在生成同步预览\.\.\./g, 'Generating sync preview...')
+                    .replace(/正在执行同步\.\.\./g, 'Executing sync...')
+                    .replace(/同步执行完成[ ·]*成功\s*(\d+)[ ·]*跳过\s*(\d+)[ ·]*失败\s*(\d+)/g, 'Sync completed · Success $1 · Skipped $2 · Failed $3');
+            }
+        }
+
+        const syncPreviewTitle = document.querySelector('#sync-preview-card h3');
+        if (syncPreviewTitle) syncPreviewTitle.textContent = isEn ? 'Sync Preview' : '同步预览';
+        const selectAllSyncBtn = document.getElementById('select-all-sync-btn');
+        if (selectAllSyncBtn) selectAllSyncBtn.textContent = isEn ? 'Select All Executable' : '全选可执行';
+        const clearSyncBtn = document.getElementById('clear-sync-selection-btn');
+        if (clearSyncBtn) clearSyncBtn.textContent = isEn ? 'Clear' : '清空';
+
+        const taskFormPlaceholder = document.querySelector('#task-form-placeholder .rust-compact-note');
+        if (taskFormPlaceholder) taskFormPlaceholder.textContent = isEn ? 'Select or create a task' : '选择或新建一个任务';
+
+        const syncSummaryText = document.getElementById('sync-summary-text');
+        if (syncSummaryText && syncSummaryText.textContent) {
+            if (isEn) {
+                syncSummaryText.textContent = syncSummaryText.textContent
+                    .replace(/共\s*(\d+)\s*项/g, '$1 items total')
+                    .replace(/尚未生成同步预览/g, 'No sync preview generated yet')
+                    .replace(/正在生成同步预览/g, 'Generating sync preview...');
+            } else {
+                syncSummaryText.textContent = syncSummaryText.textContent
+                    .replace(/(\d+)\s*items total/g, '共 $1 项')
+                    .replace(/No sync preview generated yet/g, '尚未生成同步预览')
+                    .replace(/Generating sync preview\.\.\./g, '正在生成同步预览');
+            }
+        }
+
+        const syncSelectionSummary = document.getElementById('sync-selection-summary');
+        if (syncSelectionSummary && syncSelectionSummary.textContent) {
+            if (isEn) {
+                syncSelectionSummary.textContent = syncSelectionSummary.textContent
+                    .replace(/已选\s*(\d+)\s*\/\s*(\d+)/g, 'Selected $1 / $2')
+                    .replace(/待预览/g, 'Awaiting Preview')
+                    .replace(/刷新中/g, 'Refreshing...');
+            } else {
+                syncSelectionSummary.textContent = syncSelectionSummary.textContent
+                    .replace(/Selected\s*(\d+)\s*\/\s*(\d+)/g, '已选 $1 / $2')
+                    .replace(/Awaiting Preview/g, '待预览')
+                    .replace(/Refreshing\.\.\./g, '刷新中');
+            }
+        }
 
         const syncMetricMap = {
             '源库': isEn ? 'Source' : '源库',
@@ -819,15 +969,255 @@ const i18n = {
             if (syncMetricMap[text]) label.textContent = syncMetricMap[text];
         });
 
-        // 13. Sync table headers
-        const thSource = document.querySelector('.sync-preview-table th:nth-child(2)');
-        if (thSource) thSource.textContent = isEn ? 'Movie / Show' : '电影 / 剧集';
-        const thFlow = document.querySelector('.sync-preview-table th:nth-child(3)');
-        if (thFlow) thFlow.textContent = isEn ? 'Flow' : '流向';
-        const thRatings = document.querySelector('.sync-preview-table th:nth-child(4)');
-        if (thRatings) thRatings.textContent = isEn ? 'Ratings' : '评分对比';
-        const thStatus = document.querySelector('.sync-preview-table th:nth-child(5)');
-        if (thStatus) thStatus.textContent = isEn ? 'Action / Status' : '操作 / 状态';
+        // 14. Settings Sub-tabs and Platform Cards
+        const settingsSubTabs = {
+            '账户': isEn ? 'Accounts' : '账户',
+            'Accounts': isEn ? 'Accounts' : '账户',
+            '备份': isEn ? 'Backups' : '备份',
+            'Backups': isEn ? 'Backups' : '备份',
+            '系统': isEn ? 'System' : '系统',
+            'System': isEn ? 'System' : '系统'
+        };
+        document.querySelectorAll('.settings-sub-tab').forEach(tab => {
+            const raw = tab.textContent || '';
+            const icon = raw.match(/[🔑💾⚙️\u{1F300}-\u{1F9FF}]/u)?.[0] || '';
+            const txt = raw.replace(/[🔑💾⚙️\u{1F300}-\u{1F9FF}\s]/gu, '').trim();
+            if (settingsSubTabs[txt]) tab.textContent = `${icon} ${settingsSubTabs[txt]}`.trim();
+        });
+
+        const statLabelMap = {
+            '看过': isEn ? 'Watched' : '看过',
+            'Watched': isEn ? 'Watched' : '看过',
+            '想看': isEn ? 'Wishlist' : '想看',
+            'Wishlist': isEn ? 'Wishlist' : '想看',
+            '在看': isEn ? 'Watching' : '在看',
+            'Watching': isEn ? 'Watching' : '在看',
+            '已评分': isEn ? 'Rated' : '已评分',
+            'Rated': isEn ? 'Rated' : '已评分',
+            '列表': isEn ? 'Lists' : '列表',
+            'Lists': isEn ? 'Lists' : '列表'
+        };
+        document.querySelectorAll('.account-stat-label').forEach(label => {
+            const txt = label.textContent.trim();
+            if (statLabelMap[txt]) label.textContent = statLabelMap[txt];
+        });
+
+        const traktStart = document.querySelector('[data-action="trakt-start"]');
+        if (traktStart) traktStart.textContent = isEn ? '🔐 Start OAuth' : '🔐 开始 OAuth';
+        const traktPoll = document.querySelector('[data-action="trakt-poll"]');
+        if (traktPoll) traktPoll.textContent = isEn ? '🔄 Check Now' : '🔄 立即检查';
+        const tmdbStart = document.querySelector('[data-action="tmdb-start"]');
+        if (tmdbStart) tmdbStart.textContent = isEn ? '🌐 Start Auth' : '🌐 开始授权';
+        const tmdbComplete = document.querySelector('[data-action="tmdb-complete"]');
+        if (tmdbComplete) tmdbComplete.textContent = isEn ? '✅ Complete Auth' : '✅ 完成授权';
+
+        document.querySelectorAll('.rust-test-btn').forEach(btn => {
+            btn.textContent = isEn ? '✅ Test' : '✅ 测试连接';
+        });
+        document.querySelectorAll('.rust-logout-btn').forEach(btn => {
+            btn.textContent = isEn ? '🚪 Logout' : '🚪 退出连接';
+        });
+
+        document.querySelectorAll('.status-badge').forEach(badge => {
+            if (isEn) {
+                badge.textContent = badge.textContent
+                    .replace(/● 已连接/g, '● Connected')
+                    .replace(/● 未配置/g, '● Not Configured')
+                    .replace(/● 待验证/g, '● Pending')
+                    .replace(/● 验证失败/g, '● Validation Failed')
+                    .replace(/● 授权已过期/g, '● Auth Expired')
+                    .replace(/已连接/g, 'Connected')
+                    .replace(/未配置/g, 'Not Configured');
+            } else {
+                badge.textContent = badge.textContent
+                    .replace(/● Connected/g, '● 已连接')
+                    .replace(/● Not Configured/g, '● 未配置')
+                    .replace(/● Pending/g, '● 待验证')
+                    .replace(/● Validation Failed/g, '● 验证失败')
+                    .replace(/● Auth Expired/g, '● 授权已过期')
+                    .replace(/Connected/g, '已连接')
+                    .replace(/Not Configured/g, '未配置');
+            }
+        });
+
+        document.querySelectorAll('.account-profile-meta').forEach(meta => {
+            if (isEn) {
+                meta.textContent = meta.textContent
+                    .replace(/上次同步: /g, 'Last synced: ')
+                    .replace(/等待验证/g, 'Pending verification')
+                    .replace(/授权已过期，请重新登录/g, 'Auth expired, please re-login');
+            } else {
+                meta.textContent = meta.textContent
+                    .replace(/Last synced: /g, '上次同步: ')
+                    .replace(/Pending verification/g, '等待验证')
+                    .replace(/Auth expired, please re-login/g, '授权已过期，请重新登录');
+            }
+        });
+
+        const settingsTextMap = {
+            '豆瓣电影': isEn ? 'Douban Movie' : '豆瓣电影',
+            'Douban Movie': isEn ? 'Douban Movie' : '豆瓣电影',
+            '豆瓣主页 ↗': isEn ? 'Douban ↗' : '豆瓣主页 ↗',
+            'IMDb 主页 ↗': isEn ? 'IMDb ↗' : 'IMDb 主页 ↗',
+            '开始 OAuth': isEn ? 'Start OAuth' : '开始 OAuth',
+            '立即检查': isEn ? 'Check Now' : '立即检查',
+            '开始授权': isEn ? 'Start Auth' : '开始授权',
+            '完成授权': isEn ? 'Finish Auth' : '完成授权'
+        };
+        document.querySelectorAll('#tab-settings *').forEach(el => {
+            if (el.children.length === 0 && el.textContent.trim()) {
+                const txt = el.textContent.trim();
+                if (settingsTextMap[txt]) el.textContent = settingsTextMap[txt];
+            }
+        });
+
+        // 15. Dashboard Cards & Guide
+        const dashTitle = document.querySelector('#tab-dashboard .content-header p');
+        if (dashTitle) dashTitle.textContent = isEn ? 'Quickly check status and perform common actions' : '快速查看状态并执行常用操作';
+        const dashLibBtn = document.querySelector('.dashboard-actions button[data-tab="data"]');
+        if (dashLibBtn) dashLibBtn.textContent = isEn ? '🔄 Refresh Library' : '🔄 刷新影片库';
+        const dashWishBtn = document.querySelector('.dashboard-actions button[data-tab="wishlist"]');
+        if (dashWishBtn) dashWishBtn.textContent = isEn ? '✨ Refresh Wishlist' : '✨ 刷新想看';
+        const dashSetBtn = document.querySelector('.dashboard-actions button[data-tab="settings"]');
+        if (dashSetBtn) dashSetBtn.textContent = isEn ? '⚙️ Settings & Backups' : '⚙️ 设置与备份';
+
+        const dashTextMap = {
+            '快速操作': isEn ? 'Quick Actions' : '快速操作',
+            'Quick Actions': isEn ? 'Quick Actions' : '快速操作',
+            '使用指引': isEn ? 'Quick Guide' : '使用指引',
+            'Quick Guide': isEn ? 'Quick Guide' : '使用指引'
+        };
+        document.querySelectorAll('#tab-dashboard *').forEach(el => {
+            if (el.children.length === 0 && el.textContent.trim()) {
+                const txt = el.textContent.trim();
+                if (dashTextMap[txt]) el.textContent = dashTextMap[txt];
+            }
+        });
+        document.querySelectorAll('#tab-dashboard .guide-step, #tab-dashboard li, #tab-dashboard p, #tab-dashboard div').forEach(el => {
+            if (el.children.length === 0 && el.textContent.trim()) {
+                if (isEn) {
+                    el.textContent = el.textContent
+                        .replace(/在「数据」查看评分库与同步工具/g, 'View rating library & sync tools in Library')
+                        .replace(/在「想看」聚合多平台片单/g, 'Aggregate multi-platform wishlists in Wishlist')
+                        .replace(/在「设置」管理账户、备份与下载站点/g, 'Manage accounts, backups & sites in Settings');
+                } else {
+                    el.textContent = el.textContent
+                        .replace(/View rating library & sync tools in Library/g, '在「数据」查看评分库与同步工具')
+                        .replace(/Aggregate multi-platform wishlists in Wishlist/g, '在「想看」聚合多平台片单')
+                        .replace(/Manage accounts, backups & sites in Settings/g, '在「设置」管理账户、备份与下载站点');
+                }
+            }
+        });
+
+        // 16. Library & Wishlist Buttons & Badges
+        document.querySelectorAll('#tab-data .rust-fetch-btn').forEach(btn => {
+            const platform = btn.dataset.platform;
+            const img = btn.querySelector('img');
+            const pName = brandName(platform);
+            btn.innerHTML = '';
+            if (img) btn.appendChild(img);
+            btn.appendChild(document.createTextNode(` ${pName}`));
+            const sp = /^[A-Za-z]/.test(pName) ? ' ' : '';
+            btn.title = isEn ? `Re-fetch watched/ratings from ${pName}` : `从${sp}${pName}${sp}重新抓取看过与评分`;
+        });
+        document.querySelectorAll('#import-letterboxd-library-btn').forEach(btn => {
+            btn.title = isEn ? 'Upload diary.csv / ratings.csv from your Letterboxd export' : '上传 Letterboxd 导出的 diary.csv / ratings.csv';
+        });
+
+        const mergeBtn = document.getElementById('manual-merge-btn') || document.querySelector('[data-action="merge"]');
+        if (mergeBtn) mergeBtn.textContent = isEn ? 'Merge Records' : '合并数据';
+        const doubanFilterBtn = document.querySelector('.platform-tab-btn[data-platform-tab="douban"]');
+        if (doubanFilterBtn) {
+            const img = doubanFilterBtn.querySelector('img');
+            const cnt = doubanFilterBtn.querySelector('.tab-count')?.textContent || '0';
+            doubanFilterBtn.innerHTML = '';
+            if (img) doubanFilterBtn.appendChild(img);
+            doubanFilterBtn.appendChild(document.createTextNode(isEn ? ' Douban ' : ' 豆瓣 '));
+            const span = document.createElement('span');
+            span.className = 'tab-count';
+            span.id = 'count-tab-douban';
+            span.textContent = cnt;
+            doubanFilterBtn.appendChild(span);
+        }
+
+        const exportSelect = document.getElementById('export-source');
+        if (exportSelect) {
+            const optMerged = exportSelect.querySelector('option[value="merged"]');
+            if (optMerged) optMerged.textContent = isEn ? 'All platforms (merged)' : '全部平台（合并）';
+            exportSelect.title = isEn ? 'Choose which data to export' : '选择要导出的数据来源';
+            const optDouban = exportSelect.querySelector('option[value="douban"]');
+            if (optDouban) optDouban.textContent = isEn ? 'Douban' : '豆瓣';
+        }
+        const exportLibBtn = document.getElementById('export-library-btn');
+        if (exportLibBtn) exportLibBtn.textContent = isEn ? '📥 Export' : '📥 导出';
+
+        const wishViewGrid = document.getElementById('wishlist-view-grid');
+        if (wishViewGrid) wishViewGrid.innerHTML = `🔲 ${isEn ? 'Grid' : '网格'}`;
+        const wishViewList = document.getElementById('wishlist-view-list');
+        if (wishViewList) wishViewList.innerHTML = `📋 ${isEn ? 'List' : '列表'}`;
+        const importLetterboxdBtn = document.getElementById('import-letterboxd-legacy-btn') || document.getElementById('import-letterboxd-wishlist-btn');
+        if (importLetterboxdBtn) {
+            importLetterboxdBtn.textContent = isEn ? 'Import Letterboxd watchlist.csv' : '导入 Letterboxd watchlist.csv';
+            importLetterboxdBtn.title = isEn ? 'Upload watchlist.csv from your Letterboxd export' : '上传 Letterboxd 导出的 watchlist.csv';
+        }
+
+        const filterUnmatchedInput = document.getElementById('wishlist-filter-unmatched');
+        if (filterUnmatchedInput?.parentElement) {
+            const parent = filterUnmatchedInput.parentElement;
+            parent.innerHTML = '';
+            parent.appendChild(filterUnmatchedInput);
+            parent.appendChild(document.createTextNode(isEn ? ' Only Missing from Library' : ' 仅未在个人片库中'));
+        }
+
+        const enableTaskLabel = document.querySelector('label[for="scheduled-task-enabled"]') || document.querySelector('#scheduled-task-enabled')?.parentElement;
+        if (enableTaskLabel) {
+            const cb = enableTaskLabel.querySelector('input');
+            enableTaskLabel.innerHTML = '';
+            if (cb) enableTaskLabel.appendChild(cb);
+            enableTaskLabel.appendChild(document.createTextNode(isEn ? ' Enable Task' : ' 启用任务'));
+        }
+
+        // 17. Platform Badges and Tags across all tabs
+        document.querySelectorAll('.source-pill, .rust-tag, .platform-badge, .status-pill').forEach(tag => {
+            const txt = tag.textContent.trim();
+            if (txt === '豆瓣') tag.textContent = isEn ? 'Douban' : '豆瓣';
+            if (txt === 'Douban') tag.textContent = isEn ? 'Douban' : '豆瓣';
+            if (txt === '● 已连接') tag.textContent = isEn ? '● Connected' : '● 已连接';
+            if (txt === '已连接') tag.textContent = isEn ? 'Connected' : '已连接';
+        });
+
+        // 18. Card Meta Director / Cast / Play strings
+        document.querySelectorAll('.movie-item, .wishlist-card, .rust-movie-card').forEach(card => {
+            card.querySelectorAll('.movie-meta, .wishlist-meta, .rust-movie-meta').forEach(meta => {
+                if (isEn) {
+                    meta.innerHTML = meta.innerHTML
+                        .replace(/想看于/g, 'Added on')
+                        .replace(/导演:/g, 'Director:')
+                        .replace(/主演:/g, 'Cast:')
+                        .replace(/评分/g, 'Rating')
+                        .replace(/暂无详细信息/g, 'No details available');
+                } else {
+                    meta.innerHTML = meta.innerHTML
+                        .replace(/Added on/g, '想看于')
+                        .replace(/Director:/g, '导演:')
+                        .replace(/Cast:/g, '主演:')
+                        .replace(/Rating/g, '评分')
+                        .replace(/No details available/g, '暂无详细信息');
+                }
+            });
+            card.querySelectorAll('.source-badge, .source-pill').forEach(badge => {
+                if (isEn) {
+                    badge.textContent = badge.textContent.replace(/豆瓣/g, 'Douban');
+                } else {
+                    badge.textContent = badge.textContent.replace(/Douban/g, '豆瓣');
+                }
+            });
+            card.querySelectorAll('.play-btn, .action-btn, button').forEach(btn => {
+                if (btn.textContent.includes('播放')) {
+                    btn.textContent = isEn ? '▶ Play' : '▶ 播放';
+                }
+            });
+        });
     },
 
     /**

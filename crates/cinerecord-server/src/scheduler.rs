@@ -15,8 +15,23 @@ use tokio::time::sleep;
 use crate::AppState;
 
 pub fn spawn_scheduler_loop(state: AppState) {
+    // Warm the media server cache so the first wishlist load doesn't wait on it.
+    let warm_state = state.clone();
     tokio::spawn(async move {
+        let _ = crate::api::get_media_server_items(&warm_state).await;
+    });
+    tokio::spawn(async move {
+        let mut last_trakt_check: Option<std::time::Instant> = None;
         loop {
+            // Renew the Trakt token around expiry (no-op otherwise), so a long-running
+            // server never shows Trakt as expired while a refresh token exists. Checked
+            // every 5 minutes so a network failure doesn't retry on every tick.
+            if last_trakt_check.is_none_or(|at| at.elapsed() >= Duration::from_secs(300)) {
+                last_trakt_check = Some(std::time::Instant::now());
+                if let Err(error) = crate::api::ensure_fresh_trakt_auth(&state).await {
+                    tracing::warn!("Trakt token refresh failed: {error:?}");
+                }
+            }
             if let Err(error) = process_due_tasks(state.clone()).await {
                 let _ = state.events.send(AppEvent {
                     event_type: "scheduled.task.log".to_string(),
@@ -93,6 +108,12 @@ pub async fn trigger_scheduled_task_now(state: AppState, task_id: &str) -> Resul
 }
 
 async fn run_one_scheduled_task(state: AppState, task: ScheduledTask) -> Result<()> {
+    // Unattended runs have no UI to trigger a token refresh, so do it here.
+    if task.source_platform == "trakt" || task.target_platform == "trakt" {
+        if let Err(error) = crate::api::ensure_fresh_trakt_auth(&state).await {
+            tracing::warn!("Trakt token refresh before scheduled task failed: {error:?}");
+        }
+    }
     let config = state.config.read().await.clone();
     let now = Utc::now();
     let next_run = match calculate_next_run_at(&task.schedule, now) {

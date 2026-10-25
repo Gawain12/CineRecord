@@ -25,7 +25,7 @@ Implemented in this initial slice:
 - `logs/v2/server.log` server logging
 - REST endpoints under `/api/v2/*`
 - SSE event stream under `/api/v2/events`
-- Rust-specific UI entry at `/` using [`web/templates/rust_v2.html`](../web/templates/rust_v2.html) and [`web/static/rust-v2.js`](../web/static/rust-v2.js)
+- Rust-specific UI entry at `/` using [`web/templates/rust.html`](../web/templates/rust.html) and [`web/static/rust.js`](../web/static/rust.js)
 - Real TMDB connection test and rated-movie fetch path
 - Trakt movie fetch path
 - `tmdb <-> trakt` sync preview pipeline
@@ -146,7 +146,7 @@ Local validation completed for:
 
 - `cargo check`
 - `cargo test -p cinerecord-platforms --lib`
-- `node --check web/static/rust-v2.js`
+- `node --check web/static/rust.js`
 - `GET /api/v2/health`
 - `GET /api/v2/library?limit=5&offset=0`
 - Legacy CSV import into the Rust v2 library

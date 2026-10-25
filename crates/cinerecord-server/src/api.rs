@@ -59,10 +59,15 @@ pub fn router() -> Router<AppState> {
         .route("/api/v2/health", get(health))
         .route("/api/v2/overview", get(get_overview))
         .route("/api/v2/config", get(get_config).put(put_config))
-        .route("/api/v2/auth/callback", post(auth_callback))
+        // Only the cookie callbacks are posted cross-origin (from Douban / IMDb pages via
+        // bookmarklet). Everything else stays same-origin so other sites can't read secrets.
+        .route(
+            "/api/v2/auth/callback",
+            post(auth_callback).layer(cross_origin_callback_cors()),
+        )
         .route(
             "/api/v2/auth/bookmarklet/callback",
-            post(auth_bookmarklet_callback),
+            post(auth_bookmarklet_callback).layer(cross_origin_callback_cors()),
         )
         .route("/api/v2/cookiecloud/sync", post(sync_cookiecloud_handler))
         .route("/api/v2/cinepersona/test", post(test_cinepersona_handler))
@@ -94,6 +99,11 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v2/platforms/{platform}/import-legacy",
             post(import_legacy),
+        )
+        .route(
+            "/api/v2/platforms/letterboxd/upload",
+            post(upload_letterboxd_csv)
+                .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route(
             "/api/v2/platforms/tmdb/auth/start",
@@ -156,8 +166,16 @@ pub fn router() -> Router<AppState> {
         .route("/api/v2/events", get(sse_events))
 }
 
+fn cross_origin_callback_cors() -> tower_http::cors::CorsLayer {
+    use tower_http::cors::{Any, CorsLayer};
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_headers(Any)
+        .allow_methods([axum::http::Method::POST])
+}
+
 async fn index() -> impl IntoResponse {
-    Html(include_str!("../../../web/templates/rust_v2.html"))
+    Html(include_str!("../../../web/templates/rust.html"))
 }
 
 async fn auth_bridge() -> impl IntoResponse {
@@ -195,6 +213,8 @@ async fn proxy_remote_image(url: &str) -> Result<Response, ApiError> {
         "imdb.com",
         "media-amazon.com",
         "tmdb.org",
+        "themoviedb.org",
+        "gravatar.com",
     ];
     if !allowed_domains
         .iter()
@@ -232,9 +252,10 @@ async fn proxy_remote_image(url: &str) -> Result<Response, ApiError> {
     Ok(([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response())
 }
 
-async fn health() -> impl IntoResponse {
+async fn health(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({
         "ok": true,
+        "auth_required": state.server_auth.is_some(),
         "service": "cinerecord",
         "version": env!("CARGO_PKG_VERSION"),
         "os": std::env::consts::OS,
@@ -1204,7 +1225,7 @@ async fn export_cinepersona_csv_handler(
     Ok((headers, csv_data))
 }
 
-async fn ensure_fresh_trakt_auth(state: &AppState) -> Result<(), ApiError> {
+pub(crate) async fn ensure_fresh_trakt_auth(state: &AppState) -> Result<(), ApiError> {
     let current_config = state.config.read().await.clone();
     let trakt = &current_config.platforms.trakt;
     let should_refresh = trakt
@@ -1367,6 +1388,46 @@ async fn import_legacy(
     Ok(Json(json!({ "task": task, "result": result })))
 }
 
+#[derive(Debug, Deserialize)]
+struct LetterboxdUploadQuery {
+    kind: String,
+}
+
+async fn upload_letterboxd_csv(
+    State(state): State<AppState>,
+    Query(query): Query<LetterboxdUploadQuery>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // text/csv is not a CORS-safelisted type, so requiring it forces a preflight and
+    // keeps other sites from replacing the library with a cross-site form post.
+    let is_csv = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/csv"));
+    if !is_csv {
+        return Err(ApiError::BadRequest("Content-Type must be text/csv".to_string()));
+    }
+    if body.trim().is_empty() {
+        return Err(ApiError::BadRequest("上传的 CSV 为空".to_string()));
+    }
+    let snapshot = cinerecord_storage::import_letterboxd_upload(&state.pool, &query.kind, body)
+        .await
+        .map_err(|error| ApiError::BadRequest(format!("无法解析该 CSV 文件：{error}")))?;
+    let target = if query.kind == "watchlist" { "想看" } else { "看过" };
+    publish_event(
+        &state,
+        "log",
+        None,
+        json!({
+            "message": format!("Letterboxd {target}导入完成：{} 部", snapshot.item_count),
+            "level": "success",
+            "platform": "letterboxd"
+        }),
+    );
+    Ok(Json(json!({ "ok": true, "result": snapshot })))
+}
+
 async fn get_library(
     State(state): State<AppState>,
     Query(query): Query<LibraryQuery>,
@@ -1485,37 +1546,73 @@ async fn get_library_for_platform(
     })))
 }
 
-async fn get_media_server_items(state: &AppState) -> Option<Vec<cinerecord_core::MediaServerItem>> {
+pub(crate) async fn get_media_server_items(state: &AppState) -> Option<Vec<cinerecord_core::MediaServerItem>> {
     let config = state.config.read().await.clone();
-    let url = config.media_server_url.as_ref()?;
-    let api_key = config.media_server_api_key.as_ref()?;
+    let url = config.media_server_url.clone()?;
+    let api_key = config.media_server_api_key.clone()?;
     if url.trim().is_empty() || api_key.trim().is_empty() {
         return None;
     }
 
-    // Check cache
-    {
-        let cache = state.media_server_cache.read().await;
-        if let Some((cached_at, items)) = &*cache {
-            if Utc::now().signed_duration_since(*cached_at) < chrono::Duration::minutes(15) {
-                return Some(items.clone());
-            }
-        }
+    if let Some(items) = fresh_media_server_cache(state).await {
+        return Some(items);
     }
 
-    // Cache miss or expired: fetch from server
-    match cinerecord_platforms::fetch_media_server_movies(url, Some(api_key.as_str())).await {
-        Ok(items) => {
-            let mut cache = state.media_server_cache.write().await;
-            *cache = Some((Utc::now(), items.clone()));
-            Some(items)
-        }
-        Err(e) => {
-            tracing::error!("Failed to fetch media server movies: {}", e);
-            let cache = state.media_server_cache.read().await;
-            cache.as_ref().map(|(_, items)| items.clone())
-        }
+    // A recent failure means the server is likely down; serve stale data instead of
+    // making every wishlist request wait for another timeout.
+    let recently_failed = state
+        .media_server_failed_at
+        .read()
+        .await
+        .is_some_and(|failed_at| {
+            Utc::now().signed_duration_since(failed_at) < chrono::Duration::minutes(5)
+        });
+    if recently_failed {
+        return stale_media_server_cache(state).await;
     }
+
+    // Fetch in a detached task so a slow server only delays this request briefly;
+    // the fetch keeps running and fills the cache for later requests.
+    // If another request is already fetching, don't queue behind it.
+    let Ok(guard) = state.media_server_fetch_lock.clone().try_lock_owned() else {
+        return stale_media_server_cache(state).await;
+    };
+    let fetch_state = state.clone();
+    let fetch = tokio::spawn(async move {
+        let _guard = guard;
+        match cinerecord_platforms::fetch_media_server_movies(&url, Some(api_key.as_str())).await {
+            Ok(items) => {
+                *fetch_state.media_server_cache.write().await = Some((Utc::now(), items.clone()));
+                *fetch_state.media_server_failed_at.write().await = None;
+                Some(items)
+            }
+            Err(e) => {
+                tracing::error!("Failed to fetch media server movies: {}", e);
+                *fetch_state.media_server_failed_at.write().await = Some(Utc::now());
+                None
+            }
+        }
+    });
+
+    match tokio::time::timeout(std::time::Duration::from_secs(3), fetch).await {
+        Ok(Ok(Some(items))) => Some(items),
+        _ => stale_media_server_cache(state).await,
+    }
+}
+
+async fn fresh_media_server_cache(state: &AppState) -> Option<Vec<cinerecord_core::MediaServerItem>> {
+    let cache = state.media_server_cache.read().await;
+    cache
+        .as_ref()
+        .filter(|(cached_at, _)| {
+            Utc::now().signed_duration_since(*cached_at) < chrono::Duration::minutes(15)
+        })
+        .map(|(_, items)| items.clone())
+}
+
+async fn stale_media_server_cache(state: &AppState) -> Option<Vec<cinerecord_core::MediaServerItem>> {
+    let cache = state.media_server_cache.read().await;
+    cache.as_ref().map(|(_, items)| items.clone())
 }
 
 async fn get_wishlist(
@@ -2254,7 +2351,7 @@ fn validate_douban_user_id(value: &str) -> Result<String, ApiError> {
 }
 
 #[derive(Debug)]
-enum ApiError {
+pub(crate) enum ApiError {
     Internal(anyhow::Error),
     BadRequest(String),
     NotFound(String),
@@ -2620,6 +2717,7 @@ async fn test_media_server_connection(
                 let mut cache = state.media_server_cache.write().await;
                 *cache = Some((Utc::now(), items.clone()));
             }
+            *state.media_server_failed_at.write().await = None;
             Ok(Json(json!({
                 "success": true,
                 "message": format!("连接成功！已检测并同步片库中 {} 部电影。", items.len()),
@@ -2645,5 +2743,6 @@ async fn logout_media_server(
         let mut cache = state.media_server_cache.write().await;
         *cache = None;
     }
+    *state.media_server_failed_at.write().await = None;
     Ok(Json(json!({ "success": true })))
 }
