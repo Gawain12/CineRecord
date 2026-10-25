@@ -170,6 +170,8 @@ async function capture() {
         console.log('  -> Dashboard');
         await page.evaluate(() => {
             if (typeof openTab === 'function') openTab('dashboard');
+            if (typeof renderPlatformGrid === 'function') renderPlatformGrid();
+            if (window.i18n && window.i18n.applyTranslations) window.i18n.applyTranslations();
         });
         await wait(1000);
         await anonymize(page);
@@ -181,6 +183,8 @@ async function capture() {
         console.log('  -> Library');
         await page.evaluate(() => {
             if (typeof openTab === 'function') openTab('data');
+            if (typeof renderLibrary === 'function') renderLibrary();
+            if (window.i18n && window.i18n.applyTranslations) window.i18n.applyTranslations();
         });
         await wait(1200);
         await anonymize(page);
@@ -192,6 +196,8 @@ async function capture() {
         console.log('  -> Wishlist');
         await page.evaluate(() => {
             if (typeof openTab === 'function') openTab('wishlist');
+            if (typeof renderWishlist === 'function') renderWishlist();
+            if (window.i18n && window.i18n.applyTranslations) window.i18n.applyTranslations();
         });
         await wait(1200);
         await anonymize(page);
@@ -205,7 +211,7 @@ async function capture() {
             if (typeof openTab === 'function') openTab('sync');
             const sourceSelect = document.getElementById('sync-source-select');
             if (sourceSelect) {
-                sourceSelect.value = 'douban';
+                sourceSelect.value = 'imdb';
                 sourceSelect.dispatchEvent(new Event('change'));
             }
             const targetSelect = document.getElementById('sync-target-select');
@@ -216,27 +222,14 @@ async function capture() {
             const previewBtn = document.getElementById('preview-sync-btn');
             if (previewBtn) previewBtn.click();
         });
-        await wait(3000);
+        await wait(3500);
         await page.evaluate((isEnglish) => {
-            const formPanel = document.getElementById('scheduled-task-form-panel');
-            if (formPanel) formPanel.style.display = 'block';
-            const placeholder = document.getElementById('task-form-placeholder') || document.querySelector('.scheduled-right-panel > div:not(#scheduled-task-form-panel)');
-            if (placeholder) placeholder.style.display = 'none';
-
-            const nameInput = document.getElementById('scheduled-task-name');
-            if (nameInput) nameInput.value = isEnglish ? 'Daily Douban to TMDB Sync' : '每日豆瓣到TMDB增量同步';
-            const srcSelect = document.getElementById('scheduled-task-source');
-            if (srcSelect) srcSelect.value = 'douban';
-            const tgtSelect = document.getElementById('scheduled-task-target');
-            if (tgtSelect) tgtSelect.value = 'tmdb';
-            const cronInput = document.getElementById('scheduled-task-cron');
-            if (cronInput) cronInput.value = '0 2 * * *';
-
+            if (typeof renderScheduledTasks === 'function') renderScheduledTasks();
             if (window.i18n && window.i18n.applyTranslations) {
                 window.i18n.applyTranslations();
             }
         }, lang.code === 'en');
-        await wait(600);
+        await wait(800);
         await anonymize(page);
         const syncPath = path.join(OUTPUT_DIR, `sync_${lang.suffix}.png`);
         await page.screenshot({ path: syncPath });
@@ -246,6 +239,7 @@ async function capture() {
         console.log('  -> Settings');
         await page.evaluate(() => {
             if (typeof openTab === 'function') openTab('settings');
+            if (window.i18n && window.i18n.applyTranslations) window.i18n.applyTranslations();
         });
         await wait(1200);
         await anonymize(page);
