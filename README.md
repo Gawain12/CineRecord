@@ -177,6 +177,10 @@ CineRecord/
 
 ---
 
+## 🔗 相关项目
+
+- [CinePersona 影格](https://cinepersona.com)：在线观影档案与口味画像。导入豆瓣、Letterboxd、IMDb 记录后生成观影 DNA、口味报告，并可与好友比对品味。
+
 ## 🤝 贡献
 
 欢迎提交贡献！请查阅 `ROADMAP.md` 获取开发指南。

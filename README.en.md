@@ -172,6 +172,10 @@ CineRecord/
 
 ---
 
+## 🔗 Related
+
+- [CinePersona](https://cinepersona.com/en): an online film diary and taste profile. Import Douban, Letterboxd or IMDb history to get a film DNA, a taste report, and taste matching with friends.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please check `ROADMAP.md` for development guidelines.
