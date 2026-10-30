@@ -179,7 +179,9 @@ CineRecord/
 
 ## 🔗 相关项目
 
-- [CinePersona 影格](https://cinepersona.com)：在线观影档案与口味画像。导入豆瓣、Letterboxd、IMDb 记录后生成观影 DNA、口味报告，并可与好友比对品味。
+- [RateYourDouban](https://rydb.gawyn.de)：输入豆瓣 ID，用 AI 生成观影口味报告。
+- [RateMyCinema](https://ryc.gawyn.de)：Letterboxd / IMDb 版本。
+- [CinePersona 影格](https://cinepersona.com)：长期保存观影记录、电影画像和影友匹配。
 
 ## 🤝 贡献
 

@@ -174,7 +174,9 @@ CineRecord/
 
 ## 🔗 Related
 
-- [CinePersona](https://cinepersona.com/en): an online film diary and taste profile. Import Douban, Letterboxd or IMDb history to get a film DNA, a taste report, and taste matching with friends.
+- [RateYourDouban](https://rydb.gawyn.de): AI taste report from a Douban ID.
+- [RateMyCinema](https://ryc.gawyn.de): the same for Letterboxd / IMDb exports.
+- [CinePersona](https://cinepersona.com/en): a film diary with taste profiles and taste matching.
 
 ## 🤝 Contributing
 
